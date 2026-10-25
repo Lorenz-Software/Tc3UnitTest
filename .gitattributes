@@ -23,24 +23,20 @@
 *.TcGTLO text eol=crlf
 *.xml text eol=crlf
 
-*.tpzip filter=lfs diff=lfs merge=lfs -text
-*.tszip filter=lfs diff=lfs merge=lfs -text
-*.tnzip filter=lfs diff=lfs merge=lfs -text
-*.zip filter=lfs diff=lfs merge=lfs -text
-*.7z filter=lfs diff=lfs merge=lfs -text
-*.iso filter=lfs diff=lfs merge=lfs -text
-*.library filter=lfs diff=lfs merge=lfs -text
-*.compiled-library filter=lfs diff=lfs merge=lfs -text
-*.compiled-library-v3 filter=lfs diff=lfs merge=lfs -text
-*.pdf filter=lfs diff=lfs merge=lfs -text
-*.docx filter=lfs diff=lfs merge=lfs -text
-*.xlsx filter=lfs diff=lfs merge=lfs -text
-*.pptx filter=lfs diff=lfs merge=lfs -text
-*.jpg filter=lfs diff=lfs merge=lfs -text
-*.jpeg filter=lfs diff=lfs merge=lfs -text
-*.png filter=lfs diff=lfs merge=lfs -text
-
-# Small branding source assets are stored directly in Git.
-/assets/tc3-unittest.png -filter -diff -merge -text
-/tools/documentation/projects/tc3-unittest/assets/lorenz-software.png -filter -diff -merge -text
-/tools/documentation/projects/tc3-unittest/assets/lorenz-software-symbol.png -filter -diff -merge -text
+# Binary formats use ordinary Git storage without text conversion.
+*.tpzip binary
+*.tszip binary
+*.tnzip binary
+*.zip binary
+*.7z binary
+*.iso binary
+*.library binary
+*.compiled-library binary
+*.compiled-library-v3 binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+*.jpg binary
+*.jpeg binary
+*.png binary
