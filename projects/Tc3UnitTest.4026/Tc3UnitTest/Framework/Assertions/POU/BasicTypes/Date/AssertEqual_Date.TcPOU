@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_Date" Id="{e7d6ccdd-1343-491e-8eb4-096c8b2b86ee}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected DATE value.</summary>
+<description>
+
+Compares calendar days only; hidden time-of-day components are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_Date EXTENDS AssertionBase
+VAR_INPUT
+    IN : DATE; //! Actual value checked or observed by this Assertion.
+    Expected : DATE; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{27fb8b2b-ce64-4d43-af47-5c7da6a6ced1}" />
+    <Method Name="Assert" Id="{4363a886-e4d9-43f0-95d4-219493aefb76}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF DateToDayNumber(Value := IN) <> DateToDayNumber(Value := Expected) THEN
+    ExpectedText := DATE_TO_STRING(Expected);
+    ActualText := DATE_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

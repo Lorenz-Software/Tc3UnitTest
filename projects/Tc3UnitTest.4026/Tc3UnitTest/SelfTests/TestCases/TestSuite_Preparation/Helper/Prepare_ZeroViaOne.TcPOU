@@ -1,0 +1,122 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Prepare_ZeroViaOne" Id="{d0ce1ee8-3df3-4a7a-9848-a547f9780c01}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Stateful local Preparation: establish value one before commanding zero. Disabled calls discard local progress without cancelling the resource request.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Prepare_ZeroViaOne EXTENDS PreparationBase
+VAR
+    FResource : REFERENCE TO PreparationResource;
+    FProgress : E_State := E_State.Idle;
+END_VAR
+
+VAR CONSTANT
+    IntermediateValue : DINT := 1;
+    TargetValue : DINT := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{7e1808c9-7fdc-407e-8599-984d057329eb}" />
+    <Method Name="Initialize" Id="{362cf8f8-55ae-4521-ad24-d4d54e078167}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds a static test-owned resource and clears local sequence progress.</summary>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_IN_OUT
+    // SA0167: Borrowed static resource, not a temporary instance.
+    {attribute 'analysis' := '-167'}
+    Resource : PreparationResource; //! Borrowed static resource retained by reference; keep it alive and stable for all preparation calls.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResource REF= Resource;
+FProgress := E_State.Idle;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Prepare" Id="{dcd21432-d269-4253-a636-2b784187aab1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes current feedback; enabling permits the two-stage resource sequence.</summary>
+*)
+{endregion}
+METHOD PROTECTED Prepare]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enabled THEN
+    FProgress := E_State.Idle;
+END_IF;
+IF NOT __ISVALIDREF(FResource) THEN
+    UpdateStatus(State := E_State.Error,
+        ExecutionStatus := E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+IF FResource.HasError THEN
+    UpdateStatus(State := E_State.Error,
+        ExecutionStatus := E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF (FResource.ActualValue = TargetValue) AND (FResource.RequestedValue = TargetValue) THEN
+    UpdateStatus(State := E_State.Completed,
+        ExecutionStatus := E_ExecutionStatus.Completed,
+        Ready := FResource.IsReady);
+ELSIF Enabled AND FResource.IsReady THEN
+    StateMachine();
+    IF FProgress = E_State.Error THEN
+        UpdateStatus(State := E_State.Error,
+            ExecutionStatus := E_ExecutionStatus.Error,
+            Ready := FALSE);
+    ELSE
+        UpdateStatus(State := FProgress,
+            ExecutionStatus := E_ExecutionStatus.Running,
+            Ready := FALSE);
+    END_IF;
+ELSIF FResource.IsReady THEN
+    UpdateStatus(State := E_State.Idle,
+        ExecutionStatus := E_ExecutionStatus.Idle,
+        Ready := TRUE);
+ELSE
+    UpdateStatus(State := E_State.Idle,
+        ExecutionStatus := E_ExecutionStatus.NotReady,
+        Ready := FALSE);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{0962efeb-1fcb-47ed-9521-78f4dccea20a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances at most one resource stage per call; no feedback simulation.</summary>
+*)
+{endregion}
+METHOD PRIVATE StateMachine]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FProgress OF
+    E_State.Idle:
+        IF FResource.ActualValue = IntermediateValue THEN
+            FResource.RequestValue(Value := TargetValue);
+            FProgress := E_State.Running;
+        ELSE
+            FResource.RequestValue(Value := IntermediateValue);
+            FProgress := E_State.Preparing;
+        END_IF;
+
+    E_State.Preparing:
+        IF FResource.ActualValue = IntermediateValue THEN
+            FResource.RequestValue(Value := TargetValue);
+            FProgress := E_State.Running;
+        END_IF;
+
+    E_State.Running:
+        RETURN;
+ELSE
+    FProgress := E_State.Error;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

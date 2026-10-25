@@ -1,0 +1,187 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertSequence_LWord" Id="{ad3dd508-61e2-42e3-b8f1-11ed36bbe307}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the observed value sequence; Evaluate also checks the current value and
+completeness.</summary>
+<description>
+
+Uses the whole Expected array from its declared lower bound. Keep its binding, bounds and
+values stable until Reset; supply it on reset and disabled FB calls as well.
+
+Observation accepts the current expected value and then permits advancing by one element
+on a later change. Repeated equal values do not advance. An unexpected value or an out-of-range
+sequence index reports Failed.
+
+Evaluate checks the current value and requires the final expected element to have been
+reached; only then can the result become Passed. Disabling observation retains progression.
+Reset restarts it.
+
+Mask applies to progression and comparison. An empty mask reports Error.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertSequence_LWord EXTENDS AssertionWithEvaluationBase
+VAR_INPUT
+    IN : LWORD; //! Actual value to observe.
+    Mask : LWORD := 16#FFFFFFFFFFFFFFFF; //! Bits relevant to sequence progression and comparison.
+END_VAR
+VAR_IN_OUT CONSTANT
+    Expected : ARRAY[*] OF LWORD; //! Complete expected sequence; read without modifying the supplied array.
+END_VAR
+VAR
+    FExpectedIndex : DINT;
+    FSequenceIndexInitialized : BOOL;
+    FAllowAdvance : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f815ca87-1349-4ac3-aad6-16ef47ad3fb3}" />
+    <Method Name="Assert" Id="{fdb425af-f69a-4d9b-9129-a28cf738ff60}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances at most one entry and checks the current value before explicit completeness evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    LowerIndex : DINT;
+    UpperIndex : DINT;
+    ExpectedValue : LWORD;
+    MatchesExpected : BOOL;
+    AllowAdvance : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+    MaskText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    NoMask : LWORD := 16#00;
+    HexDigitCount : USINT := 16;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[LowerIndex := LOWER_BOUND(Expected, 1);
+UpperIndex := UPPER_BOUND(Expected, 1);
+
+IF NOT FSequenceIndexInitialized THEN
+    FExpectedIndex := LowerIndex;
+    FSequenceIndexInitialized := TRUE;
+END_IF;
+
+IF NOT (ObservationActive OR EvaluationActive) THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Mask = NoMask THEN
+    MaskText := CreateAssertionTextValue_Hex(Value := Mask,
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion error: mask must not be empty. Mask = ',
+        MaskText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (FExpectedIndex < LowerIndex) OR (FExpectedIndex > UpperIndex) THEN
+    Message := CONCAT('Assertion failed: sequence index out of range. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', LowerIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(LowerIndex));
+    Message := CONCAT(Message, ', UpperIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(UpperIndex));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+AllowAdvance := FAllowAdvance;
+IF ObservationActive THEN
+    FAllowAdvance := TRUE;
+END_IF;
+
+ExpectedValue := Expected[FExpectedIndex];
+MatchesExpected := (IN AND Mask) = (ExpectedValue AND Mask);
+
+IF AllowAdvance AND NOT MatchesExpected THEN
+    IF FExpectedIndex = UpperIndex THEN
+        Message := CONCAT('Assertion failed: sequence continued beyond its last entry. LastIndex = ',
+            DINT_TO_STRING(UpperIndex));
+        Message := CONCAT(Message, '.');
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+
+    FExpectedIndex := FExpectedIndex + 1;
+    ExpectedValue := Expected[FExpectedIndex];
+    MatchesExpected := (IN AND Mask) = (ExpectedValue AND Mask);
+END_IF;
+
+IF NOT MatchesExpected THEN
+    ExpectedText := CreateAssertionTextValue_Hex(Value := ExpectedValue,
+        DigitCount := HexDigitCount);
+    ActualText := CreateAssertionTextValue_Hex(Value := IN,
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: sequence value does not match. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', Expected = ');
+    Message := CONCAT(Message, ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    MaskText := CreateAssertionTextValue_Hex(Value := Mask,
+        DigitCount := HexDigitCount);
+    Message := CONCAT(Message, ', Mask = ');
+    Message := CONCAT(Message, MaskText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF FExpectedIndex <> UpperIndex THEN
+    Message := CONCAT('Assertion failed: sequence is incomplete. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', LastIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(UpperIndex));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{4b46bd6b-6518-42d5-8c7f-a5f5ec2a0060}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restart progression at the bound Expected array's lower index.</summary>
+<description>
+
+Runs only during the reset FB call with Expected supplied, not directly from Reset or
+Initialize. Clears permission to advance from a previous observation.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FExpectedIndex := LOWER_BOUND(Expected, 1);
+FSequenceIndexInitialized := TRUE;
+FAllowAdvance := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

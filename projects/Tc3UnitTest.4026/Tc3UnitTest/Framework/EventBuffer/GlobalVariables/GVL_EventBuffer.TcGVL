@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_EventBuffer" Id="{e29303a7-a169-4767-9764-2ab0043c2ac6}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Default PLC-side event service and publisher binding; communication storage is in GVL_UnitTest.</summary>
+<description>
+Instance needs explicit storage initialization; declaring the GVL does not initialize the service. Publisher initially references Instance. Keep replacement publisher instances alive for all users retaining that interface; a global rebinding does not promise to replace previously retained instance-local bindings.
+</description>
+*)
+{endregion}
+{attribute 'qualified_only'}
+VAR_GLOBAL
+    {attribute 'TcNoSymbol'}
+    Instance : EventBuffer; //! Default library event-buffer service; its storage is supplied separately at startup.
+    {attribute 'TcNoSymbol'}
+    Publisher : I_EventPublisher := Instance; //! Default publisher view initially bound to Instance; instance-local publisher bindings may override it.
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

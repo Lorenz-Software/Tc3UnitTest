@@ -1,0 +1,73 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_LifecycleResetError" Id="{22b4736f-dfa5-49a1-9759-b56624c9e474}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks Error before CompleteReset finalizes without executing Abort cleanup.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_LifecycleResetError EXTENDS TestCaseLifecycleTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a0b257f8-1a78-45cf-bbb7-ebf18518561a}" />
+    <Method Name="ConfigureScenario" Id="{3491ca2a-f3d6-484a-8e74-139580d01c07}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines explicit exceptional-path stimuli and contract-derived observations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectPreparationCount := 0;
+FSubjectTestCount := 1;
+FStepCount := 2;
+
+{region "01 - Reset fails before completion"}
+// Report Error inside ProcessReset before acknowledging completion.
+// Expect Completing with Error; subsequent ProcessAbort must be called disabled, not as cleanup.
+FSteps[1].RequestReset := TRUE;
+FSteps[1].ResetError := TRUE;
+FSteps[1].ExpectedState := E_State.Completing;
+FSteps[1].ExpectedResult := E_Result.Error;
+FSteps[1].ExpectedReady := FALSE;
+FSteps[1].ExpectedPassedCount := 0;
+FSteps[1].ExpectedFailedCount := 0;
+FSteps[1].ExpectedHookCount := 6;
+FSteps[1].ExpectedHooks[1].Hook := E_LifecycleHook.Reset;
+FSteps[1].ExpectedHooks[1].State := E_State.Reset;
+FSteps[1].ExpectedHooks[1].Enabled := TRUE;
+FSteps[1].ExpectedHooks[2].Hook := E_LifecycleHook.Abort;
+FSteps[1].ExpectedHooks[2].State := E_State.Completing;
+FSteps[1].ExpectedHooks[2].Enabled := FALSE;
+FSteps[1].ExpectedHooks[3].Hook := E_LifecycleHook.Preparations;
+FSteps[1].ExpectedHooks[3].State := E_State.Completing;
+FSteps[1].ExpectedHooks[3].Enabled := FALSE;
+FSteps[1].ExpectedHooks[4].Hook := E_LifecycleHook.Tests;
+FSteps[1].ExpectedHooks[4].State := E_State.Completing;
+FSteps[1].ExpectedHooks[4].Enabled := FALSE;
+FSteps[1].ExpectedHooks[5].Hook := E_LifecycleHook.Assertions;
+FSteps[1].ExpectedHooks[5].State := E_State.Completing;
+FSteps[1].ExpectedHooks[5].Enabled := FALSE;
+FSteps[1].ExpectedHooks[6].Hook := E_LifecycleHook.Aggregate;
+FSteps[1].ExpectedHooks[6].State := E_State.Completing;
+FSteps[1].ExpectedHooks[6].Enabled := TRUE;
+{endregion}
+
+{region "02 - Observe terminal Error without Abort"}
+// The following call reaches Completed; only aggregation remains in the recorded processing
+// hooks.
+FSteps[2].ExpectedState := E_State.Completed;
+FSteps[2].ExpectedResult := E_Result.Error;
+FSteps[2].ExpectedReady := FALSE;
+FSteps[2].ExpectedPassedCount := 0;
+FSteps[2].ExpectedFailedCount := 0;
+FSteps[2].ExpectedHookCount := 1;
+FSteps[2].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[2].ExpectedHooks[1].State := E_State.Completed;
+FSteps[2].ExpectedHooks[1].Enabled := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

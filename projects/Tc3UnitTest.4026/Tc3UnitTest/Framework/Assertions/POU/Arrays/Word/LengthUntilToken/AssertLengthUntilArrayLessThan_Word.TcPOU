@@ -1,0 +1,141 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLengthUntilArrayLessThan_Word" Id="{248257db-3e05-4162-97b0-0c96e97fe012}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that the number of elements before the first token is less than
+Expected.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+The token itself is excluded. A token at StartIndex gives zero. A missing token always
+reports Failed, including NotEqual.
+
+Token is the complete nonempty array pattern starting at its own lower bound and must fit
+the selected search range; otherwise Error. Array token matching is exact.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLengthUntilArrayLessThan_Word EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+    Expected : USINT; //! Reference number of elements before the first token; the token itself is excluded.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Keep the searched data stable during the call.
+    Token : ARRAY[*] OF WORD; //! Read-only nonempty token; keep stable during the call and within the selected search length.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6a2c0214-4ba2-4650-9317-174510678efa}" />
+    <Method Name="Assert" Id="{147b9cea-4c78-416d-9265-3108a86f4ab2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate the search range before locating and comparing the first token position.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    MeasuredLength : DINT;
+    TokenFound : BOOL;
+    TokenLowerIndex : DINT;
+    TokenUpperIndex : DINT;
+    TokenLength : LINT;
+    TokenIndex : DINT;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Token) THEN
+    Error(Message := 'Assertion error: Token reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+TokenLowerIndex := LOWER_BOUND(Token, 1);
+TokenUpperIndex := UPPER_BOUND(Token, 1);
+TokenLength := DINT_TO_LINT(TokenUpperIndex) - DINT_TO_LINT(TokenLowerIndex) + 1;
+
+IF (Length = 0)
+    OR (TokenLength <= 0) OR (TokenLength > USINT_TO_LINT(Length))
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: invalid search range or token. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, ', TokenLength = ');
+    Message := CONCAT(Message, LINT_TO_STRING(TokenLength));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+TokenFound := FindArrayToken_Word(StartIndex := StartIndex,
+    Length := Length,
+    Token := Token,
+    IN := IN,
+    Index => TokenIndex);
+
+IF NOT TokenFound THEN
+    Message := CONCAT('Assertion failed: token not found. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+MeasuredLength := LINT_TO_DINT(DINT_TO_LINT(TokenIndex) - DINT_TO_LINT(StartIndex));
+
+IF MeasuredLength >= USINT_TO_DINT(Expected) THEN
+    Message := CONCAT('Assertion failed: length until token violates LessThan. Expected = ',
+        USINT_TO_STRING(Expected));
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, DINT_TO_STRING(MeasuredLength));
+    Message := CONCAT(Message, ', TokenRange = [');
+    Message := CONCAT(Message, DINT_TO_STRING(TokenLowerIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, DINT_TO_STRING(TokenUpperIndex));
+    Message := CONCAT(Message, ']');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

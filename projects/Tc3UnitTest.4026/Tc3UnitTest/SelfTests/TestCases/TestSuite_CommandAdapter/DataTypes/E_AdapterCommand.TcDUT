@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_AdapterCommand" Id="{4a60121c-6fb5-44f2-89a8-f7833318a0b8}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects one external lifecycle command for isolated qualification tests.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_AdapterCommand :
+(
+    Start, //! Exercise the external Start command.
+    Abort, //! Exercise the external Abort command.
+    Reset //! Exercise the external Reset command.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

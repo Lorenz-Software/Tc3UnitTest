@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_DInt" Id="{60ab2728-bf3e-4824-a295-eac791787eab}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected DINT value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_DInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : DINT; //! Actual value checked or observed by this Assertion.
+    Expected : DINT; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f98dbc43-02b3-4d6d-bacd-6eb03c614964}" />
+    <Method Name="Assert" Id="{9f450510-1999-4907-bf6d-c13c4435c7c2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality with the expected DINT value.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := DINT_TO_STRING(Expected);
+    ActualText := DINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

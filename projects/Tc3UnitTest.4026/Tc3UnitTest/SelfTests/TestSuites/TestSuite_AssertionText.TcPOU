@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionText" Id="{6f6e0447-141e-4868-a132-801d5f7692b0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks text, token and diagnostic boundaries with isolated Assertion subjects.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionText EXTENDS TestSuiteBase
+VAR
+    FTextComparison : Test_AssertionTextComparison;
+    FTextSearch : Test_AssertionTextSearch;
+    FTextDiagnostics : Test_AssertionTextDiagnostics;
+    FValueTokenCount : Test_AssertionValueTokenCount;
+    FArrayTokenCount : Test_AssertionArrayTokenCount;
+    FLengthUntil : Test_AssertionLengthUntil;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b7632eea-d902-424e-bed7-ba1421842176}" />
+    <Method Name="Configure" Id="{115e41ae-c4c9-4d07-b787-a8f2cd4b0ddf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes six isolated text and token Test Cases and registers them serially.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FTextComparison.Initialize(Parent := THIS^,
+    TestName := 'TextComparison',
+    Config := TestConfig);
+Builder.Register(TestCase := FTextComparison);
+FTextSearch.Initialize(Parent := THIS^,
+    TestName := 'TextSearch',
+    Config := TestConfig);
+Builder.Register(TestCase := FTextSearch);
+FTextDiagnostics.Initialize(Parent := THIS^,
+    TestName := 'TextDiagnostics',
+    Config := TestConfig);
+Builder.Register(TestCase := FTextDiagnostics);
+FValueTokenCount.Initialize(Parent := THIS^,
+    TestName := 'ValueTokenCount',
+    Config := TestConfig);
+Builder.Register(TestCase := FValueTokenCount);
+FArrayTokenCount.Initialize(Parent := THIS^,
+    TestName := 'ArrayTokenCount',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayTokenCount);
+FLengthUntil.Initialize(Parent := THIS^,
+    TestName := 'LengthUntil',
+    Config := TestConfig);
+Builder.Register(TestCase := FLengthUntil);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{04806686-6ccb-4b6f-969a-9584cd7a9ac2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{bd2c2bce-47df-40e7-ad54-177bd60317a0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls every owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTextComparison();
+FTextSearch();
+FTextDiagnostics();
+FValueTokenCount();
+FArrayTokenCount();
+FLengthUntil();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotInRange_UInt" Id="{d5e1d0be-dae9-4a90-9f65-d5adbb3c8818}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether the UINT value is outside the inclusive range.</summary>
+<description>
+
+Minimum &gt; Maximum reports Error during active evaluation; equal bounds are
+valid.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotInRange_UInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : UINT; //! Actual value checked or observed by this Assertion.
+    Minimum : UINT; //! Inclusive lower bound of the comparison; for a range, must not exceed Maximum.
+    Maximum : UINT; //! Inclusive upper bound of the comparison; for a range, must not be below Minimum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b2ce9562-5278-45b5-8ce9-c830cdd9b8e4}" />
+    <Method Name="Assert" Id="{082e6101-7d77-4cdc-8a41-9b9157f9db19}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check whether the UINT value is outside the inclusive range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Minimum > Maximum THEN
+    MinimumText := UINT_TO_STRING(Minimum);
+    MaximumText := UINT_TO_STRING(Maximum);
+    Message := CONCAT('Assertion error: minimum exceeds maximum. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (IN >= Minimum) AND (IN <= Maximum) THEN
+    MinimumText := UINT_TO_STRING(Minimum);
+    MaximumText := UINT_TO_STRING(Maximum);
+    ActualText := UINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is inside forbidden range. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

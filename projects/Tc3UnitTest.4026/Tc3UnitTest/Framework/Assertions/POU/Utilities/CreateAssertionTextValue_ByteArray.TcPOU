@@ -1,0 +1,76 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_ByteArray" Id="{15927ea9-8796-49aa-8bfc-ac5072017006}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Render a quoted printable-ASCII/16#D7 preview of an array range without modifying its storage. Invalid or empty ranges return two quotes. Zero and other unsupported elements become one replacement byte each. Work is bounded by the preview capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_ByteArray : STRING(GVL_Constants.AssertionValueLength) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in Value, using the array's declared index range.
+    Length : UINT; //! Number of selected elements starting at StartIndex; must fit the array range.
+END_VAR
+VAR_IN_OUT CONSTANT
+    Value : ARRAY[*] OF BYTE; //! Read-only source array; StartIndex and Length select the diagnostic preview.
+END_VAR
+VAR
+    LowerIndex : DINT;
+    UpperIndex : DINT;
+    CopyLength : INT;
+    Offset : INT;
+    Code : BYTE;
+    Text : STRING(GVL_Constants.AssertionValueLength);
+    Preview : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    Quote : STRING(1) := '$'';
+    Ellipsis : STRING(3) := '...';
+    QuoteLength : INT := 2;
+    EllipsisLength : INT := 3;
+    FirstPrintableAscii : BYTE := 16#20;
+    LastPrintableAscii : BYTE := 16#7E;
+    ReplacementByte : BYTE := 16#D7;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateAssertionTextValue_ByteArray := CONCAT(Quote, Quote);
+LowerIndex := LOWER_BOUND(Value, 1);
+UpperIndex := UPPER_BOUND(Value, 1);
+
+IF Length = 0 OR StartIndex < LowerIndex OR StartIndex > UpperIndex THEN
+    RETURN;
+END_IF;
+
+IF UINT_TO_LINT(Length) > DINT_TO_LINT(UpperIndex) - DINT_TO_LINT(StartIndex) + 1 THEN
+    RETURN;
+END_IF;
+
+IF Length > GVL_Constants.AssertionValueLength - INT_TO_UINT(QuoteLength) THEN
+    CopyLength := UINT_TO_INT(GVL_Constants.AssertionValueLength) - QuoteLength - EllipsisLength;
+ELSE
+    CopyLength := UINT_TO_INT(Length);
+END_IF;
+
+// SA0175: Range guards bound reads; preview writes fit capacity, including the terminator.
+{analysis -175}
+FOR Offset := 0 TO CopyLength - 1 DO
+    Code := Value[StartIndex + INT_TO_DINT(Offset)];
+    IF (Code >= FirstPrintableAscii) AND (Code <= LastPrintableAscii) THEN
+        Text[Offset] := Code;
+    ELSE
+        Text[Offset] := ReplacementByte;
+    END_IF;
+END_FOR;
+Text[CopyLength] := 0;
+{analysis +175}
+
+Preview := Text;
+IF Length > GVL_Constants.AssertionValueLength - INT_TO_UINT(QuoteLength) THEN
+    Preview := CONCAT(Preview, Ellipsis);
+END_IF;
+
+CreateAssertionTextValue_ByteArray := CONCAT(Quote, Preview);
+CreateAssertionTextValue_ByteArray := CONCAT(CreateAssertionTextValue_ByteArray, Quote);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotInTimespan_Date" Id="{86b1ccea-83c0-44b5-8b2b-0ce1f40f3b48}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is outside the inclusive StartTime..EndTime interval.</summary>
+<description>
+
+StartTime &gt; EndTime reports Error during active evaluation; equal bounds are
+valid.
+
+Compares calendar days only; hidden time-of-day components are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotInTimespan_Date EXTENDS AssertionBase
+VAR_INPUT
+    IN : DATE; //! Actual value checked or observed by this Assertion.
+    StartTime : DATE; //! Inclusive start of the time span; must not exceed EndTime.
+    EndTime : DATE; //! Inclusive end of the time span; must not precede StartTime.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2b745826-7da9-42d3-a86a-14f3718a2a22}" />
+    <Method Name="Assert" Id="{c9ab354c-1288-4399-9480-7523723b56ce}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    StartTimeText : STRING(GVL_Constants.AssertionValueLength);
+    EndTimeText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF DateToDayNumber(Value := StartTime) > DateToDayNumber(Value := EndTime) THEN
+    StartTimeText := DATE_TO_STRING(StartTime);
+    EndTimeText := DATE_TO_STRING(EndTime);
+    Message := CONCAT('Assertion error: start time exceeds end time. StartTime = ',
+        StartTimeText);
+    Message := CONCAT(Message, ', EndTime = ');
+    Message := CONCAT(Message, EndTimeText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (DateToDayNumber(Value := IN) >= DateToDayNumber(Value := StartTime))
+    AND (DateToDayNumber(Value := IN) <= DateToDayNumber(Value := EndTime)) THEN
+    StartTimeText := DATE_TO_STRING(StartTime);
+    EndTimeText := DATE_TO_STRING(EndTime);
+    ActualText := DATE_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is inside forbidden timespan. StartTime = ',
+        StartTimeText);
+    Message := CONCAT(Message, ', EndTime = ');
+    Message := CONCAT(Message, EndTimeText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

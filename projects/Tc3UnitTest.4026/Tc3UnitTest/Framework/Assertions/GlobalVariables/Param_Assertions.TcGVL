@@ -1,0 +1,17 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="Param_Assertions" Id="{ca15efc5-9aad-4e83-bb90-248cab9cc5c0}" ParameterList="True">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumer-configurable text capacities for string assertions.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    {attribute 'TcNoSymbol'}
+    AssertionStringLength : UINT := 80; //! STRING capacity, independent of diagnostic preview length.
+    {attribute 'TcNoSymbol'}
+    AssertionWStringLength : UINT := 80; //! WSTRING capacity in characters, independent of diagnostic preview length.
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

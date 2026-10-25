@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="AssertionRealRepresentation" Id="{67f05d3a-e970-48cb-882a-a7e1346b26a0}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Internal IEEE binary32 view for diagnostic formatting without floating-point operations.</summary>
+*)
+{endregion}
+TYPE INTERNAL AssertionRealRepresentation :
+UNION
+    Value : REAL; //! Floating-point view of the shared 32-bit storage.
+    Bits : DWORD; //! Raw IEEE binary32 bit pattern of the same storage.
+END_UNION
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

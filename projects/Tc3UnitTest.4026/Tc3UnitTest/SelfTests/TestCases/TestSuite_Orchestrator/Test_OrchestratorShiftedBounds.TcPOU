@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorShiftedBounds" Id="{942f7f7c-153e-41e9-beeb-0c4c9bbdb0c5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the same execution trace with actual indices 7 through 9.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorShiftedBounds EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b995aea0-8a8c-4197-a539-059ff3800037}" />
+    <Method Name="ConfigureScenario" Id="{6d2a42f2-97f8-4406-8e1c-3c576e66a080}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.Shifted;
+FChildCount := 3;
+ConfigureStandardSequence();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

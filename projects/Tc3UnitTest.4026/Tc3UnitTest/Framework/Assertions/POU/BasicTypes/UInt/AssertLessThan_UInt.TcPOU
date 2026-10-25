@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLessThan_UInt" Id="{bb2ce7f1-063f-4d53-a4a8-f6af449dad81}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is less than Maximum.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLessThan_UInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : UINT; //! Actual value checked or observed by this Assertion.
+    Maximum : UINT; //! Exclusive upper bound; the actual value or count must be smaller.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{fb191447-55e4-42f6-9b5e-35478ff6f8a2}" />
+    <Method Name="Assert" Id="{1d60bff2-86f0-4018-a7b8-2afc336e643f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is less than Maximum.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN >= Maximum THEN
+    MaximumText := UINT_TO_STRING(Maximum);
+    ActualText := UINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not less than maximum. Maximum = ',
+        MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

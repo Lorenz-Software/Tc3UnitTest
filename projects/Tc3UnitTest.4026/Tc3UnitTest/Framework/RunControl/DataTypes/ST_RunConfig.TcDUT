@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_RunConfig" Id="{19bf8e44-f043-4ae8-bc68-e75219b8f362}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Run timing configuration; timeouts must be positive, CompletionDelay may be zero.</summary>
+<description>
+Configure supplies these root-owned timing values before initialization validation; runtime commands do not override them. Execution includes capacity waiting, ResetTimeout bounds the complete hierarchical reset and AbortTimeout bounds controlled termination. CompletionDelay holds Completing after one-shot final Result/Aggregation publication; even zero delay completes on a later call.
+</description>
+*)
+{endregion}
+TYPE ST_RunConfig :
+STRUCT
+    Timeout : TIME := T#30s; //! Positive execution timeout, including child progress; TIME uses milliseconds.
+    ResetTimeout : TIME := T#1s; //! Positive Reset timeout, including event-capacity waiting; TIME uses milliseconds.
+    AbortTimeout : TIME := T#1s; //! Positive timeout for controlled abort completion; TIME uses milliseconds.
+    CompletionDelay : TIME := T#100ms; //! Delay in Completing before final Completed transition; zero allowed, default T#100ms.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

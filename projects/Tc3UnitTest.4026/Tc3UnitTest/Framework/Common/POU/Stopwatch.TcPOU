@@ -1,0 +1,162 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Stopwatch" Id="{d80c5554-1d2f-4cd3-aabd-f7febbe2bdc3}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Internal method-driven duration measurement; no FB-body call is required. Start/Update/Stop use the current task&#x27;s scheduled timestamp. Reset clears the measurement. ElapsedTicks retains 100 ns resolution; ElapsedTime is the saturated millisecond projection.</summary>
+<description>
+Start replaces the previous interval. Update samples only while running and valid; Stop performs one final Update. A backward task timestamp latches invalid until Start or Reset. Property reads return held values rather than sampling the clock. ElapsedLTime is a direct conversion, without the saturation applied to ElapsedTime.
+
+
+The source is the current task's scheduled timestamp, so this measures elapsed task time rather than execution cost between operations within the same task cycle. Check IsValid before using a refreshed value; a backward observation leaves the last valid duration held and does not repair itself on later Update calls.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK INTERNAL Stopwatch
+VAR
+    FRunning : BOOL;
+    FIsValid : BOOL := TRUE;
+    FStartTicks : ULINT;
+    FPreviousTicks : ULINT;
+    FElapsedTicks : ULINT;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="ElapsedLTime" Id="{c02fbeba-2185-45ee-9827-85c998974928}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Nanosecond projection of the last updated 100 ns duration; reading does not refresh the measurement.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ElapsedLTime : LTIME //! Held duration converted to LTIME nanoseconds; no refresh on read.]]></Declaration>
+      <Get Name="Get" Id="{22077989-5ba3-43a4-b770-e61dd166512b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElapsedLTime := ULINT_TO_LTIME(FElapsedTicks * 100);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ElapsedTicks" Id="{92ab8aae-2667-438b-9201-dd9ddaa4c646}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Elapsed duration in 100 ns ticks from the latest Start, Update or Stop; reading does not sample the clock.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ElapsedTicks : ULINT //! Held elapsed duration in 100 ns ticks; no refresh on read.]]></Declaration>
+      <Get Name="Get" Id="{d9d9720a-5eea-4531-923d-a135f1dce2ec}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElapsedTicks := FElapsedTicks;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ElapsedTime" Id="{0abaaae5-6d2a-4bc1-83d3-c35e90fb41bb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Millisecond projection of the last updated duration, saturated at TIME's maximum value; reading does not refresh it.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ElapsedTime : TIME //! Held duration in milliseconds, saturated at TIME's maximum; no refresh on read.]]></Declaration>
+      <Get Name="Get" Id="{f520152c-111c-4ce1-9b04-93595e7dd40e}">
+        <Declaration><![CDATA[PUBLIC
+VAR CONSTANT
+	MaxTime: ULINT := 42949672950000;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ElapsedTime := ULINT_TO_TIME(MIN(FElapsedTicks, MaxTime) / 10000);
+]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsValid" Id="{de695870-4d4c-419a-a457-16f18e91e702}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether a backward clock observation has invalidated the measurement; Start or Reset restores validity.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsValid : BOOL //! FALSE after Update observes backward time; latched until Start or Reset.]]></Declaration>
+      <Get Name="Get" Id="{ba3307b5-6722-485b-be7c-fdb7289f22b2}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsValid := FIsValid;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Reset" Id="{37556947-5298-44a6-b909-1f62133686a4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears the held measurement without starting a new interval.</summary>
+*)
+{endregion}
+METHOD PUBLIC Reset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRunning := FALSE;
+FIsValid := TRUE;
+FStartTicks := 0;
+FPreviousTicks := 0;
+FElapsedTicks := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Start" Id="{974ccc19-7766-49f0-96ef-f114516a9332}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Starts a new measurement, replacing the previous value.</summary>
+*)
+{endregion}
+METHOD PUBLIC Start
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStartTicks := Tc2_System.F_GetTaskTime();
+FPreviousTicks := FStartTicks;
+FElapsedTicks := 0;
+FIsValid := TRUE;
+FRunning := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Stop" Id="{a7644c7b-712d-4390-92b2-0c56b66c3155}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Captures the final duration and holds it until the next Start or Reset.</summary>
+<description>
+If the final Update detects backward time, IsValid becomes FALSE and the last valid elapsed value remains held. Stop still ends the interval. Repeated Stop calls do not sample again while stopped.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Stop]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Update();
+FRunning := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Update" Id="{6dd83454-2554-4089-a984-fea766c5f73d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Refreshes elapsed time. A backwards clock latches invalid until Start or Reset.</summary>
+*)
+{endregion}
+METHOD PUBLIC Update
+VAR
+    Ticks : ULINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FRunning OR NOT FIsValid THEN
+    RETURN;
+END_IF;
+Ticks := Tc2_System.F_GetTaskTime();
+IF Ticks < FPreviousTicks THEN
+    FIsValid := FALSE;
+    RETURN;
+END_IF;
+
+FElapsedTicks := Ticks - FStartTicks;
+FPreviousTicks := Ticks;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

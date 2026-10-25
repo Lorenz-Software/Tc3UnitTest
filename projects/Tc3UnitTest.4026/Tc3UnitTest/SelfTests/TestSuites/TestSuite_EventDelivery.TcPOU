@@ -1,0 +1,118 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_EventDelivery" Id="{1ced9be4-0c7e-49c3-bfdf-bca224d88fb4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Groups isolated event storage, delivery and deletion-watermark tests.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_EventDelivery EXTENDS TestSuiteBase
+VAR
+    FStorageBinding : Test_EventStorageBinding;
+    FContent : Test_EventContent;
+    FBufferFull : Test_EventBufferFull;
+    FRingOrder : Test_EventRingOrder;
+    FDeleteWatermarks : Test_EventDeleteWatermarks;
+    FDeleteWrappedFull : Test_EventDeleteWrappedFull;
+    FDeleteLostSequence : Test_EventDeleteLostSequence;
+    FDeleteCommandBoundary : Test_EventDeleteCommandBoundary;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 8;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{50500500-0000-4000-8000-000000000002}" />
+    <Method Name="Configure" Id="{50500500-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the isolated event scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FStorageBinding.Initialize(Parent := THIS^,
+    TestName := 'StorageBinding',
+    Config := TestConfig);
+Builder.Register(TestCase := FStorageBinding);
+FContent.Initialize(Parent := THIS^,
+    TestName := 'Content',
+    Config := TestConfig);
+Builder.Register(TestCase := FContent);
+FBufferFull.Initialize(Parent := THIS^,
+    TestName := 'BufferFull',
+    Config := TestConfig);
+Builder.Register(TestCase := FBufferFull);
+FRingOrder.Initialize(Parent := THIS^,
+    TestName := 'RingOrder',
+    Config := TestConfig);
+Builder.Register(TestCase := FRingOrder);
+FDeleteWatermarks.Initialize(Parent := THIS^,
+    TestName := 'DeleteWatermarks',
+    Config := TestConfig);
+Builder.Register(TestCase := FDeleteWatermarks);
+FDeleteWrappedFull.Initialize(Parent := THIS^,
+    TestName := 'DeleteWrappedFull',
+    Config := TestConfig);
+Builder.Register(TestCase := FDeleteWrappedFull);
+FDeleteLostSequence.Initialize(Parent := THIS^,
+    TestName := 'DeleteLostSequence',
+    Config := TestConfig);
+Builder.Register(TestCase := FDeleteLostSequence);
+FDeleteCommandBoundary.Initialize(Parent := THIS^,
+    TestName := 'DeleteCommandBoundary',
+    Config := TestConfig);
+Builder.Register(TestCase := FDeleteCommandBoundary);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{50500500-0000-4000-8000-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{50500500-0000-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStorageBinding();
+FContent();
+FBufferFull();
+FRingOrder();
+FDeleteWatermarks();
+FDeleteWrappedFull();
+FDeleteLostSequence();
+FDeleteCommandBoundary();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

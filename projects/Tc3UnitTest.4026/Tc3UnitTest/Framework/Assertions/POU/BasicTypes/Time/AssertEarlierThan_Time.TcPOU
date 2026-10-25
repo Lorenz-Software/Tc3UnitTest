@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEarlierThan_Time" Id="{bc8f2131-cc3c-4703-8e2a-fbd669d783e2}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is strictly earlier than Maximum.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEarlierThan_Time EXTENDS AssertionBase
+VAR_INPUT
+    IN : TIME; //! Actual value checked or observed by this Assertion.
+    Maximum : TIME; //! Exclusive upper bound; the actual value or count must be smaller.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{eac2d236-dfdb-4bf7-b090-d213c36c19f3}" />
+    <Method Name="Assert" Id="{e95f9f03-20c7-4737-bbe7-5b61e712864b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed duration relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN >= Maximum THEN
+    MaximumText := TIME_TO_STRING(Maximum);
+    ActualText := TIME_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not earlier than limit. Maximum = ',
+        MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

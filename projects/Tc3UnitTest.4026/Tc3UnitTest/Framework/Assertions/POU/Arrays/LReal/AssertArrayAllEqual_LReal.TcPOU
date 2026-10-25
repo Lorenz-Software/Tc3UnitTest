@@ -1,0 +1,175 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayAllEqual_LReal" Id="{59dc2a48-f62b-478b-98ed-5f4d819fa92d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks every selected IN element against Expected; reports the first
+mismatch.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Expected must not contain NaN (Error), but may contain either infinity. Actual NaN never
+matches; equal signed infinities match. Non-finite data elsewhere in a search does not
+invalidate the entire range.
+
+Tolerance is absolute, in the same units as the values, finite and non-negative. Its
+default zero requests exact comparison. The equality boundary is inclusive; larger differences
+are unequal. Difference checking avoids overflow for large finite operands.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayAllEqual_LReal EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of compared elements, from 1 through 255.
+    Expected : LREAL; //! Reference value for comparison with IN.
+    Tolerance : LREAL := 0.0; //! Maximum absolute difference accepted as equal; must be finite and non-negative.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF LREAL; //! Read-only compared data; keep stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{35fe0ba7-426e-41fc-b965-5afdd449bff6}" />
+    <Method Name="Assert" Id="{ef781443-b6c4-4975-a3eb-b2009b568f4d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration before comparing the selected range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ValuesEqual : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    Value : LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF Tc2_Utilities.LrealIsNaN(x := Expected) THEN
+    Error(Message := 'Assertion error: Expected must not be NaN.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := Tolerance) THEN
+    Error(Message := 'Assertion error: Tolerance must be finite.');
+    RETURN;
+END_IF;
+
+IF Tolerance < 0.0 THEN
+    Error(Message := 'Assertion error: Tolerance must not be negative.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    ValuesEqual := FALSE;
+    Value := IN[InIndex];
+    IF NOT Tc2_Utilities.LrealIsNaN(x := Value) THEN
+        IF Value = Expected THEN
+            ValuesEqual := TRUE;
+        ELSIF Tc2_Utilities.LrealIsFinite(x := Value)
+            AND Tc2_Utilities.LrealIsFinite(x := Expected) THEN
+            ValuesEqual := IsWithinTolerance_LReal(IN := Value,
+                Expected := Expected,
+                Tolerance := Tolerance);
+        END_IF;
+    END_IF;
+    IF NOT ValuesEqual THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF NOT ValuesEqual THEN
+    IF Tc2_Utilities.LrealIsFinite(x := Expected) THEN
+        ExpectedText := CreateAssertionTextValue_LReal(Value := Expected);
+    ELSIF Expected > 0.0 THEN
+        ExpectedText := '+Infinity';
+    ELSE
+        ExpectedText := '-Infinity';
+    END_IF;
+    Value := IN[InIndex];
+    IF Tc2_Utilities.LrealIsNaN(x := Value) THEN
+        ActualText := 'NaN';
+    ELSIF Tc2_Utilities.LrealIsFinite(x := Value) THEN
+        ActualText := CreateAssertionTextValue_LReal(Value := Value);
+    ELSIF Value > 0.0 THEN
+        ActualText := '+Infinity';
+    ELSE
+        ActualText := '-Infinity';
+    END_IF;
+    Message := CONCAT('Assertion failed: array value is not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual[');
+    Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+    Message := CONCAT(Message, '] = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, ', Range = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ']');
+    Message := CONCAT(Message, ', Tolerance = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_LReal(Value := Tolerance));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,564 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlNormalLifecycle" Id="{00387f2f-d59b-4725-a3e0-d3e11880772d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the real root twice, checking Suite aggregation and fresh finalization after lifecycle Reset.</summary>
+<description>
+
+Independent observations
+
+Each script step calls the subject once. The helper sees the previous child snapshots,
+then ProcessTestSuites applies the new ones; counters must reflect them in that same call.
+Completion requires both children and the helper. Passed/Failed is finalized in Completing.
+
+Repeated lifecycle
+
+Initialize is called only for the first run. The second run uses RequestReset and RequestStart
+with the original collection and service bindings. FirstChildResult selects Passed or Failed
+for the first run; the second run is always Passed to expose retained result/finalization data.
+CompletionDelay is zero here; duration and clock-failure qualification belong to separate tests.
+
+Event evidence
+
+One local capture retains both runs. The test checks one Result and Aggregation per run,
+their structured context and compact JSON counts/runtime, and the later Completed anchor.
+Expected payloads are built from scenario values, not the production event factory.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlNormalLifecycle EXTENDS TestCaseBase
+VAR_INPUT
+    FirstChildResult : E_Result := E_Result.Passed; //! Passed or Failed for the first run; held constant by the containing test Suite.
+END_VAR
+VAR
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FControl : ST_RunControl;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT;
+    FRun : INT := 1;
+    FRunChildResult : E_Result;
+    FRunRuntime : ARRAY[1..RunCount] OF TIME;
+    FStepChecked : BOOL;
+    FStatePath : AssertTrue;
+    FStatePathMatches : BOOL := TRUE;
+    FTaskMapping : AssertTrue;
+    FTaskMappingMatches : BOOL := TRUE;
+    FOwnerResult : AssertTrue;
+    FOwnerResultMatches : BOOL := TRUE;
+    FStatusCounters : AssertTrue;
+    FStatusCountersMatches : BOOL := TRUE;
+    FCallOrder : AssertTrue;
+    FCallOrderMatches : BOOL := TRUE;
+    FReadiness : AssertTrue;
+    FReadinessMatches : BOOL := TRUE;
+    FFinalEvents : AssertTrue;
+    FFinalEventsMatches : BOOL := TRUE;
+    FAggregationPayload : AssertTrue;
+    FAggregationPayloadMatches : BOOL := TRUE;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    ExpectedChildCount : UINT := 2;
+    RunCount : INT := 2;
+    Setup : INT := 0;
+    ChildrenReady : INT := 1;
+    ResetFinished : INT := 2;
+    StartReady : INT := 3;
+    StartRequested : INT := 4;
+    FirstChildCompleted : INT := 5;
+    AllChildrenCompleted : INT := 6;
+    WaitForHelper : INT := 7;
+    OwnerCompleting : INT := 8;
+    OwnerCompleted : INT := 9;
+    HoldCompleted : INT := 10;
+    StartWithoutReset : INT := 11;
+    StepsPerRun : INT := 12;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{59e8cd58-e01f-47c1-a518-6ad89bd70af1}" />
+    <Method Name="AggregateResults" Id="{4435b12b-780b-4a2e-aeb6-a9bd08d38931}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FStatePath);
+Aggregator.AddProvider(Provider := FTaskMapping);
+Aggregator.AddProvider(Provider := FOwnerResult);
+Aggregator.AddProvider(Provider := FStatusCounters);
+Aggregator.AddProvider(Provider := FCallOrder);
+Aggregator.AddProvider(Provider := FReadiness);
+Aggregator.AddProvider(Provider := FFinalEvents);
+Aggregator.AddProvider(Provider := FAggregationPayload);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFinalEvents" Id="{1dd44f1a-321b-4e84-98f2-145f0c59def3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks both retained run logs against independently constructed final payload and ordering expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFinalEvents
+VAR
+    Index : UINT;
+    ResultCount : INT;
+    AggregationCount : INT;
+    CompletedCount : INT;
+    ExpectedFinalCount : INT;
+    ExpectedCompletedCount : INT;
+    ExpectedResult : E_Result;
+    ExpectedMessage : STRING(GVL_Constants.MessageLength);
+    ResultSequence : UDINT;
+    AggregationSequence : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFinalEventsMatches := TRUE;
+FAggregationPayloadMatches := TRUE;
+ExpectedFinalCount := FRun - 1 + BOOL_TO_INT(FStep >= OwnerCompleting);
+ExpectedCompletedCount := FRun - 1 + BOOL_TO_INT(FStep >= OwnerCompleted);
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    FFinalEventsMatches := FFinalEventsMatches
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.RunControl)
+        AND (FEvents[Index].Name = 'LifecycleSubject');
+    CASE FEvents[Index].EventType OF
+        E_EventType.Result:
+            ResultCount := ResultCount + 1;
+            ExpectedResult := E_Result.Passed;
+            IF ResultCount = 1 THEN
+                ExpectedResult := FirstChildResult;
+            END_IF;
+            FFinalEventsMatches := FFinalEventsMatches
+                AND (FEvents[Index].Result = ExpectedResult)
+                AND (FEvents[Index].State = E_State.Completing)
+                AND (FEvents[Index].ResourceName = 'Fixture')
+                AND (FEvents[Index].Severity = E_EventSeverity.Info)
+                AND (CompletedCount = ResultCount - 1)
+                AND (AggregationCount = ResultCount - 1);
+            ResultSequence := FEvents[Index].SequenceId;
+        E_EventType.Aggregation:
+            AggregationCount := AggregationCount + 1;
+            IF AggregationCount > RunCount THEN
+                FAggregationPayloadMatches := FALSE;
+                CONTINUE;
+            END_IF;
+            ExpectedResult := E_Result.Passed;
+            IF AggregationCount = 1 THEN
+                ExpectedResult := FirstChildResult;
+            END_IF;
+            IF ExpectedResult = E_Result.Failed THEN
+                ExpectedMessage := '{"total":2,"inactive":0,"idle":0,"running":0,"completed":2,"passed":1,"failed":1,"error":0,"runtime":';
+            ELSE
+                ExpectedMessage := '{"total":2,"inactive":0,"idle":0,"running":0,"completed":2,"passed":2,"failed":0,"error":0,"runtime":';
+            END_IF;
+            ExpectedMessage := CONCAT(ExpectedMessage, UDINT_TO_STRING(TIME_TO_UDINT(FRunRuntime[AggregationCount])));
+            ExpectedMessage := CONCAT(ExpectedMessage, ',"lostEvents":0}');
+            FAggregationPayloadMatches := FAggregationPayloadMatches
+                AND (FEvents[Index].Message = ExpectedMessage)
+                AND (FEvents[Index].Result = ExpectedResult)
+                AND (FEvents[Index].State = E_State.Completing)
+                AND (FEvents[Index].ResourceName = '')
+                AND (FEvents[Index].Severity = E_EventSeverity.Info);
+            AggregationSequence := FEvents[Index].SequenceId;
+            FFinalEventsMatches := FFinalEventsMatches
+                AND (ResultCount = AggregationCount)
+                AND (ResultSequence < AggregationSequence)
+                AND (CompletedCount = AggregationCount - 1);
+        E_EventType.StateTransition:
+            IF FEvents[Index].State = E_State.Completed THEN
+                CompletedCount := CompletedCount + 1;
+                FFinalEventsMatches := FFinalEventsMatches
+                    AND (ResultCount = CompletedCount)
+                    AND (AggregationCount = CompletedCount)
+                    AND (AggregationSequence < FEvents[Index].SequenceId);
+            END_IF;
+    END_CASE;
+END_FOR;
+FFinalEventsMatches := FFinalEventsMatches
+    AND (ResultCount = ExpectedFinalCount)
+    AND (AggregationCount = ExpectedFinalCount)
+    AND (CompletedCount = ExpectedCompletedCount);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{ad6cc93f-5407-4f40-b13d-cdaa0e0be8df}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := RunCount * StepsPerRun;
+FStatePath.Initialize(Parent := THIS^,
+    AssertionName := 'StatePath');
+FTaskMapping.Initialize(Parent := THIS^,
+    AssertionName := 'TaskMapping');
+FOwnerResult.Initialize(Parent := THIS^,
+    AssertionName := 'OwnerResult');
+FStatusCounters.Initialize(Parent := THIS^,
+    AssertionName := 'StatusCounters');
+FCallOrder.Initialize(Parent := THIS^,
+    AssertionName := 'CallOrder');
+FReadiness.Initialize(Parent := THIS^,
+    AssertionName := 'Readiness');
+FFinalEvents.Initialize(Parent := THIS^,
+    AssertionName := 'FinalEvents');
+FAggregationPayload.Initialize(Parent := THIS^,
+    AssertionName := 'AggregationPayload');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{1ef6faf7-750b-41b7-a7d3-adb9ab678919}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{263175b7-1e9d-4ed2-9ca4-7a8100ddeba8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates each scripted call before the test advances; failures remain latched across both runs.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStatePath(Enable := Enable,
+    State := State,
+    IN := FStatePathMatches);
+FTaskMapping(Enable := Enable,
+    State := State,
+    IN := FTaskMappingMatches);
+FOwnerResult(Enable := Enable,
+    State := State,
+    IN := FOwnerResultMatches);
+FStatusCounters(Enable := Enable,
+    State := State,
+    IN := FStatusCountersMatches);
+FCallOrder(Enable := Enable,
+    State := State,
+    IN := FCallOrderMatches);
+FReadiness(Enable := Enable,
+    State := State,
+    IN := FReadinessMatches);
+FFinalEvents(Enable := Enable,
+    State := State,
+    IN := FFinalEventsMatches);
+FAggregationPayload(Enable := Enable,
+    State := State,
+    IN := FAggregationPayloadMatches);
+FCaptureIntegrity(Enable := Enable,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{aaf2ceab-ca7c-4b1c-9c94-f2faeb50c5e1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{6ab8e2d0-c117-4601-ad78-09fbff550e83}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FRun := 1;
+FStepChecked := FALSE;
+FStatePathMatches := TRUE;
+FTaskMappingMatches := TRUE;
+FOwnerResultMatches := TRUE;
+FStatusCountersMatches := TRUE;
+FCallOrderMatches := TRUE;
+FReadinessMatches := TRUE;
+FFinalEventsMatches := TRUE;
+FAggregationPayloadMatches := TRUE;
+FCaptureIntegrityMatches := TRUE;
+FStatePath.Reset();
+FTaskMapping.Reset();
+FOwnerResult.Reset();
+FStatusCounters.Reset();
+FCallOrder.Reset();
+FReadiness.Reset();
+FFinalEvents.Reset();
+FAggregationPayload.Reset();
+FCaptureIntegrity.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{d4baa95b-3e7c-4fec-b1ca-1150812e981f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    IF FStep = StartWithoutReset THEN
+        IF FRun = RunCount THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FRun := FRun + 1;
+        FStep := Setup;
+    ELSE
+        FStep := FStep + 1;
+    END_IF;
+    FStepChecked := FALSE;
+    NextTestState();
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{85ce2517-31e2-43a0-8073-3a2f38c97a02}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Arranges one root cycle, executes it once and compares state, counters and call ordering.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_RunConfig;
+    FirstView : ST_OrchestrationObservation;
+    SecondView : ST_OrchestrationObservation;
+    ExpectedState : E_State;
+    ExpectedTask : E_OrchestratorTask;
+    ExpectedResult : E_Result := E_Result.NotEvaluated;
+    ExpectedReady : BOOL;
+    ExpectedIdleCount : UINT;
+    ExpectedRunningCount : UINT;
+    ExpectedCompletedCount : UINT;
+    ExpectedPassedCount : UINT;
+    ExpectedFailedCount : UINT;
+    ExpectedExecutionStatus : E_ExecutionStatus;
+    FirstChild : I_Orchestratable;
+    LastChild : I_Orchestratable;
+    FirstStateBeforeCall : E_State;
+    LastStateBeforeCall : E_State;
+    Snapshot : ST_RunControlStatus;
+    ExpectedCalls : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        FRunChildResult := E_Result.Passed;
+        IF FRun = 1 THEN
+            FRunChildResult := FirstChildResult;
+            IF NOT FCapture.Initialize(Buffer := FEvents,
+                FifoControl := FCaptureFifo,
+                Status := FCaptureStatus) THEN
+                Error(Message := 'Root lifecycle capture could not be initialized.');
+                RETURN;
+            END_IF;
+            Config.CompletionDelay := T#0ms;
+            FHelper.BeginScenario();
+            FSubject.Bind(Publisher := FCapture,
+                Helper := FHelper,
+                Config := Config);
+            IF NOT FSubject.Initialize(Name := 'LifecycleSubject',
+                EventBuffer := FCapture) THEN
+                Error(Message := 'Root lifecycle subject could not be initialized.');
+                RETURN;
+            END_IF;
+        ELSE
+            FHelper.SetObservation(Ready := FALSE);
+            FSubject.RequestReset();
+        END_IF;
+        FirstView.State := E_State.Reset;
+        FirstView.Ready := FALSE;
+        SecondView := FirstView;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+        ExpectedExecutionStatus := E_ExecutionStatus.Reset;
+
+    ChildrenReady:
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+        ExpectedExecutionStatus := E_ExecutionStatus.Reset;
+        ExpectedIdleCount := ExpectedChildCount;
+
+    ResetFinished:
+        FHelper.SetObservation(Ready := FALSE,
+            ResetFinished := TRUE);
+        ExpectedState := E_State.Idle;
+        ExpectedTask := E_OrchestratorTask.Idle;
+        ExpectedExecutionStatus := E_ExecutionStatus.Idle;
+        ExpectedIdleCount := ExpectedChildCount;
+
+    StartReady:
+        FHelper.SetObservation(Ready := TRUE);
+        ExpectedState := E_State.Idle;
+        ExpectedTask := E_OrchestratorTask.Idle;
+        ExpectedExecutionStatus := E_ExecutionStatus.Idle;
+        ExpectedIdleCount := ExpectedChildCount;
+        ExpectedReady := TRUE;
+
+    StartRequested:
+        FSubject.RequestStart();
+        FirstView.State := E_State.Running;
+        FirstView.Ready := FALSE;
+        ExpectedState := E_State.Starting;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        ExpectedExecutionStatus := E_ExecutionStatus.Starting;
+        ExpectedIdleCount := 1;
+        ExpectedRunningCount := 1;
+
+    FirstChildCompleted:
+        FHelper.SetObservation(Ready := FALSE);
+        FirstView.State := E_State.Completed;
+        FirstView.Result := FRunChildResult;
+        FirstView.Ready := FALSE;
+        FirstView.Complete := TRUE;
+        SecondView.State := E_State.Running;
+        SecondView.Ready := FALSE;
+        ExpectedState := E_State.Running;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        ExpectedExecutionStatus := E_ExecutionStatus.Running;
+        ExpectedRunningCount := 1;
+        ExpectedCompletedCount := 1;
+        ExpectedFailedCount := BOOL_TO_UINT(FRunChildResult = E_Result.Failed);
+        ExpectedPassedCount := 1 - ExpectedFailedCount;
+
+    AllChildrenCompleted, WaitForHelper, OwnerCompleting, OwnerCompleted, HoldCompleted, StartWithoutReset:
+        FHelper.SetObservation(Ready := FALSE);
+        FirstView.State := E_State.Completed;
+        FirstView.Result := FRunChildResult;
+        FirstView.Ready := FALSE;
+        FirstView.Complete := TRUE;
+        SecondView := FirstView;
+        SecondView.Result := E_Result.Passed;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        ExpectedCompletedCount := ExpectedChildCount;
+        ExpectedFailedCount := BOOL_TO_UINT(FRunChildResult = E_Result.Failed);
+        ExpectedPassedCount := ExpectedChildCount - ExpectedFailedCount;
+        CASE FStep OF
+            AllChildrenCompleted, WaitForHelper:
+                ExpectedState := E_State.Running;
+                ExpectedExecutionStatus := E_ExecutionStatus.Running;
+            OwnerCompleting:
+                FHelper.SetObservation(Ready := FALSE,
+                    ExecutionFinished := TRUE);
+                ExpectedState := E_State.Completing;
+                ExpectedExecutionStatus := E_ExecutionStatus.Completing;
+                ExpectedResult := FRunChildResult;
+        ELSE
+            IF FStep = StartWithoutReset THEN
+                FSubject.RequestStart();
+            END_IF;
+            ExpectedState := E_State.Completed;
+            ExpectedTask := E_OrchestratorTask.Idle;
+            ExpectedExecutionStatus := E_ExecutionStatus.Completed;
+            ExpectedResult := FRunChildResult;
+        END_CASE;
+ELSE
+    Error(Message := 'Unexpected root lifecycle test step.');
+    RETURN;
+END_CASE;
+
+FirstChild := FSubject.GetChild(Index := FSubject.ChildArrayLowerBound);
+LastChild := FSubject.GetChild(Index := FSubject.ChildArrayLowerBound + UINT_TO_DINT(FSubject.ChildCount) - 1);
+FirstStateBeforeCall := FirstChild.State;
+LastStateBeforeCall := LastChild.State;
+FSubject.SetChildObservations(FirstChild := FirstView,
+    SecondChild := SecondView);
+FSubject(ControlData := FControl);
+Snapshot := FSubject.Status;
+ExpectedCalls := INT_TO_UINT((FRun - 1) * StepsPerRun + FStep + 1);
+
+FStatePathMatches := (FSubject.State = ExpectedState)
+    AND (Snapshot.Execution.State = ExpectedState)
+    AND (Snapshot.Execution.ExecutionStatus = ExpectedExecutionStatus)
+    AND (FControl.Status.Execution.State = ExpectedState)
+    AND (FControl.Name = 'LifecycleSubject');
+FTaskMappingMatches := FHelper.CurrentTask = ExpectedTask;
+FOwnerResultMatches := (FSubject.Result = ExpectedResult)
+    AND (Snapshot.Execution.Result = ExpectedResult)
+    AND (FControl.Status.Execution.Result = ExpectedResult)
+    AND NOT FSubject.HasError;
+FStatusCountersMatches := (Snapshot.SuiteCountTotal = ExpectedChildCount)
+    AND (Snapshot.SuiteCountIdle = ExpectedIdleCount)
+    AND (Snapshot.SuiteCountRunning = ExpectedRunningCount)
+    AND (Snapshot.SuiteCountCompleted = ExpectedCompletedCount)
+    AND (Snapshot.SuiteCountPassed = ExpectedPassedCount)
+    AND (Snapshot.SuiteCountFailed = ExpectedFailedCount)
+    AND (Snapshot.SuiteCountError = 0) AND (Snapshot.SuiteCountInactive = 0)
+    AND (FControl.Status.SuiteCountIdle = ExpectedIdleCount)
+    AND (FControl.Status.SuiteCountRunning = ExpectedRunningCount)
+    AND (FControl.Status.SuiteCountCompleted = ExpectedCompletedCount)
+    AND (FControl.Status.SuiteCountPassed = ExpectedPassedCount)
+    AND (FControl.Status.SuiteCountFailed = ExpectedFailedCount);
+FCallOrderMatches := (FHelper.InitializeCount = 1) AND (FSubject.ConfigureCount = 1)
+    AND (FHelper.ExecuteCount = ExpectedCalls)
+    AND (FSubject.ChildCallCount = ExpectedCalls)
+    AND FSubject.ChildBodyCallsMatch
+    AND (FHelper.FirstChildStateAtExecute = FirstStateBeforeCall)
+    AND (FHelper.LastChildStateAtExecute = LastStateBeforeCall)
+    AND (FirstChild.State = FirstView.State) AND (LastChild.State = SecondView.State);
+FReadinessMatches := (FSubject.IsReady = ExpectedReady)
+    AND (Snapshot.Execution.Ready = ExpectedReady)
+    AND (FSubject.IsComplete = (ExpectedState = E_State.Completed));
+FCaptureIntegrityMatches := (FCaptureStatus.LostEventCount = 0)
+    AND (FCaptureFifo.ElementCount = FCaptureStatus.SequenceId);
+IF FStep = Setup THEN
+    FOwnerResultMatches := FOwnerResultMatches AND (Snapshot.Runtime = T#0ms);
+END_IF;
+IF FStep = OwnerCompleting THEN
+    FRunRuntime[FRun] := Snapshot.Runtime;
+END_IF;
+CheckFinalEvents();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertGreaterEqual_LReal" Id="{eacda9ec-f87d-4219-b5ac-92bf4cd2e4ba}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at least Minimum.</summary>
+<description>
+
+All checked operands and bounds must be finite; NaN or either infinity reports Error
+during active evaluation.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertGreaterEqual_LReal EXTENDS AssertionBase
+VAR_INPUT
+    IN : LREAL; //! Actual value checked or observed by this Assertion.
+    Minimum : LREAL; //! Inclusive lower bound of the comparison; for a range, must not exceed Maximum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{d5e0ffb0-e02c-4eee-b00b-9c98f2f3a3f1}" />
+    <Method Name="Assert" Id="{a378dc28-1a21-4dfa-9494-b6293e25583e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at least Minimum.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := IN) THEN
+    Error(Message := 'Assertion error: IN must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := Minimum) THEN
+    Error(Message := 'Assertion error: Minimum must be finite.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN < Minimum THEN
+    MinimumText := CreateAssertionTextValue_LReal(Value := Minimum);
+    ActualText := CreateAssertionTextValue_LReal(Value := IN);
+    Message := CONCAT('Assertion failed: value is below minimum. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLaterThan_TOD" Id="{ad2f5475-42a0-4169-b09c-a54dab475a27}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is strictly later than Minimum.</summary>
+<description>
+
+A value at or beyond 24 hours reports Error before comparison or baseline capture.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLaterThan_TOD EXTENDS AssertionBase
+VAR_INPUT
+    IN : TOD; //! Actual value checked or observed by this Assertion.
+    Minimum : TOD; //! Exclusive lower bound; the actual value or count must be greater.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{13f99273-367c-457d-8b63-9c4d8c88d16b}" />
+    <Method Name="Assert" Id="{4acf8556-d9ee-429b-8087-98809507de43}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_TOD(Value := IN) THEN
+    Error(Message := 'Assertion error: IN is outside the valid TOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_TOD(Value := Minimum) THEN
+    Error(Message := 'Assertion error: Minimum is outside the valid TOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <= Minimum THEN
+    MinimumText := TOD_TO_STRING(Minimum);
+    ActualText := TOD_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not later than limit. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

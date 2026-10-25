@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_Real" Id="{5b79a974-4f96-444d-ab79-802ac9172f27}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected REAL value.</summary>
+<description>
+
+All checked operands and bounds must be finite; NaN or either infinity reports Error
+during active evaluation.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_Real EXTENDS AssertionBase
+VAR_INPUT
+    IN : REAL; //! Actual value checked or observed by this Assertion.
+    Expected : REAL; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{7c86bc30-5957-4090-9b5c-184d3b967325}" />
+    <Method Name="Assert" Id="{3a973a8a-994b-4482-a89a-5a8340790687}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality with the expected REAL value.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := IN) THEN
+    Error(Message := 'Assertion error: IN must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := Expected) THEN
+    Error(Message := 'Assertion error: Expected must be finite.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := CreateAssertionTextValue_Real(Value := Expected);
+    ActualText := CreateAssertionTextValue_Real(Value := IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

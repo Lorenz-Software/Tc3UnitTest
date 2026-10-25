@@ -1,0 +1,344 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="OrchestrationChildDouble" Id="{f3539df8-cee3-4331-b8f7-bf598a0af7cb}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controllable I_Orchestratable boundary for isolated scheduler tests.</summary>
+<description>
+
+Stimulus versus commands
+
+The scenario supplies the next ObservationInput at the child FB call after the helper.
+Request methods only record invocations; they do not select states or run a copied lifecycle.
+This permits independent, explicitly authored normal and exceptional responses.
+BeginCycle clears call counters before the helper without changing the prior observation.
+
+Reservation boundary
+
+BeginCycle supplies this cycle's reservation responses, defaulting to Accepted.
+Only Accepted sets one local marker; waiting and failure leave it unchanged.
+No global publisher or reservation is changed.
+The tests verify orchestration call order, not the real owner's budget calculation.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK OrchestrationChildDouble IMPLEMENTS I_Orchestratable
+VAR_INPUT
+    ObservationInput : ST_OrchestrationObservation; //! Scripted view accepted only when this concrete child body is called.
+END_VAR
+VAR
+    FName : STRING(GVL_Constants.NameLength);
+    FExecutionSlot : UINT;
+    FInitialized : BOOL;
+    FObservation : ST_OrchestrationObservation;
+    FCalls : ST_OrchestrationCalls;
+    FReservedEntryCount : UINT;
+    FExecutionReservationResult : E_EventReservationResult := E_EventReservationResult.Accepted;
+    FResetReservationResult : E_EventReservationResult := E_EventReservationResult.Accepted;
+END_VAR
+VAR CONSTANT
+    ReservationMarker : UINT := 1;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FCalls.BodyCount := FCalls.BodyCount + 1;
+FObservation := ObservationInput;]]></ST>
+    </Implementation>
+    <Method Name="BeginCycle" Id="{9c80d470-d678-4b68-b9f5-1db1e7468d48}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears call evidence and supplies reservation responses; retains the prior child view and marker.</summary>
+*)
+{endregion}
+METHOD PUBLIC BeginCycle
+VAR_INPUT
+    ExecutionReservationResult : E_EventReservationResult := E_EventReservationResult.Accepted; //! Execution admission response for this cycle; Accepted sets the local marker.
+    ResetReservationResult : E_EventReservationResult := E_EventReservationResult.Accepted; //! Reset admission response for this cycle; Accepted sets the local marker.
+END_VAR
+VAR
+    EmptyCalls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls := EmptyCalls;
+FExecutionReservationResult := ExecutionReservationResult;
+FResetReservationResult := ResetReservationResult;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Calls" Id="{acd220ae-3f1a-46da-9df2-122a635386cd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Interface-call evidence for the current fixture cycle.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Calls : ST_OrchestrationCalls //! Interface-call evidence for the current fixture cycle.]]></Declaration>
+      <Get Name="Get" Id="{ea0cba2c-faca-47f6-9ba8-47e693a7f776}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Calls := FCalls;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ExecutionSlot" Id="{6830e757-ec00-40a8-bcf1-b8c19170f471}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registration slot retained independently of cyclic observations.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ExecutionSlot : UINT //! Registration slot retained independently of cyclic observations.]]></Declaration>
+      <Get Name="Get" Id="{9f2ea976-f110-44ff-95cc-623f0755fbf7}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ExecutionSlot := FExecutionSlot;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{3aec55d6-051e-46a3-ba69-56be60a85aa8}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FExecutionSlot := ExecutionSlot;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="FreeReservedEvents" Id="{09c26ed0-190e-4474-91ef-234db5cd0edc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases only the local marker and records the released amount; repeated calls are idempotent.</summary>
+*)
+{endregion}
+METHOD PUBLIC FreeReservedEvents : BOOL //! Always TRUE after clearing the local marker; the call and released amount remain recorded.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.FreeCount := FCalls.FreeCount + 1;
+FCalls.ReleasedEntryCount := FCalls.ReleasedEntryCount + FReservedEntryCount;
+FReservedEntryCount := 0;
+FreeReservedEvents := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="HasError" Id="{714cf877-fb08-4938-8ddc-6e933cc0e1d0}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Scripted child failure classification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasError : BOOL //! Scripted child failure classification.]]></Declaration>
+      <Get Name="Get" Id="{6270464b-1f90-45cf-9e75-4a5651f1433f}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasError := FObservation.Result = E_Result.Error;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{aab8be98-26ee-4524-9235-8cad9d5d1f54}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets the local interface double; it has no timers, publisher or production lifecycle.</summary>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Diagnostic child name retained by the fixture.
+    Slot : UINT; //! Registered execution slot retained independently of scripted observations.
+END_VAR
+VAR
+    EmptyCalls : ST_OrchestrationCalls;
+    InitialView : ST_OrchestrationObservation;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FName := Name;
+FExecutionSlot := Slot;
+FObservation := InitialView;
+FCalls := EmptyCalls;
+FReservedEntryCount := 0;
+FExecutionReservationResult := E_EventReservationResult.Accepted;
+FResetReservationResult := E_EventReservationResult.Accepted;
+FInitialized := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsComplete" Id="{bab12694-297b-4e47-ac95-d7e0ee5bd3dd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Scripted terminal completion signal.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsComplete : BOOL //! Scripted terminal completion signal.]]></Declaration>
+      <Get Name="Get" Id="{dc83b94e-8356-4575-aab9-2648b5a05943}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsComplete := FObservation.Complete;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{4e10bc4f-bb8f-4294-a8ce-fb05eb004ebd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Whether the double has been explicitly configured.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsInitialized : BOOL //! Whether the double has been explicitly configured.]]></Declaration>
+      <Get Name="Get" Id="{279fb727-7bbe-4f26-a9c6-98b27c72d65c}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsInitialized := FInitialized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{90c98184-ec94-45d9-94e5-a75baaf3e912}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Scripted readiness, independent of helper requests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Scripted readiness, independent of helper requests.]]></Declaration>
+      <Get Name="Get" Id="{5614fbcd-ae75-4f08-ac86-24d5a3bf45bd}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := FObservation.Ready;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Name" Id="{48d8f70b-4073-4766-be7c-9c987ae29785}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Diagnostic child identity.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Name : STRING(GVL_Constants.NameLength) //! Diagnostic child identity.]]></Declaration>
+      <Get Name="Get" Id="{16a15352-bc39-4a11-ba41-bd87bf5d9eb3}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := FName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Observation" Id="{daee66b5-3f47-4a9d-baf5-c97675286e0a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current scripted snapshot; requests cannot change it.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Observation : ST_OrchestrationObservation //! Current scripted snapshot; requests cannot change it.]]></Declaration>
+      <Get Name="Get" Id="{df3c26ad-fd47-4c1a-acbe-7dfea80adbe3}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Observation := FObservation;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="RequestAbort" Id="{faff6abf-aea7-4e78-8886-d8ff4559d19d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records the Abort request without changing the scripted state.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestAbort]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.AbortCount := FCalls.AbortCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestReset" Id="{e02fdacc-33c9-4589-b42d-8fa2fe1fe503}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records the Reset request without changing the scripted state.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.ResetCount := FCalls.ResetCount + 1;
+
+FCalls.ResetWithoutReservation := FCalls.ResetWithoutReservation OR (FReservedEntryCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestStart" Id="{db957e2d-568e-4436-b4ba-10db40b505dd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records the Start request without changing the scripted state.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestStart]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.StartCount := FCalls.StartCount + 1;
+FCalls.StartWithoutReservation := FCalls.StartWithoutReservation OR (FReservedEntryCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{92d4ff0a-2447-4407-90b3-ddf150591a6a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Local admission marker, not a global Event Buffer contribution.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReservedEntryCount : UINT //! Local admission marker, not a global Event Buffer contribution.]]></Declaration>
+      <Get Name="Get" Id="{e9e4573c-98cb-4417-8b5e-345a98562716}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReservedEntryCount := FReservedEntryCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ReserveExecutionEvents" Id="{33c70a6a-95bd-426b-81b6-1144b811e6d8}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the scripted execution admission response; only Accepted sets the local marker.</summary>
+*)
+{endregion}
+METHOD PUBLIC ReserveExecutionEvents : E_EventReservationResult //! Scripted execution admission response; only Accepted installs the local marker.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.ExecutionReservationCount := FCalls.ExecutionReservationCount + 1;
+IF FExecutionReservationResult = E_EventReservationResult.Accepted THEN
+    FReservedEntryCount := ReservationMarker;
+END_IF;
+ReserveExecutionEvents := FExecutionReservationResult;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReserveResetEvents" Id="{27a9d3e8-4732-4d99-8823-d47f031d13d6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the scripted reset admission response; only Accepted sets the local marker.</summary>
+*)
+{endregion}
+METHOD PUBLIC ReserveResetEvents : E_EventReservationResult //! Scripted Reset admission response; only Accepted installs the local marker.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCalls.ResetReservationCount := FCalls.ResetReservationCount + 1;
+IF FResetReservationResult = E_EventReservationResult.Accepted THEN
+    FReservedEntryCount := ReservationMarker;
+END_IF;
+ReserveResetEvents := FResetReservationResult;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Result" Id="{d1102f6e-4839-485f-b53a-6721066df8bf}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Scripted child result.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Scripted child result.]]></Declaration>
+      <Get Name="Get" Id="{cedf4d95-a575-469c-961a-76cfbe4779ce}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FObservation.Result;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="State" Id="{1e698734-b19b-47b2-851f-8813dc908651}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>View applied on the most recent child call.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC State : E_State //! View applied on the most recent child call.]]></Declaration>
+      <Get Name="Get" Id="{d35a9ef8-d198-458d-bbd5-0dbf1f273064}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[State := FObservation.State;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

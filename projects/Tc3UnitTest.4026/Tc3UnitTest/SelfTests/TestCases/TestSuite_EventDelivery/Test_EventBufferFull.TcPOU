@@ -1,0 +1,320 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventBufferFull" Id="{7645cbae-128a-4c8e-a218-332e7c69d775}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies full-buffer preservation, capacity diagnostics and loss accounting.</summary>
+<description>
+Four primary events fill four of five usable positions. The existing capacity diagnostic
+occupies the fifth position. Two further publications must fail without overwriting any
+stored event, while the assigned sequence and lost-event count advance.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventBufferFull EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FStoredEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FBeforeFull : AssertTrue;
+    FBeforeFullMatches : BOOL;
+    FFullProjection : AssertTrue;
+    FFullProjectionMatches : BOOL;
+    FCapacityDiagnostic : AssertTrue;
+    FCapacityDiagnosticMatches : BOOL;
+    FRejected : AssertTrue;
+    FRejectedMatches : BOOL;
+    FUnreadPreserved : AssertTrue;
+    FUnreadPreservedMatches : BOOL;
+    FLoss : AssertTrue;
+    FLossMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 6;
+    PrimaryEventCount : UINT := 4;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500002-0050-4050-8050-000000000071}" />
+    <Method Name="AggregateResults" Id="{00500002-0050-4050-8050-000000000074}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FBeforeFull);
+Aggregator.AddProvider(Provider := FFullProjection);
+Aggregator.AddProvider(Provider := FCapacityDiagnostic);
+Aggregator.AddProvider(Provider := FRejected);
+Aggregator.AddProvider(Provider := FUnreadPreserved);
+Aggregator.AddProvider(Provider := FLoss);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500002-0050-4050-8050-000000000073}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FBeforeFull.IsInitialized
+    AND FFullProjection.IsInitialized
+    AND FCapacityDiagnostic.IsInitialized
+    AND FRejected.IsInitialized
+    AND FUnreadPreserved.IsInitialized
+    AND FLoss.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500002-0050-4050-8050-000000000072}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FBeforeFull.Initialize(Parent := THIS^,
+    AssertionName := 'BeforeFull');
+FFullProjection.Initialize(Parent := THIS^,
+    AssertionName := 'FullProjection');
+FCapacityDiagnostic.Initialize(Parent := THIS^,
+    AssertionName := 'CapacityDiagnostic');
+FRejected.Initialize(Parent := THIS^,
+    AssertionName := 'Rejected');
+FUnreadPreserved.Initialize(Parent := THIS^,
+    AssertionName := 'UnreadPreserved');
+FLoss.Initialize(Parent := THIS^,
+    AssertionName := 'Loss');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500002-0050-4050-8050-00000000007a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fills the local buffer, captures its contents and attempts two rejected publications.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer
+VAR
+    Event : ST_Event;
+    WriteResult : INT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+FBeforeFullMatches := FFifo.BufferEmpty AND (FFifo.ElementCount = 0)
+    AND (FSubject.FreeEntryCount = BufferLength - 1);
+FOR Index := 1 TO PrimaryEventCount DO
+    Event := CreateFrameworkEvent(Name := 'LocalFull',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UINT_TO_STRING(Index));
+    WriteResult := FSubject.PublishEvent(Event := Event);
+    FBeforeFullMatches := FBeforeFullMatches AND (WriteResult = UINT_TO_INT(Index));
+    IF Index < PrimaryEventCount THEN
+        FBeforeFullMatches := FBeforeFullMatches AND NOT FFifo.BufferFull
+            AND NOT FFifo.BufferAlmostFull AND (FFifo.ElementCount = Index)
+            AND (FBufferStatus.SequenceId = UINT_TO_UDINT(Index))
+            AND (FBufferStatus.LostEventCount = 0);
+    END_IF;
+END_FOR;
+
+FFullProjectionMatches := FFifo.BufferFull AND NOT FFifo.BufferEmpty
+    AND NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND (FFifo.BufferLength = BufferLength) AND (FFifo.ElementCount = BufferLength - 1)
+    AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = BufferLength)
+    AND (FSubject.FreeEntryCount = 0)
+    AND (FBufferStatus.SequenceId = UINT_TO_UDINT(BufferLength - 1))
+    AND (FBufferStatus.LostEventCount = 0);
+FCapacityDiagnosticMatches := (FEvents[5].SequenceId = 5)
+    AND (FEvents[5].OwnerScope = E_OwnerScope.Framework)
+    AND (FEvents[5].EventType = E_EventType.Framework)
+    AND (FEvents[5].Severity = E_EventSeverity.Error)
+    AND (FEvents[5].Name = 'EventBuffer') AND (FEvents[5].Timestamp > 0);
+FUnreadPreservedMatches := (FEvents[BufferLength].SequenceId = 0);
+FOR Index := 1 TO PrimaryEventCount DO
+    FUnreadPreservedMatches := FUnreadPreservedMatches
+        AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Name = 'LocalFull')
+        AND (FEvents[Index].Message = UINT_TO_STRING(Index));
+END_FOR;
+FStoredEvents := FEvents;
+
+Event := CreateFrameworkEvent(Name := 'Rejected',
+    State := E_State.Running,
+    Severity := E_EventSeverity.Info,
+    Message := 'Must not replace an unread event.');
+WriteResult := FSubject.PublishEvent(Event := Event);
+FRejectedMatches := WriteResult = TO_INT(E_FifoResult.NoTransfer);
+FLossMatches := (FBufferStatus.SequenceId = 6) AND (FBufferStatus.LostEventCount = 1);
+WriteResult := FSubject.PublishEvent(Event := Event);
+FRejectedMatches := FRejectedMatches AND (WriteResult = TO_INT(E_FifoResult.NoTransfer));
+FLossMatches := FLossMatches AND (FBufferStatus.SequenceId = 7)
+    AND (FBufferStatus.DeletedSequenceId = 0) AND (FBufferStatus.LostEventCount = 2)
+    AND (FSubject.LostEventCount = 2);
+FFullProjectionMatches := FFullProjectionMatches AND FFifo.BufferFull
+    AND (FFifo.ElementCount = BufferLength - 1)
+    AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = BufferLength)
+    AND (FSubject.FreeEntryCount = 0);
+FOR Index := 1 TO BufferLength DO
+    FUnreadPreservedMatches := FUnreadPreservedMatches
+        AND (FEvents[Index].SequenceId = FStoredEvents[Index].SequenceId)
+        AND (FEvents[Index].Timestamp = FStoredEvents[Index].Timestamp)
+        AND (FEvents[Index].OwnerScope = FStoredEvents[Index].OwnerScope)
+        AND (FEvents[Index].EventType = FStoredEvents[Index].EventType)
+        AND (FEvents[Index].Severity = FStoredEvents[Index].Severity)
+        AND (FEvents[Index].Name = FStoredEvents[Index].Name)
+        AND (FEvents[Index].ResourceName = FStoredEvents[Index].ResourceName)
+        AND (FEvents[Index].State = FStoredEvents[Index].State)
+        AND (FEvents[Index].Result = FStoredEvents[Index].Result)
+        AND (FEvents[Index].Message = FStoredEvents[Index].Message);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500002-0050-4050-8050-000000000076}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500002-0050-4050-8050-000000000079}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FBeforeFull(Enable := Evaluate,
+    State := State,
+    IN := FBeforeFullMatches);
+FFullProjection(Enable := Evaluate,
+    State := State,
+    IN := FFullProjectionMatches);
+FCapacityDiagnostic(Enable := Evaluate,
+    State := State,
+    IN := FCapacityDiagnosticMatches);
+FRejected(Enable := Evaluate,
+    State := State,
+    IN := FRejectedMatches);
+FUnreadPreserved(Enable := Evaluate,
+    State := State,
+    IN := FUnreadPreservedMatches);
+FLoss(Enable := Evaluate,
+    State := State,
+    IN := FLossMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500002-0050-4050-8050-000000000077}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500002-0050-4050-8050-000000000075}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FBeforeFull.Reset();
+FBeforeFullMatches := FALSE;
+FFullProjection.Reset();
+FFullProjectionMatches := FALSE;
+FCapacityDiagnostic.Reset();
+FCapacityDiagnosticMatches := FALSE;
+FRejected.Reset();
+FRejectedMatches := FALSE;
+FUnreadPreserved.Reset();
+FUnreadPreservedMatches := FALSE;
+FLoss.Reset();
+FLossMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500002-0050-4050-8050-000000000078}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

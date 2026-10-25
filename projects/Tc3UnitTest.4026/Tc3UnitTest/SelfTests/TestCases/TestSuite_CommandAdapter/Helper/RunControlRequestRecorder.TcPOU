@@ -1,0 +1,155 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControlRequestRecorder" Id="{e1684c99-fe0c-4f93-9d36-f73c2f3e757a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Request-only I_RunControl double; counts calls without simulating lifecycle behavior.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK RunControlRequestRecorder IMPLEMENTS I_RunControl
+VAR
+    FStartCount : UINT;
+    FAbortCount : UINT;
+    FResetCount : UINT;
+    FStatus : ST_RunControlStatus;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="AbortCount" Id="{49490000-0000-4000-8000-000000000006}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive AbortCount observation for the command-adapter tests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC AbortCount : UINT //! Passive AbortCount observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000007}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[AbortCount := FAbortCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Clear" Id="{49490000-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears recorded calls without performing lifecycle work.</summary>
+*)
+{endregion}
+METHOD PUBLIC Clear]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStartCount := 0;
+FAbortCount := 0;
+FResetCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Name" Id="{49490000-0000-4000-8000-000000000011}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive Name observation for the command-adapter tests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Name : STRING(GVL_Constants.NameLength) //! Passive Name observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000012}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := 'CommandTarget';]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="RequestAbort" Id="{49490000-0000-4000-8000-000000000005}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Abort request only; no lifecycle or buffer operations.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestAbort]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAbortCount := FAbortCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestReset" Id="{49490000-0000-4000-8000-000000000008}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Reset request only; no lifecycle or buffer operations.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetCount := FResetCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestStart" Id="{49490000-0000-4000-8000-000000000002}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Start request only; no lifecycle or buffer operations.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestStart]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStartCount := FStartCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ResetCount" Id="{49490000-0000-4000-8000-000000000009}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive ResetCount observation for the command-adapter tests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ResetCount : UINT //! Passive ResetCount observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000010}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResetCount := FResetCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{49490000-0000-4000-8000-000000000013}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive Result observation for the command-adapter tests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Passive Result observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000014}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := E_Result.NotEvaluated;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="StartCount" Id="{49490000-0000-4000-8000-000000000003}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive StartCount observation for the command-adapter tests.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC StartCount : UINT //! Passive StartCount observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000004}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[StartCount := FStartCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Status" Id="{49490000-0000-4000-8000-000000000015}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Passive Status observation for the command-adapter tests.</summary>
+*)
+{endregion}
+PROPERTY PUBLIC Status : ST_RunControlStatus //! Passive Status observation for the command-adapter tests.]]></Declaration>
+      <Get Name="Get" Id="{49490000-0000-4000-8000-000000000016}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status := FStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

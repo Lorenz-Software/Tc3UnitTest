@@ -1,0 +1,387 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SuiteReservationRelease" Id="{7e2e9b52-6b8d-416a-840c-69541dbd6d1d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies Suite release delegation, partial success, zero-own-budget cleanup and idempotent retry.</summary>
+<description>
+
+Boundary under test
+
+The Suite uses the real local EventBuffer for its own contribution. Controlled children retain
+local reservation markers only; they deliberately do not reproduce global reservation accounting.
+The test checks that every child is called even if the first rejects release and that the Suite
+still releases its own contribution. Global child-budget arithmetic belongs to capacity tests.
+
+Retry and lifecycle
+
+A failed child keeps its marker. A later successful retry releases it without re-releasing
+already cleared contributions. Cleanup also visits children when the Suite's own count is zero.
+None of these calls may issue child lifecycle requests, change owner state or restart execution.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SuiteReservationRelease EXTENDS TestCaseBase
+VAR
+    FSubjectParent : I_RunControl;
+    FSubject : TestSuiteLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FChildView : ST_OrchestrationObservation;
+    FStep : INT;
+    FStepChecked : BOOL;
+    FQuietSequence : UDINT;
+    FDelegation : AssertTrue;
+    FDelegationMatches : BOOL := TRUE;
+    FOwnRelease : AssertTrue;
+    FOwnReleaseMatches : BOOL := TRUE;
+    FIdempotence : AssertTrue;
+    FIdempotenceMatches : BOOL := TRUE;
+    FNoLifecycleEffects : AssertTrue;
+    FNoLifecycleEffectsMatches : BOOL := TRUE;
+    FChildCalls : AssertTrue;
+    FChildCallsMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    ReservationMarker : UINT := 1;
+    Setup : INT := 0;
+    ResetRequested : INT := 1;
+    FinishReset : INT := 2;
+    ReserveAll : INT := 3;
+    PartialRelease : INT := 4;
+    RetryRelease : INT := 5;
+    ReleaseWithZeroOwnCount : INT := 6;
+    RepeatRelease : INT := 7;
+    Done : INT := 8;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{65fb8fac-637b-4305-a8c6-31840e0f61d4}" />
+    <Method Name="AggregateResults" Id="{d5abc3bd-a43c-4241-843c-801f28cddf3b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FDelegation);
+Aggregator.AddProvider(Provider := FOwnRelease);
+Aggregator.AddProvider(Provider := FIdempotence);
+Aggregator.AddProvider(Provider := FNoLifecycleEffects);
+Aggregator.AddProvider(Provider := FChildCalls);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{834e3d36-0368-4364-8ed5-459cb77910d3}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies only the root identity; the root never executes this isolated subject.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{26a98693-e30f-42c6-b212-da0a2d4894d5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FDelegation.Initialize(Parent := THIS^,
+    AssertionName := 'Delegation');
+FOwnRelease.Initialize(Parent := THIS^,
+    AssertionName := 'OwnRelease');
+FIdempotence.Initialize(Parent := THIS^,
+    AssertionName := 'Idempotence');
+FNoLifecycleEffects.Initialize(Parent := THIS^,
+    AssertionName := 'NoLifecycleEffects');
+FChildCalls.Initialize(Parent := THIS^,
+    AssertionName := 'ChildCalls');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{3a2cd640-9fdb-49f5-ba96-30f054c9794a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{8755aec0-3839-4d1d-8728-c590dab9f502}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks each cleanup checkpoint before advancing; failures remain latched.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDelegation(Enable := Enable,
+    State := State,
+    IN := FDelegationMatches);
+FOwnRelease(Enable := Enable,
+    State := State,
+    IN := FOwnReleaseMatches);
+FIdempotence(Enable := Enable,
+    State := State,
+    IN := FIdempotenceMatches);
+FNoLifecycleEffects(Enable := Enable,
+    State := State,
+    IN := FNoLifecycleEffectsMatches);
+FChildCalls(Enable := Enable,
+    State := State,
+    IN := FChildCallsMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{0e48cae2-217f-4215-ab4b-e2fd8a1b88d2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{b1483d98-4e51-42c0-a9fd-20d0cd2957db}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FStepChecked := FALSE;
+FQuietSequence := 0;
+FDelegationMatches := TRUE;
+FOwnReleaseMatches := TRUE;
+FIdempotenceMatches := TRUE;
+FNoLifecycleEffectsMatches := TRUE;
+FChildCallsMatches := TRUE;
+FDelegation.Reset();
+FOwnRelease.Reset();
+FIdempotence.Reset();
+FNoLifecycleEffects.Reset();
+FChildCalls.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{b9257870-19eb-423d-a3fd-9b25c6decb93}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    FStep := FStep + 1;
+    FStepChecked := FALSE;
+END_IF;
+IF FStep = Done THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{0aa9d9ae-e90b-4073-a82a-a707db218cd4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exercises a bounded cleanup sequence in Idle, recording each concrete child release attempt.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_TestSuiteConfig;
+    FirstChild : I_TestCase;
+    SecondChild : I_TestCase;
+    FirstCalls : ST_OrchestrationCalls;
+    SecondCalls : ST_OrchestrationCalls;
+    ExpectedState : E_State;
+    ExpectedTask : E_OrchestratorTask;
+    Released : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FStep = Setup THEN
+    IF NOT FCapture.Initialize(Buffer := FEvents,
+        FifoControl := FCaptureFifo,
+        Status := FCaptureStatus) THEN
+        Error(Message := 'Suite release capture could not be initialized.');
+        RETURN;
+    END_IF;
+    FHelper.BeginScenario();
+    FSubject.Bind(Publisher := FCapture,
+        Helper := FHelper);
+    IF NOT FSubject.Initialize(Parent := FSubjectParent,
+        SuiteName := 'ReleaseSubject',
+        Config := Config) THEN
+        Error(Message := 'Suite release subject could not be initialized.');
+        RETURN;
+    END_IF;
+END_IF;
+FirstChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound);
+SecondChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound + 1);
+ExpectedState := E_State.Idle;
+ExpectedTask := E_OrchestratorTask.Idle;
+
+CASE FStep OF
+    Setup:
+        FChildView.State := E_State.Uninitialized;
+        FChildView.Result := E_Result.NotEvaluated;
+        FChildView.Ready := FALSE;
+        FChildView.Complete := FALSE;
+        ExpectedState := E_State.Uninitialized;
+
+    ResetRequested:
+        IF FSubject.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Suite release fixture Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        FSubject.RequestReset();
+        FChildView.State := E_State.Reset;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    FinishReset:
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        FChildView.State := E_State.Idle;
+        FChildView.Ready := TRUE;
+
+    ReserveAll:
+        IF FSubject.ReserveExecutionEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Suite release fixture execution reservation was rejected.');
+            RETURN;
+        END_IF;
+        IF FirstChild.ReserveExecutionEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'First controlled child reservation was rejected.');
+            RETURN;
+        END_IF;
+        IF SecondChild.ReserveExecutionEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Second controlled child reservation was rejected.');
+            RETURN;
+        END_IF;
+        FOwnReleaseMatches := (FSubject.ReservedEntryCount > 0)
+            AND (FCapture.ReservedEntryCount = FSubject.ReservedEntryCount);
+        FDelegationMatches := (FirstChild.ReservedEntryCount = ReservationMarker)
+            AND (SecondChild.ReservedEntryCount = ReservationMarker);
+
+    PartialRelease:
+        FSubject.SetChildReleaseResponses(FirstSucceeds := FALSE);
+        Released := FSubject.FreeReservedEvents();
+        FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+        SecondCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + 1);
+        FDelegationMatches := NOT Released AND (FirstCalls.FreeCount = 1) AND (SecondCalls.FreeCount = 1)
+            AND (FirstChild.ReservedEntryCount = ReservationMarker) AND (SecondChild.ReservedEntryCount = 0)
+            AND (FirstCalls.ReleasedEntryCount = 0) AND (SecondCalls.ReleasedEntryCount = ReservationMarker);
+        FOwnReleaseMatches := (FSubject.ReservedEntryCount = 0) AND (FCapture.ReservedEntryCount = 0);
+
+    RetryRelease:
+        FSubject.SetChildReleaseResponses();
+        Released := FSubject.FreeReservedEvents();
+        FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+        SecondCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + 1);
+        FDelegationMatches := Released AND (FirstCalls.FreeCount = 2) AND (SecondCalls.FreeCount = 2)
+            AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0);
+        FIdempotenceMatches := (FirstCalls.ReleasedEntryCount = ReservationMarker)
+            AND (SecondCalls.ReleasedEntryCount = ReservationMarker);
+
+    ReleaseWithZeroOwnCount:
+        IF FirstChild.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'First controlled child Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        IF SecondChild.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Second controlled child Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        FOwnReleaseMatches := FSubject.ReservedEntryCount = 0;
+        Released := FSubject.FreeReservedEvents();
+        FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+        SecondCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + 1);
+        FDelegationMatches := Released AND (FirstCalls.FreeCount = 3) AND (SecondCalls.FreeCount = 3)
+            AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0);
+        FIdempotenceMatches := (FirstCalls.ReleasedEntryCount = 2 * ReservationMarker)
+            AND (SecondCalls.ReleasedEntryCount = 2 * ReservationMarker);
+
+    RepeatRelease:
+        Released := FSubject.FreeReservedEvents();
+        FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+        SecondCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + 1);
+        FDelegationMatches := Released AND (FirstCalls.FreeCount = 4) AND (SecondCalls.FreeCount = 4);
+        FIdempotenceMatches := (FirstCalls.ReleasedEntryCount = 2 * ReservationMarker)
+            AND (SecondCalls.ReleasedEntryCount = 2 * ReservationMarker)
+            AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0)
+            AND (FSubject.ReservedEntryCount = 0) AND (FCapture.ReservedEntryCount = 0);
+ELSE
+    Error(Message := 'Unexpected Suite release test step.');
+    RETURN;
+END_CASE;
+
+FSubject.SetChildObservation(Observation := FChildView);
+FSubject();
+FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+SecondCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + 1);
+FNoLifecycleEffectsMatches := (FSubject.State = ExpectedState)
+    AND (FSubject.Result = E_Result.NotEvaluated) AND (FHelper.CurrentTask = ExpectedTask)
+    AND (FirstChild.State = FChildView.State) AND (SecondChild.State = FChildView.State)
+    AND (FirstCalls.StartCount = 0) AND (FirstCalls.ResetCount = 0) AND (FirstCalls.AbortCount = 0)
+    AND (SecondCalls.StartCount = 0) AND (SecondCalls.ResetCount = 0) AND (SecondCalls.AbortCount = 0);
+FChildCallsMatches := FSubject.ChildBodyCallsMatch
+    AND (FSubject.ChildCallCount = INT_TO_UINT(FStep + 1))
+    AND (FHelper.ExecuteCount = INT_TO_UINT(FStep + 1));
+IF FStep = FinishReset THEN
+    FQuietSequence := FCaptureStatus.SequenceId;
+END_IF;
+IF FStep >= ReserveAll THEN
+    FNoLifecycleEffectsMatches := FNoLifecycleEffectsMatches AND FSubject.IsReady
+        AND (FCaptureStatus.SequenceId = FQuietSequence) AND (FCaptureStatus.LostEventCount = 0);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

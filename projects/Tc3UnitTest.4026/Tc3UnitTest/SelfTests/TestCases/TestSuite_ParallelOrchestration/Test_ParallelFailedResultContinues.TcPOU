@@ -1,0 +1,134 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ParallelFailedResultContinues" Id="{7c95c53c-b4ed-47cd-a6b6-6580c7869500}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Keeps parallel siblings progressing after a child completes with Failed instead of treating it as a helper Error.</summary>
+<description>
+Child 1 finishes with Failed while child 2 starts. Child 3 must still start while child 2
+runs. The helper reports neutral Result and completes only after all children;
+child-result aggregation belongs to the owner.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ParallelFailedResultContinues EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1fa63369-a57f-42c4-a0c0-cae7fa67beda}" />
+    <Method Name="ConfigureScenario" Id="{65ae7aa0-a98c-4f32-86a5-a11ca0118bb7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reachable child responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 1;
+FStepCount := 7;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Start child 2 while child 1 finishes with Failed"}
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[1].Result := E_Result.Failed;
+FSteps[3].Children[2].State := E_State.Running;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].ExpectedStartChild := 2;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].MaxActiveChildCount := 2;
+{endregion}
+
+{region "04 - Release Failed child 1 and start child 3"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[1].Result := E_Result.Failed;
+FSteps[4].Children[2].State := E_State.Running;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].Children[3].State := E_State.Running;
+FSteps[4].Children[3].Ready := FALSE;
+FSteps[4].ExpectedStartChild := 3;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[2] := 1;
+FSteps[4].ExpectedReservations[3] := 1;
+FSteps[4].ExpectedReleasedEntries[1] := 1;
+FSteps[4].MaxActiveChildCount := 2;
+{endregion}
+
+{region "05 - Remaining children complete without helper Error"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Failed;
+FSteps[5].Children[2].State := E_State.Completed;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[2].Complete := TRUE;
+FSteps[5].Children[2].Result := E_Result.Passed;
+FSteps[5].Children[3].State := E_State.Completed;
+FSteps[5].Children[3].Ready := FALSE;
+FSteps[5].Children[3].Complete := TRUE;
+FSteps[5].Children[3].Result := E_Result.Passed;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedReservations[2] := 1;
+FSteps[5].ExpectedReservations[3] := 1;
+FSteps[5].MaxActiveChildCount := 2;
+{endregion}
+
+{region "06 - Release both siblings and finish the whole group"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Failed;
+FSteps[6].Children[2].State := E_State.Completed;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].Children[2].Complete := TRUE;
+FSteps[6].Children[2].Result := E_Result.Passed;
+FSteps[6].Children[3].State := E_State.Completed;
+FSteps[6].Children[3].Ready := FALSE;
+FSteps[6].Children[3].Complete := TRUE;
+FSteps[6].Children[3].Result := E_Result.Passed;
+FSteps[6].ExpectedFinished := TRUE;
+FSteps[6].ExpectedReleasedEntries[2] := 1;
+FSteps[6].ExpectedReleasedEntries[3] := 1;
+FSteps[6].MaxActiveChildCount := 0;
+{endregion}
+
+{region "07 - Keep completion stable with neutral helper Result"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Failed;
+FSteps[7].Children[2].State := E_State.Completed;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[2].Complete := TRUE;
+FSteps[7].Children[2].Result := E_Result.Passed;
+FSteps[7].Children[3].State := E_State.Completed;
+FSteps[7].Children[3].Ready := FALSE;
+FSteps[7].Children[3].Complete := TRUE;
+FSteps[7].Children[3].Result := E_Result.Passed;
+FSteps[7].ExpectedFinished := TRUE;
+FSteps[7].MaxActiveChildCount := 0;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

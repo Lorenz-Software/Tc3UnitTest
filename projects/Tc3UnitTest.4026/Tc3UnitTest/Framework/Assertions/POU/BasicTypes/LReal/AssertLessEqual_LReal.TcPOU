@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLessEqual_LReal" Id="{d6b79a39-935f-4942-a7ec-5c7d5909bde1}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at most Maximum.</summary>
+<description>
+
+All checked operands and bounds must be finite; NaN or either infinity reports Error
+during active evaluation.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLessEqual_LReal EXTENDS AssertionBase
+VAR_INPUT
+    IN : LREAL; //! Actual value checked or observed by this Assertion.
+    Maximum : LREAL; //! Inclusive upper bound of the comparison; for a range, must not be below Minimum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2535644a-b239-4f6f-b714-79fcac46dd6f}" />
+    <Method Name="Assert" Id="{6215f8db-c71c-4856-95ae-57ecfbabc5dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at most Maximum.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := IN) THEN
+    Error(Message := 'Assertion error: IN must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := Maximum) THEN
+    Error(Message := 'Assertion error: Maximum must be finite.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN > Maximum THEN
+    MaximumText := CreateAssertionTextValue_LReal(Value := Maximum);
+    ActualText := CreateAssertionTextValue_LReal(Value := IN);
+    Message := CONCAT('Assertion failed: value is above maximum. Maximum = ',
+        MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

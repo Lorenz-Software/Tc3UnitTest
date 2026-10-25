@@ -1,0 +1,105 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqualTolerance_Real" Id="{e8c0f7f1-7bbb-40a6-af5f-c8a3d25415dd}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality within absolute tolerance, including its boundary in
+equality.</summary>
+<description>
+
+All checked operands and bounds must be finite; NaN or either infinity reports Error
+during active evaluation.
+
+Tolerance is absolute, in the same units as the values, finite and non-negative. Its
+default zero requests exact comparison. The equality boundary is inclusive; larger differences
+are unequal. Difference checking avoids overflow for large finite operands.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqualTolerance_Real EXTENDS AssertionBase
+VAR_INPUT
+    IN : REAL; //! Actual value checked or observed by this Assertion.
+    Expected : REAL; //! Reference value for comparison with IN.
+    Tolerance : REAL := 0.0; //! Maximum absolute difference accepted as equal; must be finite and non-negative.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2b24b94f-5e48-4607-8400-55b2411c7f1a}" />
+    <Method Name="Assert" Id="{203fb306-276e-4715-99c4-a74e18d179b4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality within absolute tolerance, including its boundary in equality.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+    ToleranceText : STRING(GVL_Constants.AssertionValueLength);
+    IsWithinTolerance : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := IN) THEN
+    Error(Message := 'Assertion error: IN must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := Expected) THEN
+    Error(Message := 'Assertion error: Expected must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := Tolerance) THEN
+    Error(Message := 'Assertion error: Tolerance must be finite.');
+    RETURN;
+END_IF;
+
+IF Tolerance < 0.0 THEN
+    ToleranceText := CreateAssertionTextValue_Real(Value := Tolerance);
+    Message := CONCAT('Assertion error: tolerance must not be negative. Tolerance = ',
+        ToleranceText);
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IsWithinTolerance := IsWithinTolerance_Real(IN := IN,
+    Expected := Expected,
+    Tolerance := Tolerance);
+IF NOT IsWithinTolerance THEN
+    ExpectedText := CreateAssertionTextValue_Real(Value := Expected);
+    ActualText := CreateAssertionTextValue_Real(Value := IN);
+    ToleranceText := CreateAssertionTextValue_Real(Value := Tolerance);
+    Message := CONCAT('Assertion failed: values differ more than tolerance. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, ', Tolerance = ');
+    Message := CONCAT(Message, ToleranceText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

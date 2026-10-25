@@ -1,0 +1,45 @@
+* text=auto
+
+*.md text eol=crlf
+*.ps1 text eol=crlf
+*.psm1 text eol=crlf
+*.toml text eol=crlf
+*.yaml text eol=crlf
+*.yml text eol=crlf
+
+*.sln text eol=crlf
+*.tsproj text eol=crlf
+*.plcproj text eol=crlf
+*.tpr text eol=crlf
+*.xti text eol=crlf
+*.tmc text eol=crlf
+*.tmcRefac text eol=crlf
+*.TcPOU text eol=crlf
+*.TcDUT text eol=crlf
+*.TcGVL text eol=crlf
+*.TcTTO text eol=crlf
+*.TcVis text eol=crlf
+*.TcVMO text eol=crlf
+*.TcGTLO text eol=crlf
+*.xml text eol=crlf
+
+*.tpzip filter=lfs diff=lfs merge=lfs -text
+*.tszip filter=lfs diff=lfs merge=lfs -text
+*.tnzip filter=lfs diff=lfs merge=lfs -text
+*.zip filter=lfs diff=lfs merge=lfs -text
+*.7z filter=lfs diff=lfs merge=lfs -text
+*.iso filter=lfs diff=lfs merge=lfs -text
+*.library filter=lfs diff=lfs merge=lfs -text
+*.compiled-library filter=lfs diff=lfs merge=lfs -text
+*.compiled-library-v3 filter=lfs diff=lfs merge=lfs -text
+*.pdf filter=lfs diff=lfs merge=lfs -text
+*.docx filter=lfs diff=lfs merge=lfs -text
+*.xlsx filter=lfs diff=lfs merge=lfs -text
+*.pptx filter=lfs diff=lfs merge=lfs -text
+*.jpg filter=lfs diff=lfs merge=lfs -text
+*.jpeg filter=lfs diff=lfs merge=lfs -text
+*.png filter=lfs diff=lfs merge=lfs -text
+
+# Small branding source assets are stored directly in Git.
+/tools/documentation/projects/tc3-unittest/assets/lorenz-software.png -filter -diff -merge -text
+/tools/documentation/projects/tc3-unittest/assets/lorenz-software-symbol.png -filter -diff -merge -text

@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayContainsValue_Int" Id="{cd3a704c-38e8-422d-a447-700e7cfb23f4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Searches the selected IN range for Expected; invalid configuration reports
+Error.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayContainsValue_Int EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of searched elements, from 1 through 255.
+    Expected : INT; //! Reference value for comparison with IN.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF INT; //! Read-only search data; keep stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{c6d29eab-3689-49a2-9cc0-f90662d696c8}" />
+    <Method Name="Assert" Id="{1c56d18b-8834-4c82-8253-899d7b1ef5bf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration before searching the selected range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ValueFound : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+ValueFound := FALSE;
+FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    ValueFound := IN[InIndex] = Expected;
+    IF ValueFound THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF NOT ValueFound THEN
+    ExpectedText := INT_TO_STRING(Expected);
+    Message := CONCAT('Assertion failed: array range does not contain Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Range = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ']');
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

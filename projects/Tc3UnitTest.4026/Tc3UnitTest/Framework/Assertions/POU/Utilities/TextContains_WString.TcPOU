@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextContains_WString" Id="{8a6b1651-fa06-4999-a701-9fa85ab2bc86}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Searches for a nonempty fragment by exact code-unit comparison without copies. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextContains_WString : BOOL //! TRUE when the nonempty Fragment occurs in Value.
+VAR_IN_OUT CONSTANT
+    Value : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Fragment : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only nonempty text fragment searched for in Value.
+END_VAR
+VAR
+    ValueLength : DINT;
+    FragmentLength : DINT;
+    StartIndex : DINT;
+    CharacterIndex : DINT;
+    MatchesFragment : BOOL;
+END_VAR
+VAR CONSTANT
+    Terminator : WORD := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextContains_WString := FALSE;
+
+FOR ValueLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Value[ValueLength] = Terminator THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+FOR FragmentLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Fragment[FragmentLength] = Terminator THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF (FragmentLength = 0) OR (FragmentLength > ValueLength) THEN
+    RETURN;
+END_IF;
+
+FOR StartIndex := 0 TO ValueLength - FragmentLength DO
+    MatchesFragment := TRUE;
+    FOR CharacterIndex := 0 TO FragmentLength - 1 DO
+        IF Value[StartIndex + CharacterIndex] <> Fragment[CharacterIndex] THEN
+            MatchesFragment := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+
+    IF MatchesFragment THEN
+        TextContains_WString := TRUE;
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,743 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestCaseLifecycleTestBase" Id="{121084f5-87ed-4609-80ec-8d8cc023fb57}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Drives and checks an isolated TestCaseBase-derived subject using explicit scenario checkpoints.
+</summary>
+
+<description>
+
+Roles and isolation
+
+The outer Test Case is the selftest; FSubject is the object under test.
+
+FSubject executes the real inherited lifecycle, not a copied Sequencer.
+
+Subject and child-Assertion events remain in FCapture.
+
+Outer checking Assertions report through the regular framework publisher.
+
+An expected subject Failed or Error result can therefore pass the outer selftest.
+BindSubjectParent supplies the containing Suite identity; only this test calls FSubject.
+
+Scenario checkpoints
+
+ConfigureScenario supplies FSteps with stimuli and independent expectations.
+A step is a checkpoint, not a subject lifecycle state.
+ProcessTests applies the stimuli and calls the subject once per active cycle.
+ProcessAssertions checks the resulting status and trace before the next step starts.
+Waiting checkpoints may span several PLC cycles without blocking the task.
+
+Hook observations
+
+The subject records each Process* and AggregateResults method entry:
+method, current state and received Enable.
+The trace covers one subject call and is separate from event logging.
+Comparing these entries tests the agreed call order, including state changes
+between two hooks in the same call.
+
+Terminal and repeat-run evidence
+
+Optional event checkpoints count Result, Aggregation and Completed transitions in the
+isolated capture. No entries are deleted; a subject Reset retains earlier event evidence.
+Quiet-call checks reject any new event; runtime checks distinguish clearing from holding.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT TestCaseLifecycleTestBase EXTENDS TestCaseBase
+VAR
+    FSteps : ARRAY[1..StepCapacity] OF ST_LifecycleStep;
+    FStepCount : INT;
+    FSubjectPreparationCount : INT;
+    FSubjectTestCount : INT;
+    FSubjectParent : I_TestSuite;
+    FSubject : TestCaseLifecycleProbe;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FFixtureValid : BOOL;
+    FStepIndex : INT := 1;
+    FCheckPerformed : BOOL;
+    FObserved : ST_TestCaseStatus;
+    FHookOrderMatches : BOOL;
+    FHookStatesMatch : BOOL;
+    FHookEnableMatches : BOOL;
+    FCheckState : AssertEqual_Int;
+    FCheckResult : AssertEqual_Int;
+    FCheckReady : AssertEqual_Bool;
+    FCheckStatusReady : AssertEqual_Bool;
+    FCheckTotalCount : AssertEqual_UInt;
+    FCheckPassedCount : AssertEqual_UInt;
+    FCheckFailedCount : AssertEqual_UInt;
+    FCheckHookCount : AssertEqual_UInt;
+    FCheckHookOrder : AssertTrue;
+    FCheckHookStates : AssertTrue;
+    FCheckHookEnable : AssertTrue;
+    FCheckTraceBound : AssertFalse;
+    FCheckNoLostEvents : AssertEqual_UDInt;
+    FSubjectConfig : ST_TestCaseConfig;
+    FObservationReady : BOOL;
+    FCheckHasError : AssertEqual_Bool;
+    FCheckStatusError : AssertEqual_Bool;
+    FCheckTimeout : AssertEqual_Bool;
+    FCheckPreparationTimeout : AssertEqual_Bool;
+    FCheckResetTimeout : AssertEqual_Bool;
+    FCheckAbortTimeout : AssertEqual_Bool;
+    FPreviousRuntime : TIME;
+    FSequenceBeforeCall : UDINT;
+    FCheckFinalization : AssertTrue;
+    FCheckQuietCall : AssertTrue;
+    FCheckRuntime : AssertTrue;
+    FCheckStatusProjection : AssertTrue;
+END_VAR
+VAR CONSTANT
+    StepCapacity : INT := 24;
+    CaptureLength : UINT := 256;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{212ad695-2ea2-4c61-900f-25d2c9dfec3a}" />
+    <Method Name="AggregateResults" Id="{8f2e6ecc-5b72-4f10-9506-dab418a4010b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes every outer Assertion once without advancing the fixture.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FCheckState);
+Aggregator.AddProvider(Provider := FCheckResult);
+Aggregator.AddProvider(Provider := FCheckReady);
+Aggregator.AddProvider(Provider := FCheckStatusReady);
+Aggregator.AddProvider(Provider := FCheckTotalCount);
+Aggregator.AddProvider(Provider := FCheckPassedCount);
+Aggregator.AddProvider(Provider := FCheckFailedCount);
+Aggregator.AddProvider(Provider := FCheckHookCount);
+Aggregator.AddProvider(Provider := FCheckHookOrder);
+Aggregator.AddProvider(Provider := FCheckHookStates);
+Aggregator.AddProvider(Provider := FCheckHookEnable);
+Aggregator.AddProvider(Provider := FCheckTraceBound);
+Aggregator.AddProvider(Provider := FCheckNoLostEvents);
+Aggregator.AddProvider(Provider := FCheckHasError);
+Aggregator.AddProvider(Provider := FCheckStatusError);
+Aggregator.AddProvider(Provider := FCheckTimeout);
+Aggregator.AddProvider(Provider := FCheckPreparationTimeout);
+Aggregator.AddProvider(Provider := FCheckResetTimeout);
+Aggregator.AddProvider(Provider := FCheckAbortTimeout);
+Aggregator.AddProvider(Provider := FCheckFinalization);
+Aggregator.AddProvider(Provider := FCheckQuietCall);
+Aggregator.AddProvider(Provider := FCheckRuntime);
+Aggregator.AddProvider(Provider := FCheckStatusProjection);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AreFinalizationEventsValid" Id="{f7de05ce-eb69-467b-bfee-495758280199}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks retained finalization evidence against this checkpoint, without deriving expected counts from the subject.</summary>
+<description>
+The local capture is never consumed or overwritten within a scenario. Entries therefore
+remain in publication order from index 1. The guard rejects loss or an unexpected layout.
+Only this subject's owner events count; Assertion findings remain separate evidence.
+Each Result must be followed by one Aggregation in Completing and then a Completed transition.
+</description>
+*)
+{endregion}
+METHOD PRIVATE AreFinalizationEventsValid : BOOL //! TRUE when finalization checking is disabled or the retained ordered owner events match this checkpoint.
+VAR
+    Index : UINT;
+    Event : REFERENCE TO ST_Event;
+    ResultCount : UINT;
+    AggregationCount : UINT;
+    CompletionCount : UINT;
+    LastResult : E_Result;
+    PreviousSequence : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AreFinalizationEventsValid := TRUE;
+IF NOT FSteps[FStepIndex].CheckFinalization THEN
+    RETURN;
+END_IF;
+AreFinalizationEventsValid := FALSE;
+IF FCaptureFifo.ConfigError OR FCaptureFifo.IndexError
+    OR (FCaptureStatus.LostEventCount <> 0)
+    OR (FCaptureFifo.ElementCount >= CaptureLength)
+    OR (FCaptureFifo.IndexOut <> 1)
+    OR (FCaptureStatus.SequenceId <> UINT_TO_UDINT(FCaptureFifo.ElementCount)) THEN
+    RETURN;
+END_IF;
+
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    Event REF= FEvents[Index];
+    IF Event.SequenceId <= PreviousSequence THEN
+        RETURN;
+    END_IF;
+    PreviousSequence := Event.SequenceId;
+    IF (Event.OwnerScope <> E_OwnerScope.TestCase) OR (Event.Name <> FSubject.Name) THEN
+        CONTINUE;
+    END_IF;
+
+    CASE Event.EventType OF
+        E_EventType.Result:
+            IF (Event.State <> E_State.Completing)
+                OR (ResultCount <> CompletionCount) OR (AggregationCount <> CompletionCount) THEN
+                RETURN;
+            END_IF;
+            ResultCount := ResultCount + 1;
+            LastResult := Event.Result;
+
+        E_EventType.Aggregation:
+            IF (Event.State <> E_State.Completing) OR (Event.Result <> LastResult)
+                OR (ResultCount <> AggregationCount + 1) OR (AggregationCount <> CompletionCount) THEN
+                RETURN;
+            END_IF;
+            AggregationCount := AggregationCount + 1;
+
+        E_EventType.StateTransition:
+            IF Event.State = E_State.Completed THEN
+                IF (ResultCount <> CompletionCount + 1) OR (AggregationCount <> ResultCount) THEN
+                    RETURN;
+                END_IF;
+                CompletionCount := CompletionCount + 1;
+            END_IF;
+    ELSE
+        // Triggers and technical diagnostics do not finalize the owner.
+        CONTINUE;
+    END_CASE;
+END_FOR;
+
+IF (ResultCount <> FSteps[FStepIndex].ExpectedFinalizationCount)
+    OR (AggregationCount <> FSteps[FStepIndex].ExpectedFinalizationCount)
+    OR (CompletionCount <> FSteps[FStepIndex].ExpectedCompletionCount) THEN
+    RETURN;
+END_IF;
+IF (ResultCount > 0) AND (LastResult <> FSteps[FStepIndex].ExpectedFinalResult) THEN
+    RETURN;
+END_IF;
+
+AreFinalizationEventsValid := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{969b0499-f51e-4d3f-8bf3-10a4f46237ee}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies the real containing Suite identity before this outer Test Case is initialized.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_TestSuite; //! Borrowed identity parent retained for isolated subject initialization; keep the Suite alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{56dcff52-36da-4e89-b5d4-45096d09bb76}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires a complete cycle table, a valid fixture and all evaluating Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.
+
+VAR
+    Index : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+IF (FStepCount < 1) OR (FStepCount > StepCapacity) OR NOT FFixtureValid THEN
+    RETURN;
+END_IF;
+IF NOT FCheckState.IsInitialized
+    OR NOT FCheckResult.IsInitialized
+    OR NOT FCheckReady.IsInitialized
+    OR NOT FCheckStatusReady.IsInitialized
+    OR NOT FCheckTotalCount.IsInitialized
+    OR NOT FCheckPassedCount.IsInitialized
+    OR NOT FCheckFailedCount.IsInitialized
+    OR NOT FCheckHookCount.IsInitialized
+    OR NOT FCheckHookOrder.IsInitialized
+    OR NOT FCheckHookStates.IsInitialized
+    OR NOT FCheckHookEnable.IsInitialized
+    OR NOT FCheckTraceBound.IsInitialized
+    OR NOT FCheckNoLostEvents.IsInitialized
+    OR NOT FCheckHasError.IsInitialized
+    OR NOT FCheckStatusError.IsInitialized
+    OR NOT FCheckTimeout.IsInitialized
+    OR NOT FCheckPreparationTimeout.IsInitialized
+    OR NOT FCheckResetTimeout.IsInitialized
+    OR NOT FCheckAbortTimeout.IsInitialized
+    OR NOT FCheckFinalization.IsInitialized
+    OR NOT FCheckQuietCall.IsInitialized
+    OR NOT FCheckRuntime.IsInitialized
+    OR NOT FCheckStatusProjection.IsInitialized THEN
+    RETURN;
+END_IF;
+
+FOR Index := 1 TO FStepCount DO
+    IF (FSteps[Index].ExpectedHookCount < 1)
+        OR (FSteps[Index].ExpectedHookCount > 6) THEN
+        RETURN;
+    END_IF;
+END_FOR;
+
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CompareHookTrace" Id="{dddfa1eb-88ce-4c5d-8ced-84c123875170}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares the bounded trace with independently authored hook order, state and enable expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CompareHookTrace
+VAR
+    Index : UINT;
+    Observed : ST_LifecycleHook;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Compare against the scenario's explicit trace, never against an expectation derived from FSubject.
+// Count is checked separately so extra calls cannot pass just because the expected prefix matches.
+FHookOrderMatches := TRUE;
+FHookStatesMatch := TRUE;
+FHookEnableMatches := TRUE;
+FOR Index := 1 TO FSteps[FStepIndex].ExpectedHookCount DO
+    Observed := FSubject.GetHook(Index := Index);
+    FHookOrderMatches := FHookOrderMatches AND (Observed.Hook = FSteps[FStepIndex].ExpectedHooks[Index].Hook);
+    FHookStatesMatch := FHookStatesMatch AND (Observed.State = FSteps[FStepIndex].ExpectedHooks[Index].State);
+    FHookEnableMatches := FHookEnableMatches AND (Observed.Enabled = FSteps[FStepIndex].ExpectedHooks[Index].Enabled);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{1f128f00-b589-47aa-9eec-ec7cc368223e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines the scenario, initializes isolated capture and names the evaluating Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Index : INT;
+    EmptyStep : ST_LifecycleStep;
+    DefaultConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// Each row starts independently from the DUT defaults, not from the preceding row.
+FOR Index := 1 TO StepCapacity DO
+    FSteps[Index] := EmptyStep;
+END_FOR;
+FStepCount := 0;
+FSubjectPreparationCount := 0;
+FSubjectTestCount := 1;
+FSubjectConfig := DefaultConfig;
+ConfigureScenario();
+// Outer Test states identify checkpoints; subject state counts belong to the separate fixture.
+FPreparationStateCount := 0;
+FTestStateCount := FStepCount;
+FStepIndex := 1;
+FCheckPerformed := FALSE;
+FObservationReady := FALSE;
+FFixtureValid := InitializeSubject();
+
+// These Assertions judge the subject and report through the regular selftest publisher.
+FCheckState.Initialize(Parent := THIS^,
+    AssertionName := 'State');
+FCheckResult.Initialize(Parent := THIS^,
+    AssertionName := 'Result');
+FCheckReady.Initialize(Parent := THIS^,
+    AssertionName := 'Ready');
+FCheckStatusReady.Initialize(Parent := THIS^,
+    AssertionName := 'StatusReady');
+FCheckTotalCount.Initialize(Parent := THIS^,
+    AssertionName := 'TotalCount');
+FCheckPassedCount.Initialize(Parent := THIS^,
+    AssertionName := 'PassedCount');
+FCheckFailedCount.Initialize(Parent := THIS^,
+    AssertionName := 'FailedCount');
+FCheckHookCount.Initialize(Parent := THIS^,
+    AssertionName := 'HookCount');
+FCheckHookOrder.Initialize(Parent := THIS^,
+    AssertionName := 'HookOrder');
+FCheckHookStates.Initialize(Parent := THIS^,
+    AssertionName := 'HookStates');
+FCheckHookEnable.Initialize(Parent := THIS^,
+    AssertionName := 'HookEnable');
+FCheckTraceBound.Initialize(Parent := THIS^,
+    AssertionName := 'TraceBound');
+FCheckNoLostEvents.Initialize(Parent := THIS^,
+    AssertionName := 'NoLostEvents');
+FCheckHasError.Initialize(Parent := THIS^,
+    AssertionName := 'HasError');
+FCheckStatusError.Initialize(Parent := THIS^,
+    AssertionName := 'StatusError');
+FCheckTimeout.Initialize(Parent := THIS^,
+    AssertionName := 'Timeout');
+FCheckPreparationTimeout.Initialize(Parent := THIS^,
+    AssertionName := 'PreparationTimeout');
+FCheckResetTimeout.Initialize(Parent := THIS^,
+    AssertionName := 'ResetTimeout');
+FCheckAbortTimeout.Initialize(Parent := THIS^,
+    AssertionName := 'AbortTimeout');
+FCheckFinalization.Initialize(Parent := THIS^,
+    AssertionName := 'Finalization');
+FCheckQuietCall.Initialize(Parent := THIS^,
+    AssertionName := 'QuietCall');
+FCheckRuntime.Initialize(Parent := THIS^,
+    AssertionName := 'Runtime');
+FCheckStatusProjection.Initialize(Parent := THIS^,
+    AssertionName := 'StatusProjection');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ConfigureScenario" Id="{7f8e5993-9d46-490f-ad52-5ad4fedf788c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines phase counts and a bounded, explicit stimulus/expectation table.</summary>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeSubject" Id="{2ae9d2f4-4b20-4f3a-821d-7ddc7aa7e608}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rebuilds only the isolated fixture with a fresh buffer and the agreed pre-use binding.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeSubject : BOOL //! TRUE when isolated capture and controlled Test Case initialization both succeed.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[InitializeSubject := FALSE;
+IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    RETURN;
+END_IF;
+
+// Bind before Initialize: even initialization diagnostics must stay in the local capture.
+// The Suite supplies identity only; the subject is driven exclusively by this outer test.
+FSubject.Bind(Publisher := FCapture,
+    PreparationCount := FSubjectPreparationCount,
+    TestCount := FSubjectTestCount);
+InitializeSubject := FSubject.Initialize(Parent := FSubjectParent,
+    TestName := 'Subject',
+    Config := FSubjectConfig);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{df30bcee-3914-4b9d-bb43-2d486dfb331c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Stops invoking the local subject; it owns no external resource.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{82edd863-4ddf-40cd-976b-cb5740fa9d91}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates the captured lifecycle and trace; disabled calls still consume pending Assertion resets.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    EvaluateChecks : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[// A waiting row has no final observation yet. Still call the Assertions disabled
+// so pending Assertion resets are processed through their normal cyclic path.
+EvaluateChecks := Enable AND FObservationReady;
+
+FCheckState(Enable := EvaluateChecks,
+    State := State,
+    IN := TO_INT(FSubject.State),
+    Expected := TO_INT(FSteps[FStepIndex].ExpectedState));
+FCheckResult(Enable := EvaluateChecks,
+    State := State,
+    IN := TO_INT(FSubject.Result),
+    Expected := TO_INT(FSteps[FStepIndex].ExpectedResult));
+FCheckReady(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.IsReady,
+    Expected := FSteps[FStepIndex].ExpectedReady);
+FCheckStatusReady(Enable := EvaluateChecks,
+    State := State,
+    IN := FObserved.Execution.Ready,
+    Expected := FSteps[FStepIndex].ExpectedReady);
+FCheckTotalCount(Enable := EvaluateChecks,
+    State := State,
+    IN := FObserved.AssertionCountTotal,
+    Expected := 2);
+FCheckPassedCount(Enable := EvaluateChecks,
+    State := State,
+    IN := FObserved.AssertionCountPassed,
+    Expected := FSteps[FStepIndex].ExpectedPassedCount);
+FCheckFailedCount(Enable := EvaluateChecks,
+    State := State,
+    IN := FObserved.AssertionCountFailed,
+    Expected := FSteps[FStepIndex].ExpectedFailedCount);
+FCheckHookCount(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HookCount,
+    Expected := FSteps[FStepIndex].ExpectedHookCount);
+FCheckHookOrder(Enable := EvaluateChecks,
+    State := State,
+    IN := FHookOrderMatches);
+FCheckHookStates(Enable := EvaluateChecks,
+    State := State,
+    IN := FHookStatesMatch);
+FCheckHookEnable(Enable := EvaluateChecks,
+    State := State,
+    IN := FHookEnableMatches);
+FCheckTraceBound(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.TraceOverflow);
+FCheckNoLostEvents(Enable := EvaluateChecks,
+    State := State,
+    IN := FCaptureStatus.LostEventCount,
+    Expected := 0);
+FCheckHasError(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HasError,
+    Expected := FSteps[FStepIndex].ExpectedResult = E_Result.Error);
+FCheckStatusError(Enable := EvaluateChecks,
+    State := State,
+    IN := FObserved.Execution.Error,
+    Expected := FSteps[FStepIndex].ExpectedResult = E_Result.Error);
+FCheckTimeout(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HasTimeout,
+    Expected := FSteps[FStepIndex].ExpectedTimeout);
+FCheckPreparationTimeout(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HasPreparationTimeout,
+    Expected := FSteps[FStepIndex].ExpectedPreparationTimeout);
+FCheckResetTimeout(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HasResetTimeout,
+    Expected := FSteps[FStepIndex].ExpectedResetTimeout);
+FCheckAbortTimeout(Enable := EvaluateChecks,
+    State := State,
+    IN := FSubject.HasAbortTimeout,
+    Expected := FSteps[FStepIndex].ExpectedAbortTimeout);
+
+FCheckFinalization(Enable := EvaluateChecks,
+    State := State,
+    IN := AreFinalizationEventsValid());
+FCheckQuietCall(Enable := EvaluateChecks,
+    State := State,
+    IN := NOT FSteps[FStepIndex].ExpectQuietCall
+        OR (FCaptureStatus.SequenceId = FSequenceBeforeCall));
+FCheckRuntime(Enable := EvaluateChecks,
+    State := State,
+    IN := (NOT FSteps[FStepIndex].ExpectRuntimeCleared OR (FObserved.Runtime = T#0ms))
+        AND (NOT FSteps[FStepIndex].ExpectRuntimeHeld OR (FObserved.Runtime = FPreviousRuntime)));
+FCheckStatusProjection(Enable := EvaluateChecks,
+    State := State,
+    IN := (FObserved.Execution.State = FSteps[FStepIndex].ExpectedState)
+        AND (FObserved.Execution.Result = FSteps[FStepIndex].ExpectedResult)
+        AND (FObserved.Execution.Completed = (FSteps[FStepIndex].ExpectedState = E_State.Completed))
+        AND (FObserved.Execution.Uninitialized = (FSteps[FStepIndex].ExpectedState = E_State.Uninitialized))
+        AND (FObserved.Execution.Aborted = ((FSteps[FStepIndex].ExpectedState = E_State.Completed)
+            AND (FSteps[FStepIndex].ExpectedResult = E_Result.Abort)))
+        AND NOT FObserved.Execution.ConfigError);
+
+// Do not advance merely because checks were called: their evaluation gate must be active.
+// Results remain latched across checkpoints, so a later matching row cannot hide a failure.
+IF EvaluateChecks
+    AND FCheckState.EvaluationActive
+    AND FCheckResult.EvaluationActive
+    AND FCheckReady.EvaluationActive
+    AND FCheckStatusReady.EvaluationActive
+    AND FCheckTotalCount.EvaluationActive
+    AND FCheckPassedCount.EvaluationActive
+    AND FCheckFailedCount.EvaluationActive
+    AND FCheckHookCount.EvaluationActive
+    AND FCheckHookOrder.EvaluationActive
+    AND FCheckHookStates.EvaluationActive
+    AND FCheckHookEnable.EvaluationActive
+    AND FCheckTraceBound.EvaluationActive
+    AND FCheckNoLostEvents.EvaluationActive
+    AND FCheckHasError.EvaluationActive
+    AND FCheckStatusError.EvaluationActive
+    AND FCheckTimeout.EvaluationActive
+    AND FCheckPreparationTimeout.EvaluationActive
+    AND FCheckResetTimeout.EvaluationActive
+    AND FCheckAbortTimeout.EvaluationActive
+    AND FCheckFinalization.EvaluationActive
+    AND FCheckQuietCall.EvaluationActive
+    AND FCheckRuntime.EvaluationActive
+    AND FCheckStatusProjection.EvaluationActive THEN
+    FCheckPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{b9401285-98e5-4d1d-9672-4385e9254711}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No outer Preparation phase is needed; subject Preparation is test stimulus.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook without an outer Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{9f1b8d79-0fa9-4436-b341-41b6e92ebb0f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reinitializes the isolated subject/capture and clears outer Assertion results for repeatable runs.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepIndex := 1;
+FCheckPerformed := FALSE;
+FObservationReady := FALSE;
+FCheckState.Reset();
+FCheckResult.Reset();
+FCheckReady.Reset();
+FCheckStatusReady.Reset();
+FCheckTotalCount.Reset();
+FCheckPassedCount.Reset();
+FCheckFailedCount.Reset();
+FCheckHookCount.Reset();
+FCheckHookOrder.Reset();
+FCheckHookStates.Reset();
+FCheckHookEnable.Reset();
+FCheckTraceBound.Reset();
+FCheckNoLostEvents.Reset();
+FCheckHasError.Reset();
+FCheckStatusError.Reset();
+FCheckTimeout.Reset();
+FCheckPreparationTimeout.Reset();
+FCheckResetTimeout.Reset();
+FCheckAbortTimeout.Reset();
+FCheckFinalization.Reset();
+FCheckQuietCall.Reset();
+FCheckRuntime.Reset();
+FCheckStatusProjection.Reset();
+// Reset of the OUTER test rebuilds its fixture for repeatability.
+// Reset of the SUBJECT is a separate scenario stimulus in FSteps, not this setup operation.
+FFixtureValid := InitializeSubject();
+IF NOT FFixtureValid THEN
+    Error(Message := 'Lifecycle subject setup failed.');
+END_IF;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{cd4fc91d-c4d7-4a7d-a425-06420d5d0b21}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes exactly one subject call per active outer cycle and checks every step before advancing.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+// Advance only after ProcessAssertions evaluated the previous checkpoint.
+// A failed check is retained by the outer Assertion; evaluation does not imply success.
+FObservationReady := FALSE;
+IF FCheckPerformed THEN
+    FCheckPerformed := FALSE;
+    IF FStepIndex = FStepCount THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStepIndex := FStepIndex + 1;
+    NextTestState();
+    IF NOT IsTestingActive THEN
+        RETURN;
+    END_IF;
+END_IF;
+
+// Act as the subject's owner: reserve first, then submit the row's one-shot requests.
+// Request priority itself is exercised by the subject, not preselected by this driver.
+IF FSteps[FStepIndex].RequestReset THEN
+    IF FSubject.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+        Error(Message := 'Lifecycle fixture could not reserve Reset events.');
+        RETURN;
+    END_IF;
+    FSubject.RequestReset();
+END_IF;
+IF FSteps[FStepIndex].RequestStart THEN
+    IF FSubject.ReserveExecutionEvents() <> E_EventReservationResult.Accepted THEN
+        Error(Message := 'Lifecycle fixture could not reserve execution events.');
+        RETURN;
+    END_IF;
+    FSubject.RequestStart();
+END_IF;
+
+IF FSteps[FStepIndex].RequestAbort THEN
+    FSubject.RequestAbort();
+END_IF;
+
+FPreviousRuntime := FObserved.Runtime;
+FSequenceBeforeCall := FCaptureStatus.SequenceId;
+
+// One synchronous subject call produces the status and hook trace for this checkpoint.
+FSubject(Ready := FSteps[FStepIndex].Ready,
+    ResetCompleted := FSteps[FStepIndex].ResetCompleted,
+    PreparationTargetReached := FSteps[FStepIndex].PreparationTargetReached,
+    AdvancePreparation := FSteps[FStepIndex].AdvancePreparation,
+    FinishPreparations := FSteps[FStepIndex].FinishPreparations,
+    AdvanceTest := FSteps[FStepIndex].AdvanceTest,
+    FinishTests := FSteps[FStepIndex].FinishTests,
+    AssertionCondition := FSteps[FStepIndex].AssertionCondition,
+    AbortCompleted := FSteps[FStepIndex].AbortCompleted,
+    ResetError := FSteps[FStepIndex].ResetError,
+    TestError := FSteps[FStepIndex].TestError,
+    AbortError := FSteps[FStepIndex].AbortError,
+    PreparationError := FSteps[FStepIndex].PreparationError);
+FObserved := FSubject.Status;
+// Timeout scenarios keep calling once per cycle, without reissuing the preceding request.
+// Any state other than WaitingState is checked below, including an unexpected transition.
+IF FSteps[FStepIndex].WaitForTransition
+    AND (FSubject.State = FSteps[FStepIndex].WaitingState) THEN
+    RETURN;
+END_IF;
+
+// The following ProcessAssertions call may now evaluate this observation.
+FObservationReady := TRUE;
+CompareHookTrace();
+// Release the local reservation at a stable boundary, but retain captured events.
+IF FSubject.IsReady OR FSubject.IsComplete THEN
+    IF NOT FSubject.FreeReservedEvents() THEN
+        Error(Message := 'Lifecycle fixture could not release its reservation.');
+    END_IF;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

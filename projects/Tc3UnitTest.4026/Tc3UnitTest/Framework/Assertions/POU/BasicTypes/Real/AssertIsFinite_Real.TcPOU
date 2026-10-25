@@ -1,0 +1,67 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertIsFinite_Real" Id="{e5e5740b-fecd-4a75-b675-79248ea50885}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that IN is a finite value.</summary>
+<description>
+
+NaN and either infinity are legitimate checked data, not configuration errors.
+Classification mismatch reports Failed. Bit-based classification does not perform an ordered
+floating-point comparison.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertIsFinite_Real EXTENDS AssertionBase
+VAR_INPUT
+    IN : REAL; //! Value to classify; NaN and both infinities are valid inputs.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{afe5f7a6-8db9-4201-a94c-6969cdc26c37}" />
+    <Method Name="Assert" Id="{a6310000-0000-4000-8000-000000000001}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Classifies the bit representation without floating-point arithmetic.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Representation : AssertionRealRepresentation;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+VAR CONSTANT
+    ExponentMask : DWORD := DWORD#16#7F800000;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+Representation.Value := IN;
+IF (Representation.Bits AND ExponentMask) = ExponentMask THEN
+    Message := CONCAT('Assertion failed: expected a finite value. Actual = ',
+        CreateAssertionTextValue_Real(Value := IN));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

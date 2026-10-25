@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextEndsWith_String" Id="{e166bbc6-1122-4015-b7a2-368c37b603bd}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exact suffix comparison without copies; an empty suffix matches. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextEndsWith_String : BOOL //! TRUE when Value ends with Suffix; an empty Suffix matches.
+VAR_IN_OUT CONSTANT
+    Value : STRING(Param_Assertions.AssertionStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Suffix : STRING(Param_Assertions.AssertionStringLength); //! Read-only suffix compared by code unit; an empty value matches in this helper.
+END_VAR
+VAR
+    CharacterIndex : DINT;
+    ValueLength : DINT;
+    SuffixLength : DINT;
+    SuffixStartIndex : DINT;
+END_VAR
+VAR CONSTANT
+    Terminator : BYTE := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextEndsWith_String := FALSE;
+
+FOR ValueLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Value[ValueLength] = Terminator THEN
+    {analysis +175}
+        EXIT;
+    END_IF;
+END_FOR;
+
+FOR SuffixLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Suffix[SuffixLength] = Terminator THEN
+    {analysis +175}
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF SuffixLength > ValueLength THEN
+    RETURN;
+END_IF;
+
+SuffixStartIndex := ValueLength - SuffixLength;
+FOR CharacterIndex := 0 TO SuffixLength - 1 DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Value[SuffixStartIndex + CharacterIndex] <> Suffix[CharacterIndex] THEN
+    {analysis +175}
+        RETURN;
+    END_IF;
+END_FOR;
+
+TextEndsWith_String := TRUE;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

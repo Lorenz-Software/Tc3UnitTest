@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestCaseConfig" Id="{1d282276-84ad-4682-88a3-ec3af8b09c9d}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Test Case timeout configuration; identity is supplied separately during Initialize.</summary>
+<description>
+Copied by Initialize and held fixed for execution; every timeout must be positive. Timeout covers active Starting, Preparation and Test processing. PreparationTimeout bounds each active Preparation state and restarts on a permitted next-state transition. ResetTimeout begins on actual entry into Reset; parent reservation waiting happens before its Reset request and is supervised by the Suite. Abort escalation retains the original abort deadline.
+</description>
+*)
+{endregion}
+TYPE ST_TestCaseConfig :
+STRUCT
+    Timeout : TIME := T#5s; //! Positive execution timeout, including child progress; TIME uses milliseconds.
+    PreparationTimeout : TIME := T#2s; //! Positive timeout per active Preparation state; TIME uses milliseconds.
+    ResetTimeout : TIME := T#1s; //! Positive timeout from entry into Reset for scenario cleanup; TIME uses milliseconds.
+    AbortTimeout : TIME := T#1s; //! Positive timeout for controlled abort completion; TIME uses milliseconds.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

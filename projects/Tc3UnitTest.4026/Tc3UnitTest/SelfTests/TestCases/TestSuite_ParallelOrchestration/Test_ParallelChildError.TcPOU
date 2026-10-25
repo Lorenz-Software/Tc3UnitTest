@@ -1,0 +1,138 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ParallelChildError" Id="{4431d028-07ea-401d-814d-e8bfd8a041f9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Stops new parallel Starts on child Error and observes owner-selected Abort of the remaining active sibling.</summary>
+<description>
+Child 1 enters its error-abort path while child 2 starts. The helper must retain Error and
+not start child 3. The owner then supplies Abort explicitly; already-aborting child 1 and
+never-started child 3 receive no redundant Abort.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ParallelChildError EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2cea1839-0b8d-45c5-84fc-21f2035b6e4f}" />
+    <Method Name="ConfigureScenario" Id="{4bb0af2e-7aea-4d3d-8269-65bf6652e1e9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reachable child responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 1;
+FStepCount := 8;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start child 1 normally"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Start child 2 while child 1 enters its error path"}
+FSteps[3].Children[1].State := E_State.AbortingFromError;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Result := E_Result.Error;
+FSteps[3].Children[2].State := E_State.Running;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].ExpectedStartChild := 2;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].MaxActiveChildCount := 2;
+{endregion}
+
+{region "04 - Observe child Error and suppress child 3 Start"}
+FSteps[4].Children[1].State := E_State.AbortingFromError;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Result := E_Result.Error;
+FSteps[4].Children[2].State := E_State.Running;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].ExpectedReservations[2] := 1;
+FSteps[4].MaxActiveChildCount := 2;
+FSteps[4].ExpectedResult := E_Result.Error;
+FSteps[4].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "05 - Owner selects Abort for remaining active work"}
+FSteps[5].Task := E_OrchestratorTask.Abort;
+FSteps[5].Children[1].State := E_State.AbortingFromError;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Result := E_Result.Error;
+FSteps[5].Children[2].State := E_State.Aborting;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[2].Result := E_Result.Abort;
+FSteps[5].ExpectedReservations[1] := 1;
+FSteps[5].ExpectedReservations[2] := 1;
+FSteps[5].ExpectedAbortRequests[2] := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+FSteps[5].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "06 - Both active children reach terminal states"}
+FSteps[6].Task := E_OrchestratorTask.Abort;
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Error;
+FSteps[6].Children[2].State := E_State.Completed;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].Children[2].Complete := TRUE;
+FSteps[6].Children[2].Result := E_Result.Abort;
+FSteps[6].ExpectedReservations[1] := 1;
+FSteps[6].ExpectedReservations[2] := 1;
+FSteps[6].ExpectedResult := E_Result.Error;
+FSteps[6].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "07 - Release terminal reservations and finish Abort"}
+FSteps[7].Task := E_OrchestratorTask.Abort;
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Error;
+FSteps[7].Children[2].State := E_State.Completed;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[2].Complete := TRUE;
+FSteps[7].Children[2].Result := E_Result.Abort;
+FSteps[7].ExpectedAbortFinished := TRUE;
+FSteps[7].ExpectedReleasedEntries[1] := 1;
+FSteps[7].ExpectedReleasedEntries[2] := 1;
+FSteps[7].ExpectedResult := E_Result.Error;
+FSteps[7].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "08 - Repeated Abort neither redispatches nor republishes"}
+FSteps[8].Task := E_OrchestratorTask.Abort;
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Error;
+FSteps[8].Children[2].State := E_State.Completed;
+FSteps[8].Children[2].Ready := FALSE;
+FSteps[8].Children[2].Complete := TRUE;
+FSteps[8].Children[2].Result := E_Result.Abort;
+FSteps[8].ExpectedAbortFinished := TRUE;
+FSteps[8].ExpectedResult := E_Result.Error;
+FSteps[8].ExpectedDiagnosticCount := 1;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

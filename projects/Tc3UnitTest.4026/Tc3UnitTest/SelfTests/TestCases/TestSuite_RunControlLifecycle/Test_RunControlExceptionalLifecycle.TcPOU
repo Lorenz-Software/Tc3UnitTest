@@ -1,0 +1,764 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlExceptionalLifecycle" Id="{37a890b5-8e76-417d-aea8-3b26590fe82d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exercises Root error and Abort paths through controlled child/helper observations.</summary>
+<description>
+
+Scenario ownership
+
+Each instance runs one selected scenario. Production root sequencing, timers, result handling
+and publication stay unchanged. The local helper supplies observations, never child scheduling.
+Only the isolated subject writes to the local capture; checking Assertions use the normal publisher.
+
+Script and call order
+
+RunStep arranges one cycle, calls the subject once, then checks the expected owner response.
+FNextStep is accepted only after checking Assertions ran. Child snapshots are applied by the
+subject's ProcessTestSuites, so child errors affect the result in that call and the next Sequencer call.
+
+Timeout and recovery
+
+Timeout scenarios withhold completion for the real configured deadline. Waiting
+repeats a checkpoint, not subject calls within a cycle. The outer Test Case timeout bounds a
+missing transition. An independent scheduled-task stopwatch checks that deadlines are neither early nor restarted
+on Abort-to-error escalation. This checks lifecycle timing, not physical clock calibration.
+Completed calls continue child processing, including late child completion after root timeout.
+A recorded interface-call boundary verifies that the root leaves child requests and resource
+release to its selected helper rather than adding direct cleanup calls. The controlled helper
+itself does not model reservations; real resource release belongs to composition integration.
+Every scenario ends with a successful lifecycle Reset without replacing bindings or configuration.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlExceptionalLifecycle EXTENDS TestCaseBase
+VAR_INPUT
+    Scenario : E_RunControlLifecycleScenario := E_RunControlLifecycleScenario.ResetError; //! Fixed scenario selection supplied by the containing Suite on every call.
+END_VAR
+VAR
+    FControl : ST_RunControl;
+    FDeadlineTimer : Stopwatch;
+    FCompletedSequence : UDINT;
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FFirstChild : ST_OrchestrationObservation;
+    FSecondChild : ST_OrchestrationObservation;
+    FStep : INT;
+    FNextStep : INT;
+    FStepChecked : BOOL;
+    FSubjectCallCount : UINT;
+    FExpectedTimeout : BOOL;
+    FExpectedResetTimeout : BOOL;
+    FExpectedAbortTimeout : BOOL;
+    FStatePath : AssertTrue;
+    FStatePathMatches : BOOL := TRUE;
+    FTaskMapping : AssertTrue;
+    FTaskMappingMatches : BOOL := TRUE;
+    FResultStatus : AssertTrue;
+    FResultStatusMatches : BOOL := TRUE;
+    FTimeoutFlags : AssertTrue;
+    FTimeoutFlagsMatches : BOOL := TRUE;
+    FChildCalls : AssertTrue;
+    FChildCallsMatches : BOOL := TRUE;
+    FEventEvidence : AssertTrue;
+    FEventEvidenceMatches : BOOL := TRUE;
+    FDeadline : AssertTrue;
+    FDeadlineMatches : BOOL := TRUE;
+    FDelegation : AssertTrue;
+    FDelegationMatches : BOOL := TRUE;
+    FRecovery : AssertTrue;
+    FRecoveryMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    ShortTimeout : TIME := T#50ms;
+    Setup : INT := 0;
+    ObserveInitialReset : INT := 1;
+    InitialResetResponse : INT := 2;
+    HoldResetError : INT := 3;
+    FinishFailedReset : INT := 4;
+    StartExecution : INT := 5;
+    ReachRunning : INT := 6;
+    ApplyStimulus : INT := 7;
+    ObserveChildError : INT := 8;
+    ObserveAbortResponse : INT := 9;
+    FinishChildren : INT := 10;
+    FinishHelper : INT := 11;
+    CheckCompleted : INT := 12;
+    HoldCompleted : INT := 13;
+    LateChildrenFinish : INT := 14;
+    RecoveryReset : INT := 15;
+    RecoveryReady : INT := 16;
+    Done : INT := 17;
+    AwaitEscalatedAbortTimeout : INT := 18;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{75d93a89-9154-4539-9770-dc840d6d1f57}" />
+    <Method Name="AggregateResults" Id="{b2f96a08-310a-4b08-b4e6-834428b46a10}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FStatePath);
+Aggregator.AddProvider(Provider := FTaskMapping);
+Aggregator.AddProvider(Provider := FResultStatus);
+Aggregator.AddProvider(Provider := FTimeoutFlags);
+Aggregator.AddProvider(Provider := FChildCalls);
+Aggregator.AddProvider(Provider := FEventEvidence);
+Aggregator.AddProvider(Provider := FRecovery);
+Aggregator.AddProvider(Provider := FDeadline);
+Aggregator.AddProvider(Provider := FDelegation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckEventEvidence" Id="{63806c24-1d24-4faf-944f-22047bd48326}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exceptional finalization and diagnostics; failed Reset must have no Abort transition.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckEventEvidence
+VAR
+    Index : UINT;
+    DiagnosticCount : UINT;
+    AbortTransitionCount : UINT;
+    ResultCount : UINT;
+    AggregationCount : UINT;
+    CompletedCount : UINT;
+    ResultSequence : UDINT;
+    AggregationSequence : UDINT;
+    CompletedSequence : UDINT;
+    ExpectedResult : E_Result := E_Result.Error;
+    PayloadMatches : BOOL := TRUE;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Scenario = E_RunControlLifecycleScenario.Abort THEN
+    ExpectedResult := E_Result.Abort;
+END_IF;
+FOR Index := 1 TO CaptureLength DO
+    IF (FEvents[Index].SequenceId = 0) OR (FEvents[Index].Name <> FSubject.Name) THEN
+        CONTINUE;
+    END_IF;
+    CASE FEvents[Index].EventType OF
+        E_EventType.Result:
+            ResultCount := ResultCount + 1;
+            ResultSequence := FEvents[Index].SequenceId;
+            PayloadMatches := PayloadMatches
+                AND (FEvents[Index].OwnerScope = E_OwnerScope.RunControl)
+                AND (FEvents[Index].State = E_State.Completing)
+                AND (FEvents[Index].Result = ExpectedResult);
+        E_EventType.Aggregation:
+            AggregationCount := AggregationCount + 1;
+            AggregationSequence := FEvents[Index].SequenceId;
+            PayloadMatches := PayloadMatches
+                AND (FEvents[Index].OwnerScope = E_OwnerScope.RunControl)
+                AND (FEvents[Index].State = E_State.Completing)
+                AND (FEvents[Index].Result = ExpectedResult);
+        E_EventType.StateTransition:
+            IF FEvents[Index].State = E_State.Completed THEN
+                CompletedCount := CompletedCount + 1;
+                CompletedSequence := FEvents[Index].SequenceId;
+            END_IF;
+    END_CASE;
+    IF (FEvents[Index].EventType = E_EventType.Framework)
+        AND (FEvents[Index].Severity = E_EventSeverity.Error) THEN
+        DiagnosticCount := DiagnosticCount + 1;
+    END_IF;
+    IF (FEvents[Index].EventType = E_EventType.StateTransition)
+        AND ((FEvents[Index].State = E_State.Aborting)
+            OR (FEvents[Index].State = E_State.AbortingFromError)) THEN
+        AbortTransitionCount := AbortTransitionCount + 1;
+    END_IF;
+END_FOR;
+IF Scenario = E_RunControlLifecycleScenario.Abort THEN
+    FEventEvidenceMatches := DiagnosticCount = 0;
+ELSIF (Scenario = E_RunControlLifecycleScenario.ResetErrorTimeout)
+    OR (Scenario = E_RunControlLifecycleScenario.AbortErrorTimeout) THEN
+    FEventEvidenceMatches := DiagnosticCount = 2;
+ELSE
+    FEventEvidenceMatches := DiagnosticCount = 1;
+END_IF;
+IF (Scenario = E_RunControlLifecycleScenario.ResetError) OR (Scenario = E_RunControlLifecycleScenario.ResetTimeout)
+    OR (Scenario = E_RunControlLifecycleScenario.ResetErrorTimeout) THEN
+    FEventEvidenceMatches := FEventEvidenceMatches AND (AbortTransitionCount = 0);
+ELSE
+    FEventEvidenceMatches := FEventEvidenceMatches AND (AbortTransitionCount > 0);
+END_IF;
+FEventEvidenceMatches := FEventEvidenceMatches AND PayloadMatches
+    AND (ResultCount = 1) AND (AggregationCount = 1) AND (CompletedCount = 1)
+    AND (ResultSequence < AggregationSequence) AND (AggregationSequence < CompletedSequence)
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{171a911a-7fbd-4afc-97ce-e7e2a9f6caea}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FStatePath.Initialize(Parent := THIS^,
+    AssertionName := 'StatePath');
+FTaskMapping.Initialize(Parent := THIS^,
+    AssertionName := 'TaskMapping');
+FResultStatus.Initialize(Parent := THIS^,
+    AssertionName := 'ResultStatus');
+FTimeoutFlags.Initialize(Parent := THIS^,
+    AssertionName := 'TimeoutFlags');
+FChildCalls.Initialize(Parent := THIS^,
+    AssertionName := 'ChildCalls');
+FEventEvidence.Initialize(Parent := THIS^,
+    AssertionName := 'EventEvidence');
+FRecovery.Initialize(Parent := THIS^,
+    AssertionName := 'Recovery');
+FDeadline.Initialize(Parent := THIS^,
+    AssertionName := 'Deadline');
+FDelegation.Initialize(Parent := THIS^,
+    AssertionName := 'Delegation');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{327be74d-94e1-4a6a-8c8a-43e15ae12d48}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{66eb47ac-4d7d-4cf1-a308-2f687837b384}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks every subject cycle before advancing, retaining failures across waiting and recovery.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStatePath(Enable := Enable,
+    State := State,
+    IN := FStatePathMatches);
+FTaskMapping(Enable := Enable,
+    State := State,
+    IN := FTaskMappingMatches);
+FResultStatus(Enable := Enable,
+    State := State,
+    IN := FResultStatusMatches);
+FTimeoutFlags(Enable := Enable,
+    State := State,
+    IN := FTimeoutFlagsMatches);
+FChildCalls(Enable := Enable,
+    State := State,
+    IN := FChildCallsMatches);
+FEventEvidence(Enable := Enable,
+    State := State,
+    IN := FEventEvidenceMatches);
+FRecovery(Enable := Enable,
+    State := State,
+    IN := FRecoveryMatches);
+FDeadline(Enable := Enable,
+    State := State,
+    IN := FDeadlineMatches);
+FDelegation(Enable := Enable,
+    State := State,
+    IN := FDelegationMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{fc7ba708-23be-4eed-8b0b-96a12e8ebf8c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{082f9071-a1e7-4c76-b558-daefbfcf1afe}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FNextStep := Setup;
+FStepChecked := FALSE;
+FSubjectCallCount := 0;
+FExpectedTimeout := FALSE;
+FExpectedResetTimeout := FALSE;
+FExpectedAbortTimeout := FALSE;
+FStatePathMatches := TRUE;
+FTaskMappingMatches := TRUE;
+FResultStatusMatches := TRUE;
+FTimeoutFlagsMatches := TRUE;
+FChildCallsMatches := TRUE;
+FEventEvidenceMatches := TRUE;
+FRecoveryMatches := TRUE;
+FStatePath.Reset();
+FTaskMapping.Reset();
+FResultStatus.Reset();
+FTimeoutFlags.Reset();
+FChildCalls.Reset();
+FEventEvidence.Reset();
+FRecovery.Reset();
+FDeadline.Reset();
+FDelegation.Reset();
+FDeadlineMatches := TRUE;
+FDelegationMatches := TRUE;
+FDeadlineTimer.Reset();
+FCompletedSequence := 0;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{fc13ca20-26ec-40db-98d2-33a2a886437a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    FStep := FNextStep;
+    FStepChecked := FALSE;
+END_IF;
+IF FStep = Done THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{b2dc1db2-d31e-4d8f-9272-ee6e45e20e57}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Arranges one error-path checkpoint and checks the real root; timeout waits use further PLC cycles.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_RunConfig;
+    Snapshot : ST_RunControlStatus;
+    ExpectedState : E_State;
+    ExpectedTask : E_OrchestratorTask;
+    ExpectedResult : E_Result;
+    FinalResult : E_Result;
+    WaitForTimeout : BOOL;
+    WaitingState : E_State;
+    WaitingTask : E_OrchestratorTask;
+    WaitingResult : E_Result := E_Result.NotEvaluated;
+    FirstCalls : ST_OrchestrationCalls;
+    LastCalls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDeadlineTimer.Update();
+FNextStep := FStep + 1;
+ExpectedResult := E_Result.NotEvaluated;
+ExpectedTask := E_OrchestratorTask.Idle;
+FinalResult := E_Result.Error;
+IF Scenario = E_RunControlLifecycleScenario.Abort THEN
+    FinalResult := E_Result.Abort;
+END_IF;
+
+CASE FStep OF
+    Setup:
+        CASE Scenario OF
+            E_RunControlLifecycleScenario.ResetTimeout, E_RunControlLifecycleScenario.ResetErrorTimeout:
+                Config.ResetTimeout := ShortTimeout;
+            E_RunControlLifecycleScenario.ExecutionTimeout:
+                Config.Timeout := ShortTimeout;
+            E_RunControlLifecycleScenario.AbortTimeout, E_RunControlLifecycleScenario.AbortErrorTimeout:
+                Config.AbortTimeout := ShortTimeout;
+        ELSE
+            // Other scenarios use the ordinary positive deadlines.
+        END_CASE;
+        Config.CompletionDelay := T#0ms;
+        IF NOT FCapture.Initialize(Buffer := FEvents,
+            FifoControl := FCaptureFifo,
+            Status := FCaptureStatus) THEN
+            Error(Message := 'Exceptional root capture could not be initialized.');
+            RETURN;
+        END_IF;
+        FHelper.BeginScenario();
+        FSubject.Bind(Publisher := FCapture,
+            Helper := FHelper,
+            Config := Config);
+        IF NOT FSubject.Initialize(Name := 'ExceptionalSubject',
+            EventBuffer := FCapture) THEN
+            Error(Message := 'Exceptional root subject could not be initialized.');
+            RETURN;
+        END_IF;
+        FDeadlineTimer.Start();
+        FFirstChild.State := E_State.Reset;
+        FFirstChild.Result := E_Result.NotEvaluated;
+        FFirstChild.Ready := FALSE;
+        FFirstChild.Complete := FALSE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    ObserveInitialReset:
+        FFirstChild.State := E_State.Reset;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    InitialResetResponse:
+        CASE Scenario OF
+            E_RunControlLifecycleScenario.ResetError, E_RunControlLifecycleScenario.ResetErrorTimeout:
+                FHelper.SetObservation(Ready := FALSE,
+                    Result := E_Result.Error);
+                FFirstChild.State := E_State.Completed;
+                FFirstChild.Result := E_Result.Error;
+                FFirstChild.Complete := TRUE;
+                ExpectedState := E_State.Reset;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Reset;
+                FNextStep := HoldResetError;
+
+            E_RunControlLifecycleScenario.ResetTimeout:
+                WaitForTimeout := TRUE;
+                WaitingState := E_State.Reset;
+                WaitingTask := E_OrchestratorTask.Reset;
+                ExpectedState := E_State.Completing;
+                ExpectedResult := E_Result.Error;
+                FNextStep := CheckCompleted;
+        ELSE
+            FHelper.SetObservation(Ready := TRUE,
+                ResetFinished := TRUE);
+            FFirstChild.State := E_State.Idle;
+            FFirstChild.Ready := TRUE;
+            FSecondChild := FFirstChild;
+            ExpectedState := E_State.Idle;
+            FNextStep := StartExecution;
+        END_CASE;
+
+    HoldResetError:
+        // Another Reset request must not clear the held error or abandon the unfinished child.
+        FSubject.RequestReset();
+        ExpectedState := E_State.Reset;
+        ExpectedResult := E_Result.Error;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    FinishFailedReset:
+        ExpectedState := E_State.Completing;
+        ExpectedResult := E_Result.Error;
+        FNextStep := CheckCompleted;
+        IF Scenario = E_RunControlLifecycleScenario.ResetErrorTimeout THEN
+            WaitForTimeout := TRUE;
+            WaitingState := E_State.Reset;
+            WaitingTask := E_OrchestratorTask.Reset;
+            WaitingResult := E_Result.Error;
+        ELSE
+            FHelper.SetObservation(Ready := FALSE,
+                Result := E_Result.Error,
+                ResetFinished := TRUE);
+            FSecondChild.State := E_State.Idle;
+            FSecondChild.Ready := TRUE;
+        END_IF;
+
+    StartExecution:
+        FDeadlineTimer.Start();
+        FSubject.RequestStart();
+        FFirstChild.State := E_State.Running;
+        FFirstChild.Ready := FALSE;
+        ExpectedState := E_State.Starting;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    ReachRunning:
+        FHelper.SetObservation(Ready := FALSE);
+        ExpectedState := E_State.Running;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    ApplyStimulus:
+        CASE Scenario OF
+            E_RunControlLifecycleScenario.ChildError, E_RunControlLifecycleScenario.UnexpectedChildAbort:
+                FFirstChild.State := E_State.Completed;
+                FFirstChild.Complete := TRUE;
+                IF Scenario = E_RunControlLifecycleScenario.ChildError THEN
+                    FFirstChild.Result := E_Result.Error;
+                ELSE
+                    FFirstChild.Result := E_Result.Abort;
+                END_IF;
+                ExpectedState := E_State.Running;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Execution;
+                FNextStep := ObserveChildError;
+
+            E_RunControlLifecycleScenario.ExecutionError:
+                FHelper.SetObservation(Ready := FALSE,
+                    Result := E_Result.Error);
+                ExpectedState := E_State.AbortingFromError;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := FinishChildren;
+
+            E_RunControlLifecycleScenario.ExecutionTimeout:
+                WaitForTimeout := TRUE;
+                WaitingState := E_State.Running;
+                WaitingTask := E_OrchestratorTask.Execution;
+                ExpectedState := E_State.AbortingFromError;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := FinishChildren;
+
+            E_RunControlLifecycleScenario.Abort, E_RunControlLifecycleScenario.AbortError,
+                E_RunControlLifecycleScenario.AbortTimeout, E_RunControlLifecycleScenario.AbortErrorTimeout:
+                FDeadlineTimer.Start();
+                FSubject.RequestAbort();
+                FFirstChild.State := E_State.Aborting;
+                FFirstChild.Result := E_Result.Abort;
+                ExpectedState := E_State.Aborting;
+                ExpectedResult := E_Result.Abort;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := ObserveAbortResponse;
+        ELSE
+            Error(Message := 'Unsupported execution stimulus.');
+            RETURN;
+        END_CASE;
+
+    ObserveChildError:
+        ExpectedState := E_State.AbortingFromError;
+        ExpectedResult := E_Result.Error;
+        ExpectedTask := E_OrchestratorTask.Abort;
+        FNextStep := FinishChildren;
+
+    ObserveAbortResponse:
+        CASE Scenario OF
+            E_RunControlLifecycleScenario.Abort:
+                ExpectedState := E_State.Aborting;
+                ExpectedResult := E_Result.Abort;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := FinishChildren;
+            E_RunControlLifecycleScenario.AbortError:
+                FHelper.SetObservation(Ready := FALSE,
+                    Result := E_Result.Error);
+                ExpectedState := E_State.AbortingFromError;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := FinishChildren;
+            E_RunControlLifecycleScenario.AbortErrorTimeout:
+                ExpectedTask := E_OrchestratorTask.Abort;
+                IF FDeadlineTimer.ElapsedLTime < TIME_TO_LTIME(ShortTimeout) / 2 THEN
+                    ExpectedState := E_State.Aborting;
+                    ExpectedResult := E_Result.Abort;
+                    FNextStep := ObserveAbortResponse;
+                ELSE
+                    FHelper.SetObservation(Ready := FALSE,
+                        Result := E_Result.Error);
+                    ExpectedState := E_State.AbortingFromError;
+                    ExpectedResult := E_Result.Error;
+                    FNextStep := AwaitEscalatedAbortTimeout;
+                END_IF;
+            E_RunControlLifecycleScenario.AbortTimeout:
+                WaitForTimeout := TRUE;
+                WaitingState := E_State.Aborting;
+                WaitingResult := E_Result.Abort;
+                WaitingTask := E_OrchestratorTask.Abort;
+                ExpectedState := E_State.Completing;
+                ExpectedResult := E_Result.Error;
+                ExpectedTask := E_OrchestratorTask.Abort;
+                FNextStep := CheckCompleted;
+        ELSE
+            Error(Message := 'Unsupported Abort observation.');
+            RETURN;
+        END_CASE;
+
+    AwaitEscalatedAbortTimeout:
+        WaitForTimeout := TRUE;
+        WaitingState := E_State.AbortingFromError;
+        WaitingResult := E_Result.Error;
+        WaitingTask := E_OrchestratorTask.Abort;
+        ExpectedState := E_State.Completing;
+        ExpectedResult := E_Result.Error;
+        ExpectedTask := E_OrchestratorTask.Abort;
+        FNextStep := CheckCompleted;
+
+    FinishChildren:
+        FFirstChild.State := E_State.Completed;
+        FFirstChild.Ready := FALSE;
+        FFirstChild.Complete := TRUE;
+        IF Scenario <> E_RunControlLifecycleScenario.ChildError THEN
+            FFirstChild.Result := E_Result.Abort;
+        END_IF;
+        ExpectedState := E_State.AbortingFromError;
+        IF Scenario = E_RunControlLifecycleScenario.Abort THEN
+            ExpectedState := E_State.Aborting;
+        END_IF;
+        ExpectedResult := FinalResult;
+        ExpectedTask := E_OrchestratorTask.Abort;
+
+    FinishHelper:
+        FHelper.SetObservation(Ready := FALSE,
+            Result := FHelper.Result,
+            AbortFinished := TRUE);
+        ExpectedState := E_State.Completing;
+        ExpectedResult := FinalResult;
+        ExpectedTask := E_OrchestratorTask.Abort;
+
+    CheckCompleted, HoldCompleted:
+        ExpectedState := E_State.Completed;
+        ExpectedResult := FinalResult;
+
+    LateChildrenFinish:
+        IF NOT FFirstChild.Complete THEN
+            FFirstChild.State := E_State.Completed;
+            FFirstChild.Result := E_Result.Error;
+            FFirstChild.Complete := TRUE;
+            FFirstChild.Ready := FALSE;
+        END_IF;
+        FSecondChild.State := E_State.Idle;
+        FSecondChild.Result := E_Result.NotEvaluated;
+        FSecondChild.Complete := FALSE;
+        FSecondChild.Ready := TRUE;
+        ExpectedState := E_State.Completed;
+        ExpectedResult := FinalResult;
+
+    RecoveryReset:
+        FHelper.SetObservation(Ready := FALSE);
+        FSubject.RequestReset();
+        FFirstChild.State := E_State.Reset;
+        FFirstChild.Result := E_Result.NotEvaluated;
+        FFirstChild.Complete := FALSE;
+        FFirstChild.Ready := FALSE;
+        FSecondChild := FFirstChild;
+        FExpectedTimeout := FALSE;
+        FExpectedResetTimeout := FALSE;
+        FExpectedAbortTimeout := FALSE;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    RecoveryReady:
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        FFirstChild.State := E_State.Idle;
+        FFirstChild.Ready := TRUE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Idle;
+ELSE
+    Error(Message := 'Unexpected exceptional root test step.');
+    RETURN;
+END_CASE;
+
+FSubject.SetChildObservations(FirstChild := FFirstChild,
+    SecondChild := FSecondChild);
+FSubject(ControlData := FControl);
+FSubjectCallCount := FSubjectCallCount + 1;
+Snapshot := FSubject.Status;
+
+IF WaitForTimeout THEN
+    IF FSubject.State = WaitingState THEN
+        ExpectedState := WaitingState;
+        ExpectedTask := WaitingTask;
+        ExpectedResult := WaitingResult;
+        FNextStep := FStep;
+        FDeadlineMatches := FDeadlineTimer.IsValid
+            AND (FDeadlineTimer.ElapsedLTime < TIME_TO_LTIME(ShortTimeout));
+    ELSE
+        FDeadlineMatches := FDeadlineTimer.IsValid
+            AND (FDeadlineTimer.ElapsedLTime >= TIME_TO_LTIME(ShortTimeout));
+        CASE Scenario OF
+            E_RunControlLifecycleScenario.ResetTimeout, E_RunControlLifecycleScenario.ResetErrorTimeout:
+                FExpectedResetTimeout := TRUE;
+            E_RunControlLifecycleScenario.ExecutionTimeout:
+                FExpectedTimeout := TRUE;
+            E_RunControlLifecycleScenario.AbortTimeout, E_RunControlLifecycleScenario.AbortErrorTimeout:
+                FExpectedAbortTimeout := TRUE;
+        ELSE
+            Error(Message := 'Unexpected timeout-wait scenario.');
+            RETURN;
+        END_CASE;
+    END_IF;
+END_IF;
+
+FStatePathMatches := (FSubject.State = ExpectedState)
+    AND (Snapshot.Execution.State = ExpectedState)
+    AND (FControl.Status.Execution.State = ExpectedState)
+    AND (FControl.Name = FSubject.Name);
+FTaskMappingMatches := FHelper.CurrentTask = ExpectedTask;
+FResultStatusMatches := (FSubject.Result = ExpectedResult)
+    AND (Snapshot.Execution.Result = ExpectedResult)
+    AND (FControl.Status.Execution.Result = ExpectedResult)
+    AND (FSubject.HasError = (ExpectedResult = E_Result.Error))
+    AND (Snapshot.Execution.Error = (ExpectedResult = E_Result.Error))
+    AND (FSubject.IsComplete = (ExpectedState = E_State.Completed))
+    AND (Snapshot.Execution.Completed = (ExpectedState = E_State.Completed));
+FTimeoutFlagsMatches := (FSubject.HasTimeout = FExpectedTimeout)
+    AND (FSubject.HasResetTimeout = FExpectedResetTimeout)
+    AND (FSubject.HasAbortTimeout = FExpectedAbortTimeout);
+FChildCallsMatches := (FHelper.ExecuteCount = FSubjectCallCount)
+    AND (FSubject.ChildCallCount = FSubjectCallCount)
+    AND FSubject.ChildBodyCallsMatch;
+
+FirstCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound);
+LastCalls := FSubject.GetChildCalls(Index := FSubject.ChildArrayLowerBound + UINT_TO_DINT(FSubject.ChildCount) - 1);
+FDelegationMatches := (FirstCalls.StartCount = 0) AND (LastCalls.StartCount = 0)
+    AND (FirstCalls.ResetCount = 0) AND (LastCalls.ResetCount = 0)
+    AND (FirstCalls.AbortCount = 0) AND (LastCalls.AbortCount = 0)
+    AND (FirstCalls.ExecutionReservationCount = 0) AND (LastCalls.ExecutionReservationCount = 0)
+    AND (FirstCalls.ResetReservationCount = 0) AND (LastCalls.ResetReservationCount = 0)
+    AND (FirstCalls.FreeCount = 0) AND (LastCalls.FreeCount = 0);
+IF (FStep = CheckCompleted) OR (FStep = HoldCompleted) OR (FStep = LateChildrenFinish) THEN
+    CheckEventEvidence();
+    IF FStep = CheckCompleted THEN
+        FCompletedSequence := FCaptureStatus.SequenceId;
+    ELSE
+        FEventEvidenceMatches := FEventEvidenceMatches AND (FCaptureStatus.SequenceId = FCompletedSequence);
+    END_IF;
+END_IF;
+IF FStep = LateChildrenFinish THEN
+    FChildCallsMatches := FChildCallsMatches
+        AND (Snapshot.SuiteCountCompleted = 1) AND (Snapshot.SuiteCountIdle = 1);
+END_IF;
+IF FStep = RecoveryReady THEN
+    FRecoveryMatches := FSubject.IsReady AND Snapshot.Execution.Ready
+        AND (FSubject.Result = E_Result.NotEvaluated)
+        AND (FHelper.InitializeCount = 1) AND (FSubject.ConfigureCount = 1)
+        AND (FCapture.ReservedEntryCount = 0)
+        AND (FCaptureStatus.LostEventCount = 0);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

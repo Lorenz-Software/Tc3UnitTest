@@ -1,0 +1,203 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_LifecycleSinglePreparation" Id="{e9db4b9b-f2b7-450b-8894-98e8ed012a0b}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks a pending target, observation-driven handover and one explicit Test state.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_LifecycleSinglePreparation EXTENDS TestCaseLifecycleTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a76a3b41-874f-4af8-a077-a2ef045d1017}" />
+    <Method Name="ConfigureScenario" Id="{e07c2fc3-71ef-4c97-888a-01d7741e9729}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent per-call stimuli and expected lifecycle/hook observations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectPreparationCount := 1;
+FSubjectTestCount := 1;
+FStepCount := 7;
+
+{region "01 - Reset to Idle"}
+// Establish Idle through the parent Reset request; both child results must be cleared.
+FSteps[1].RequestReset := TRUE;
+FSteps[1].ExpectedState := E_State.Idle;
+FSteps[1].ExpectedResult := E_Result.NotEvaluated;
+FSteps[1].ExpectedReady := TRUE;
+FSteps[1].ExpectedPassedCount := 0;
+FSteps[1].ExpectedFailedCount := 0;
+FSteps[1].ExpectedHookCount := 6;
+FSteps[1].ExpectedHooks[1].Hook := E_LifecycleHook.Reset;
+FSteps[1].ExpectedHooks[1].State := E_State.Reset;
+FSteps[1].ExpectedHooks[1].Enabled := TRUE;
+FSteps[1].ExpectedHooks[2].Hook := E_LifecycleHook.Abort;
+FSteps[1].ExpectedHooks[2].State := E_State.Idle;
+FSteps[1].ExpectedHooks[2].Enabled := FALSE;
+FSteps[1].ExpectedHooks[3].Hook := E_LifecycleHook.Preparations;
+FSteps[1].ExpectedHooks[3].State := E_State.Idle;
+FSteps[1].ExpectedHooks[3].Enabled := FALSE;
+FSteps[1].ExpectedHooks[4].Hook := E_LifecycleHook.Tests;
+FSteps[1].ExpectedHooks[4].State := E_State.Idle;
+FSteps[1].ExpectedHooks[4].Enabled := FALSE;
+FSteps[1].ExpectedHooks[5].Hook := E_LifecycleHook.Assertions;
+FSteps[1].ExpectedHooks[5].State := E_State.Idle;
+FSteps[1].ExpectedHooks[5].Enabled := FALSE;
+FSteps[1].ExpectedHooks[6].Hook := E_LifecycleHook.Aggregate;
+FSteps[1].ExpectedHooks[6].State := E_State.Idle;
+FSteps[1].ExpectedHooks[6].Enabled := TRUE;
+{endregion}
+
+{region "02 - Accept Start"}
+// Accept Start into Starting; processing and Assertion evaluation are not active yet.
+FSteps[2].RequestStart := TRUE;
+FSteps[2].ExpectedState := E_State.Starting;
+FSteps[2].ExpectedResult := E_Result.NotEvaluated;
+FSteps[2].ExpectedReady := FALSE;
+FSteps[2].ExpectedPassedCount := 0;
+FSteps[2].ExpectedFailedCount := 0;
+FSteps[2].ExpectedHookCount := 5;
+FSteps[2].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[2].ExpectedHooks[1].State := E_State.Starting;
+FSteps[2].ExpectedHooks[1].Enabled := FALSE;
+FSteps[2].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[2].ExpectedHooks[2].State := E_State.Starting;
+FSteps[2].ExpectedHooks[2].Enabled := FALSE;
+FSteps[2].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[2].ExpectedHooks[3].State := E_State.Starting;
+FSteps[2].ExpectedHooks[3].Enabled := FALSE;
+FSteps[2].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[2].ExpectedHooks[4].State := E_State.Starting;
+FSteps[2].ExpectedHooks[4].Enabled := FALSE;
+FSteps[2].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[2].ExpectedHooks[5].State := E_State.Starting;
+FSteps[2].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "03 - Wait for Preparation target"}
+// Enter Preparing without evaluating Assertions; the target has not been reached.
+FSteps[3].ExpectedState := E_State.Preparing;
+FSteps[3].ExpectedResult := E_Result.NotEvaluated;
+FSteps[3].ExpectedReady := FALSE;
+FSteps[3].ExpectedPassedCount := 0;
+FSteps[3].ExpectedFailedCount := 0;
+FSteps[3].ExpectedHookCount := 5;
+FSteps[3].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[3].ExpectedHooks[1].State := E_State.Preparing;
+FSteps[3].ExpectedHooks[1].Enabled := FALSE;
+FSteps[3].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[3].ExpectedHooks[2].State := E_State.Preparing;
+FSteps[3].ExpectedHooks[2].Enabled := TRUE;
+FSteps[3].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[3].ExpectedHooks[3].State := E_State.Preparing;
+FSteps[3].ExpectedHooks[3].Enabled := FALSE;
+FSteps[3].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[3].ExpectedHooks[4].State := E_State.Preparing;
+FSteps[3].ExpectedHooks[4].Enabled := FALSE;
+FSteps[3].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[3].ExpectedHooks[5].State := E_State.Preparing;
+FSteps[3].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "04 - Observe target after Sequencer"}
+// Publish target completion in ProcessPreparations, after this call's Sequencer has already
+// run.
+FSteps[4].PreparationTargetReached := TRUE;
+FSteps[4].ExpectedState := E_State.Preparing;
+FSteps[4].ExpectedResult := E_Result.NotEvaluated;
+FSteps[4].ExpectedReady := FALSE;
+FSteps[4].ExpectedPassedCount := 0;
+FSteps[4].ExpectedFailedCount := 0;
+FSteps[4].ExpectedHookCount := 5;
+FSteps[4].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[4].ExpectedHooks[1].State := E_State.Preparing;
+FSteps[4].ExpectedHooks[1].Enabled := FALSE;
+FSteps[4].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[4].ExpectedHooks[2].State := E_State.Preparing;
+FSteps[4].ExpectedHooks[2].Enabled := TRUE;
+FSteps[4].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[4].ExpectedHooks[3].State := E_State.Preparing;
+FSteps[4].ExpectedHooks[3].Enabled := FALSE;
+FSteps[4].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[4].ExpectedHooks[4].State := E_State.Preparing;
+FSteps[4].ExpectedHooks[4].Enabled := FALSE;
+FSteps[4].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[4].ExpectedHooks[5].State := E_State.Preparing;
+FSteps[4].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "05 - Handover to tests on next call"}
+// The Sequencer consumes the previous completed observation and starts tests.
+// Losing the target afterwards must not reactivate Preparation or disable test evaluation.
+FSteps[5].PreparationTargetReached := FALSE;
+FSteps[5].ExpectedState := E_State.Running;
+FSteps[5].ExpectedResult := E_Result.NotEvaluated;
+FSteps[5].ExpectedReady := FALSE;
+FSteps[5].ExpectedPassedCount := 2;
+FSteps[5].ExpectedFailedCount := 0;
+FSteps[5].ExpectedHookCount := 5;
+FSteps[5].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[5].ExpectedHooks[1].State := E_State.Running;
+FSteps[5].ExpectedHooks[1].Enabled := FALSE;
+FSteps[5].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[5].ExpectedHooks[2].State := E_State.Running;
+FSteps[5].ExpectedHooks[2].Enabled := FALSE;
+FSteps[5].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[5].ExpectedHooks[3].State := E_State.Running;
+FSteps[5].ExpectedHooks[3].Enabled := TRUE;
+FSteps[5].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[5].ExpectedHooks[4].State := E_State.Running;
+FSteps[5].ExpectedHooks[4].Enabled := TRUE;
+FSteps[5].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[5].ExpectedHooks[5].State := E_State.Running;
+FSteps[5].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "06 - Complete inside test processing"}
+// CompleteTests changes phase inside ProcessTests; subsequent Assertions must already be
+// disabled.
+FSteps[6].FinishTests := TRUE;
+FSteps[6].ExpectedState := E_State.Completing;
+FSteps[6].ExpectedResult := E_Result.Passed;
+FSteps[6].ExpectedReady := FALSE;
+FSteps[6].ExpectedPassedCount := 2;
+FSteps[6].ExpectedFailedCount := 0;
+FSteps[6].ExpectedHookCount := 5;
+FSteps[6].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[6].ExpectedHooks[1].State := E_State.Running;
+FSteps[6].ExpectedHooks[1].Enabled := FALSE;
+FSteps[6].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[6].ExpectedHooks[2].State := E_State.Running;
+FSteps[6].ExpectedHooks[2].Enabled := FALSE;
+FSteps[6].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[6].ExpectedHooks[3].State := E_State.Running;
+FSteps[6].ExpectedHooks[3].Enabled := TRUE;
+FSteps[6].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[6].ExpectedHooks[4].State := E_State.Completing;
+FSteps[6].ExpectedHooks[4].Enabled := FALSE;
+FSteps[6].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[6].ExpectedHooks[5].State := E_State.Completing;
+FSteps[6].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "07 - Observe terminal completion"}
+// The following call reaches Completed; only aggregation remains in the recorded processing
+// hooks.
+FSteps[7].ExpectedState := E_State.Completed;
+FSteps[7].ExpectedResult := E_Result.Passed;
+FSteps[7].ExpectedReady := FALSE;
+FSteps[7].ExpectedPassedCount := 2;
+FSteps[7].ExpectedFailedCount := 0;
+FSteps[7].ExpectedHookCount := 1;
+FSteps[7].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[7].ExpectedHooks[1].State := E_State.Completed;
+FSteps[7].ExpectedHooks[1].Enabled := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

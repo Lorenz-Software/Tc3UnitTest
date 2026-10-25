@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestSuiteConfig" Id="{1c175f98-89f7-49c9-af48-1c321417cb4d}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>One-shot Test Suite initialization values; all timeouts must be positive.</summary>
+<description>
+Copied during Initialize and held fixed through execution; all three limits are positive. Execution Timeout includes child progress and capacity waiting. ResetTimeout bounds active Suite Reset, including subordinate admission and cleanup; the root supervises waiting before dispatching this Suite's Reset. Abort escalation preserves its original deadline. Initialization is repeatable only through the coordinated startup path, not an active-run recovery command.
+</description>
+*)
+{endregion}
+TYPE ST_TestSuiteConfig :
+STRUCT
+    Timeout : TIME := T#10s; //! Positive execution timeout, including child progress; TIME uses milliseconds.
+    ResetTimeout : TIME := T#1s; //! Positive Reset timeout, including event-capacity waiting; TIME uses milliseconds.
+    AbortTimeout : TIME := T#1s; //! Positive timeout for controlled abort completion; TIME uses milliseconds.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

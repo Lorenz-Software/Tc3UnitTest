@@ -1,0 +1,405 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionUnsignedRanges" Id="{1faae738-4d82-455a-b446-9e3ae682a5f2}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks inclusive ULINT ranges, reversed bounds and Failed-to-Error escalation.</summary>
+<description>
+Named rows separate independent comparisons by a disabled reset call.
+Only explicitly marked escalation rows retain the preceding subject result.
+Outer Assertions latch every observation before advancing to the next row.
+Intentional findings remain in the local capture; no production algorithm is copied.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionUnsignedRanges EXTENDS TestCaseBase
+VAR
+    FInRangeSubject : AssertInRange_ULInt;
+    FNotInRangeSubject : AssertNotInRange_ULInt;
+    FActual : ULINT;
+    FLower : ULINT;
+    FUpper : ULINT;
+    FExpectedInRangeResult : E_Result;
+    FExpectedNotInRangeResult : E_Result;
+    FExpectedFindings : UDINT;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FPreserveResults : BOOL;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR
+    FInRangeResult : AssertTrue;
+    FInRangeResultMatches : BOOL;
+    FNotInRangeResult : AssertTrue;
+    FNotInRangeResultMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    LowerEndpoint : UINT := 1;
+    Interior : UINT := 2;
+    UpperEndpoint : UINT := 3;
+    BelowRange : UINT := 4;
+    AboveRange : UINT := 5;
+    EqualBounds : UINT := 6;
+    ReversedBounds : UINT := 7;
+    MinimumEndpoint : UINT := 8;
+    MaximumEndpoint : UINT := 9;
+    FailureBeforeInvalid : UINT := 10;
+    InvalidAfterFailure : UINT := 11;
+    LastRow : UINT := InvalidAfterFailure;
+    LowestValue : ULINT := ULINT#0;
+    HighestValue : ULINT := ULINT#18446744073709551615;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ec1cb330-01ed-416c-a557-86d38a68475b}" />
+    <Method Name="AggregateResults" Id="{ef32f237-db2e-4785-b8e7-4ed70769c960}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInRangeResult);
+Aggregator.AddProvider(Provider := FNotInRangeResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{cc36fd42-a1fa-485a-a74d-0de9864d443e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production Assertion once using the selected row.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInRangeSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Minimum := FLower,
+    Maximum := FUpper);
+FNotInRangeSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Minimum := FLower,
+    Maximum := FUpper);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{d5fd90b9-5ee5-4779-b2c6-fb3c2dc59725}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Extends base validation with subject and checking-Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FInRangeResult.IsInitialized
+    AND FNotInRangeResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Comparison selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{d198b9e0-c9e3-4c4f-95af-c6811a443f3c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks results and isolated findings against explicit expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInRangeResultMatches := FInRangeSubject.Result = FExpectedInRangeResult;
+FNotInRangeResultMatches := FNotInRangeSubject.Result = FExpectedNotInRangeResult;
+FCaptureIntegrityMatches := (FCaptureStatus.SequenceId = FExpectedFindings)
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{4c59eec2-15d5-4377-99b1-73bdb7883de8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FInRangeResult.Initialize(Parent := THIS^,
+    AssertionName := 'InRangeResult');
+FNotInRangeResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotInRangeResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FInRangeSubject.BindPublisher(Publisher := FCapture);
+Initialized := FInRangeSubject.Initialize(Parent := THIS^,
+    AssertionName := 'InRangeSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotInRangeSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotInRangeSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotInRangeSubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{c1be04bb-830d-4e73-b91a-b9f9ec280bb3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{4d3e13db-e98b-4b84-b44d-69a975a3b9c6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FInRangeResult(Enable := Evaluate,
+    State := State,
+    IN := FInRangeResultMatches);
+FNotInRangeResult(Enable := Evaluate,
+    State := State,
+    IN := FNotInRangeResultMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{f04a7dbe-446e-4ee7-931b-5be6aa7fabaa}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{a0a5d671-4c14-4fb6-ae83-43949839291c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := LowerEndpoint;
+FRowPrepared := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FInRangeResult.Reset();
+FInRangeResultMatches := TRUE;
+FNotInRangeResult.Reset();
+FNotInRangeResultMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{f6efeca0-fc26-4c56-b362-7163d48dec64}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRow = LastRow THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FRow := FRow + 1;
+    FRowPrepared := FALSE;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    IF NOT FPreserveResults THEN
+        ResetSubjects();
+    END_IF;
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := TRUE);
+    CheckResults();
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{b83fa953-fdb2-48a1-bdf1-84a4f54fce67}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests fresh subject results before the next disabled call.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInRangeSubject.Reset();
+FNotInRangeSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{50c37fdf-f5cb-4469-84b1-f09e731938dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal expectations; only named escalation rows retain preceding subject results.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreserveResults := FALSE;
+CASE FRow OF
+    LowerEndpoint:
+        FActual := ULINT#9223372036854775807;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    Interior:
+        FActual := ULINT#9223372036854775808;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    UpperEndpoint:
+        FActual := ULINT#9223372036854775809;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    BelowRange:
+        FActual := ULINT#9223372036854775806;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Failed;
+        FExpectedNotInRangeResult := E_Result.Passed;
+        FExpectedFindings := 1;
+    AboveRange:
+        FActual := ULINT#9223372036854775810;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Failed;
+        FExpectedNotInRangeResult := E_Result.Passed;
+        FExpectedFindings := 1;
+    EqualBounds:
+        FActual := ULINT#9223372036854775808;
+        FLower := ULINT#9223372036854775808;
+        FUpper := ULINT#9223372036854775808;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    ReversedBounds:
+        FActual := ULINT#9223372036854775808;
+        FLower := ULINT#9223372036854775809;
+        FUpper := ULINT#9223372036854775807;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedNotInRangeResult := E_Result.Error;
+        FExpectedFindings := 2;
+    MinimumEndpoint:
+        FActual := LowestValue;
+        FLower := LowestValue;
+        FUpper := HighestValue;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    MaximumEndpoint:
+        FActual := HighestValue;
+        FLower := LowestValue;
+        FUpper := HighestValue;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedNotInRangeResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    FailureBeforeInvalid:
+        FActual := ULINT#9223372036854775810;
+        FLower := ULINT#9223372036854775807;
+        FUpper := ULINT#9223372036854775809;
+        FExpectedInRangeResult := E_Result.Failed;
+        FExpectedNotInRangeResult := E_Result.Passed;
+        FExpectedFindings := 1;
+    InvalidAfterFailure:
+        FActual := ULINT#9223372036854775808;
+        FLower := ULINT#9223372036854775809;
+        FUpper := ULINT#9223372036854775807;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedNotInRangeResult := E_Result.Error;
+        FExpectedFindings := 2;
+        FPreserveResults := TRUE;
+ELSE
+    Error(Message := 'Unknown comparison test row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

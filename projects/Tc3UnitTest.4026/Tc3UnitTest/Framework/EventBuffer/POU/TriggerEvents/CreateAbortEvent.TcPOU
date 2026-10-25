@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAbortEvent" Id="{3d9dffde-9dc3-4662-8a77-91d359aaf7de}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs an abort trigger event without publishing it.</summary>
+<description>
+The caller supplies valid ASCII owner context; publication assigns sequence and time.
+</description>
+*)
+{endregion}
+FUNCTION CreateAbortEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateAbortEvent.SequenceId := 0;
+CreateAbortEvent.Timestamp := 0;
+CreateAbortEvent.OwnerScope := OwnerScope;
+CreateAbortEvent.EventType := E_EventType.Trigger;
+CreateAbortEvent.Severity := E_EventSeverity.Info;
+CreateAbortEvent.Name := Name;
+CreateAbortEvent.ResourceName := ResourceName;
+CreateAbortEvent.State := State;
+CreateAbortEvent.Result := E_Result.NotEvaluated;
+CreateAbortEvent.Message := 'Abort trigger.';]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_USInt" Id="{00065f13-b73e-4df0-8893-ecba49b6bd84}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected USINT value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_USInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : USINT; //! Actual value checked or observed by this Assertion.
+    Expected : USINT; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ca59d37b-dbdf-4545-9f7c-65e2def050dd}" />
+    <Method Name="Assert" Id="{f45690ed-2e92-449f-ae26-8e281fc413cf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality with the expected USINT value.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := USINT_TO_STRING(Expected);
+    ActualText := USINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

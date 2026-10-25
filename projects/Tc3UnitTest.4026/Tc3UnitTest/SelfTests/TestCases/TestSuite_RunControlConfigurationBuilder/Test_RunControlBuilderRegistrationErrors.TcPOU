@@ -1,0 +1,312 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlBuilderRegistrationErrors" Id="{80409d16-85bd-40a9-aa5c-41717a7cbd15}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks typical setup mistakes without executing the registered child objects.</summary>
+<description>Child mocks are inert interface identities and slot storage only; no child initialization or FB call is performed.</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlBuilderRegistrationErrors EXTENDS TestCaseBase
+VAR
+    FBuilder : RunControlConfigurationBuilder;
+    FSuites : ARRAY[1..2] OF I_TestSuite;
+    FChildA : TestSuiteMock;
+    FChildB : TestSuiteMock;
+    FScenarioExecuted : BOOL;
+    FChecksEvaluated : BOOL;
+    FDuplicateRejected : AssertTrue;
+    FDuplicateRejectedMatches : BOOL;
+    FNullRejected : AssertTrue;
+    FNullRejectedMatches : BOOL;
+    FExplicitSlotRejected : AssertTrue;
+    FExplicitSlotRejectedMatches : BOOL;
+    FMissingSlotRejected : AssertTrue;
+    FMissingSlotRejectedMatches : BOOL;
+    FZeroSlotRejected : AssertTrue;
+    FZeroSlotRejectedMatches : BOOL;
+    FSlotGapRejected : AssertTrue;
+    FSlotGapRejectedMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CandidateSlotBeforeRejection : UINT := 9;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00570001-0057-4057-8057-000000000037}" />
+    <Method Name="AggregateResults" Id="{00570001-0057-4057-8057-000000000035}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each owned Assertion once without executing it.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FDuplicateRejected);
+Aggregator.AddProvider(Provider := FNullRejected);
+Aggregator.AddProvider(Provider := FExplicitSlotRejected);
+Aggregator.AddProvider(Provider := FMissingSlotRejected);
+Aggregator.AddProvider(Provider := FZeroSlotRejected);
+Aggregator.AddProvider(Provider := FSlotGapRejected);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00570001-0057-4057-8057-00000000002e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires successful base and owned Assertion initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FDuplicateRejected.IsInitialized
+    AND FNullRejected.IsInitialized
+    AND FExplicitSlotRejected.IsInitialized
+    AND FMissingSlotRejected.IsInitialized
+    AND FZeroSlotRejected.IsInitialized
+    AND FSlotGapRejected.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00570001-0057-4057-8057-00000000002d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures one direct builder scenario and its named Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FScenarioExecuted := FALSE;
+FChecksEvaluated := FALSE;
+
+FDuplicateRejectedMatches := FALSE;
+FDuplicateRejected.Initialize(Parent := THIS^,
+    AssertionName := 'DuplicateRejected');
+FNullRejectedMatches := FALSE;
+FNullRejected.Initialize(Parent := THIS^,
+    AssertionName := 'NullRejected');
+FExplicitSlotRejectedMatches := FALSE;
+FExplicitSlotRejected.Initialize(Parent := THIS^,
+    AssertionName := 'ExplicitSlotRejected');
+FMissingSlotRejectedMatches := FALSE;
+FMissingSlotRejected.Initialize(Parent := THIS^,
+    AssertionName := 'MissingSlotRejected');
+FZeroSlotRejectedMatches := FALSE;
+FZeroSlotRejected.Initialize(Parent := THIS^,
+    AssertionName := 'ZeroSlotRejected');
+FSlotGapRejectedMatches := FALSE;
+FSlotGapRejected.Initialize(Parent := THIS^,
+    AssertionName := 'SlotGapRejected');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00570001-0057-4057-8057-000000000030}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes Abort immediately; no asynchronous resource operation is started.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00570001-0057-4057-8057-000000000034}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates recorded observations and consumes pending resets on disabled calls.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDuplicateRejected(Enable := Enable,
+    State := State,
+    IN := FDuplicateRejectedMatches);
+
+FNullRejected(Enable := Enable,
+    State := State,
+    IN := FNullRejectedMatches);
+
+FExplicitSlotRejected(Enable := Enable,
+    State := State,
+    IN := FExplicitSlotRejectedMatches);
+
+FMissingSlotRejected(Enable := Enable,
+    State := State,
+    IN := FMissingSlotRejectedMatches);
+
+FZeroSlotRejected(Enable := Enable,
+    State := State,
+    IN := FZeroSlotRejectedMatches);
+
+FSlotGapRejected(Enable := Enable,
+    State := State,
+    IN := FSlotGapRejectedMatches);
+
+IF Enable AND FDuplicateRejected.EvaluationActive
+    AND FNullRejected.EvaluationActive
+    AND FExplicitSlotRejected.EvaluationActive
+    AND FMissingSlotRejected.EvaluationActive
+    AND FZeroSlotRejected.EvaluationActive
+    AND FSlotGapRejected.EvaluationActive THEN
+    FChecksEvaluated := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00570001-0057-4057-8057-00000000002f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed for synchronous builder calls.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override signature; this scenario has no Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00570001-0057-4057-8057-000000000031}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears recorded checks and Assertion results; each scenario initializes its own builder.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FScenarioExecuted := FALSE;
+FChecksEvaluated := FALSE;
+FDuplicateRejectedMatches := FALSE;
+FDuplicateRejected.Reset();
+FNullRejectedMatches := FALSE;
+FNullRejected.Reset();
+FExplicitSlotRejectedMatches := FALSE;
+FExplicitSlotRejected.Reset();
+FMissingSlotRejectedMatches := FALSE;
+FMissingSlotRejected.Reset();
+FZeroSlotRejectedMatches := FALSE;
+FZeroSlotRejected.Reset();
+FSlotGapRejectedMatches := FALSE;
+FSlotGapRejected.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00570001-0057-4057-8057-000000000032}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs setup operations once, then completes after their observations have been evaluated.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecksEvaluated THEN
+    CompleteTests();
+ELSIF NOT FScenarioExecuted THEN
+    RunScenario();
+    FScenarioExecuted := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunScenario" Id="{00570001-0057-4057-8057-000000000033}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks typical setup mistakes without executing the registered child objects.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunScenario
+VAR
+    ChildA : I_TestSuite;
+    ChildB : I_TestSuite;
+    AcceptedA : BOOL;
+    AcceptedB : BOOL;
+    Config : ST_TestSuiteCollectionConfig;
+    AcceptedAfterError : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ChildA := FChildA;
+ChildB := FChildB;
+FBuilder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FSuites);
+AcceptedA := FBuilder.Register(TestSuite := ChildA);
+AcceptedB := FBuilder.Register(TestSuite := ChildA);
+AcceptedAfterError := FBuilder.Register(TestSuite := ChildB);
+Config := FBuilder.Finalize();
+FDuplicateRejectedMatches := AcceptedA AND NOT AcceptedB AND NOT AcceptedAfterError
+    AND NOT Config.IsValid AND (FBuilder.Count = 1)
+    AND (FSuites[1] = ChildA) AND (FSuites[2] = 0) AND (FChildA.ExecutionSlot = 1);
+
+FBuilder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FSuites);
+AcceptedA := FBuilder.Register(TestSuite := ChildA);
+AcceptedB := FBuilder.Register(TestSuite := 0);
+Config := FBuilder.Finalize();
+FNullRejectedMatches := AcceptedA AND NOT AcceptedB AND NOT Config.IsValid
+    AND (FBuilder.Count = 1) AND (FSuites[1] = ChildA) AND (FSuites[2] = 0);
+
+FBuilder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FSuites);
+FChildA.ExecutionSlot := CandidateSlotBeforeRejection;
+AcceptedA := FBuilder.RegisterWithSlot(TestSuite := ChildA,
+    ExecutionSlot := 1);
+Config := FBuilder.Finalize();
+FExplicitSlotRejectedMatches := NOT AcceptedA AND NOT Config.IsValid
+    AND (FBuilder.Count = 0) AND (FSuites[1] = 0)
+    AND (FChildA.ExecutionSlot = CandidateSlotBeforeRejection);
+
+FBuilder.Initialize(Mode := E_OrchestrationMode.ParallelSlots,
+    TestSuites := FSuites);
+AcceptedA := FBuilder.Register(TestSuite := ChildA);
+Config := FBuilder.Finalize();
+FMissingSlotRejectedMatches := NOT AcceptedA AND NOT Config.IsValid
+    AND (FBuilder.Count = 0) AND (FSuites[1] = 0)
+    AND (FChildA.ExecutionSlot = CandidateSlotBeforeRejection);
+
+FBuilder.Initialize(Mode := E_OrchestrationMode.ParallelSlots,
+    TestSuites := FSuites);
+AcceptedA := FBuilder.RegisterWithSlot(TestSuite := ChildA,
+    ExecutionSlot := 0);
+Config := FBuilder.Finalize();
+FZeroSlotRejectedMatches := NOT AcceptedA AND NOT Config.IsValid
+    AND (FBuilder.Count = 0) AND (FSuites[1] = 0)
+    AND (FChildA.ExecutionSlot = CandidateSlotBeforeRejection);
+
+FBuilder.Initialize(Mode := E_OrchestrationMode.ParallelSlots,
+    TestSuites := FSuites);
+AcceptedA := FBuilder.RegisterWithSlot(TestSuite := ChildA,
+    ExecutionSlot := 1);
+AcceptedB := FBuilder.RegisterWithSlot(TestSuite := ChildB,
+    ExecutionSlot := 3);
+Config := FBuilder.Finalize();
+FSlotGapRejectedMatches := AcceptedA AND AcceptedB AND NOT Config.IsValid
+    AND FBuilder.IsFinalized AND (FBuilder.Count = 2)
+    AND (FSuites[1] = ChildA) AND (FSuites[2] = ChildB);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

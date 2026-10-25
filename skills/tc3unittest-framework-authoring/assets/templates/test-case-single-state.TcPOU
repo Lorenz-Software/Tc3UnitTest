@@ -1,0 +1,157 @@
+<?xml version="1.0" ?><TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AcceptsPositiveValue" Id="{7d03ac68-3f9a-4e30-b6bc-66978d5809a8}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the application function IsPositive accepts the requirement-defined value 1.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AcceptsPositiveValue EXTENDS Tc3UnitTest.TestCaseBase
+VAR
+    FPositive : Tc3UnitTest.AssertTrue;
+    FActual : BOOL;
+    FCheckPerformed : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{fe180cf9-0627-4841-9be6-bff8d4272db4}"/>
+    <Method Name="AggregateResults" Id="{f7a812e6-189e-46b1-8754-424e8691c520}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes the one Assertion without executing or resetting it.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : Tc3UnitTest.I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FPositive);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{65242dc7-26ec-46c5-97bc-af3ca0ca7187}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Includes the owned Assertion in the base initialization checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+IF NOT FPositive.IsInitialized THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{526fd3a6-7496-44f9-8760-27d750cfd246}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the single Boolean scenario and its single Assertion.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FActual := FALSE;
+FCheckPerformed := FALSE;
+
+FPositive.Initialize(Parent := THIS^,
+    AssertionName := 'PositiveAccepted');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{c3c255e7-f47d-46f9-9bf8-36e36e943899}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes enabled aborts; the single Boolean scenario owns no resource actions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{ec5cf720-c122-4774-95c2-955407aff164}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the Assertion even while disabled and records an actual evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPositive(Enable := Enable,
+    State := State,
+    IN := FActual);
+
+IF Enable AND FPositive.EvaluationActive THEN
+    FCheckPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{de7cbbb0-65f1-454f-8c3c-4700f5c99673}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation stage is configured for this single Boolean scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override signature; this scenario has no preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST/>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{73d01961-4a14-4729-aa32-c1e6ee2f83c7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears scenario progress and requests Assertion reset before returning to Idle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FActual := FALSE;
+FCheckPerformed := FALSE;
+FPositive.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{f2321890-4073-4630-85ba-4e41987035e8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies the computed sample, then completes on the call after evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FCheckPerformed THEN
+    CompleteTests();
+ELSE
+    FActual := IsPositive(Value := 1);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

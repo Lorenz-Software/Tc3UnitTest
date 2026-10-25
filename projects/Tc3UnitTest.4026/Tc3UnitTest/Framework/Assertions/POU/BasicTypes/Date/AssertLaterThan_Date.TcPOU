@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLaterThan_Date" Id="{2e1fb72f-77f4-4477-84e2-ffe52d4aaba6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is strictly later than Minimum.</summary>
+<description>
+
+Compares calendar days only; hidden time-of-day components are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLaterThan_Date EXTENDS AssertionBase
+VAR_INPUT
+    IN : DATE; //! Actual value checked or observed by this Assertion.
+    Minimum : DATE; //! Exclusive lower bound; the actual value or count must be greater.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{60356fbd-f605-4b8a-9a3b-593b77925a30}" />
+    <Method Name="Assert" Id="{77768acd-21a9-48c0-83c9-b7652a20eee0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF DateToDayNumber(Value := IN) <= DateToDayNumber(Value := Minimum) THEN
+    MinimumText := DATE_TO_STRING(Minimum);
+    ActualText := DATE_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not later than limit. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

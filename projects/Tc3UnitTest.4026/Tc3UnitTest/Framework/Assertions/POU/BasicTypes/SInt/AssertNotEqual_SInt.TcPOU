@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotEqual_SInt" Id="{ed5e76d4-03c8-48b1-8af5-354e649b1184}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks inequality with the forbidden SINT value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotEqual_SInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : SINT; //! Actual value checked or observed by this Assertion.
+    Expected : SINT; //! Value that must differ from IN under this Assertion's comparison rules.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3856e6bb-16ad-4084-994a-0f02ced9a5f3}" />
+    <Method Name="Assert" Id="{96a1ccd3-ceaf-4285-8d9f-96de7bf9d7a8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check inequality with the forbidden SINT value.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN = Expected THEN
+    ExpectedText := SINT_TO_STRING(Expected);
+    ActualText := SINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are equal but should differ. NotExpected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

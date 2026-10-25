@@ -1,0 +1,3 @@
+/* Project identity overrides. Structural layout and fallback colors belong to the theme. */
+:root { --author-logo-background:#fff; --author-logo-padding:16px; --author-logo-width:400px; --header-author-logo-width:32px; --accent:#126b60; --accent-soft:#e8f4ef; --header:#142638; }
+:root[data-theme="dark"] { --accent:#7dd5bd; --accent-soft:#213c37; --header:#0b1219; }

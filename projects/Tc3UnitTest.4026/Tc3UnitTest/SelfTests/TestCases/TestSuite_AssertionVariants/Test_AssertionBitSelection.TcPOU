@@ -1,0 +1,497 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionBitSelection" Id="{8e3ef7ff-2e40-4c2b-9197-9d8661299d48}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks bit selection with isolated production subjects.</summary>
+<description>
+Each independent scenario consumes a bound reset call before its evaluation call.
+ProcessAssertions checks the observation before ProcessTests advances.
+SelectScenario holds explicit expected results; no production algorithm is mirrored.
+Expected findings remain in the local capture; only outer checks affect the test result.
+FirstFailedScenario and FailedDuringEvaluation retain the first mismatch.
+The final scenario retains Failed and changes only the bit indices on the next call; Error must still escalate.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionBitSelection EXTENDS TestCaseBase
+VAR
+    FTrueBit : AssertTrueBit_LWord;
+    FTrueBitExpectedResult : E_Result;
+    FTrueBitExpectedFinding : BOOL;
+    FNotEqualBit : AssertNotEqualBit_Byte;
+    FNotEqualBitExpectedResult : E_Result;
+    FNotEqualBitExpectedFinding : BOOL;
+
+    FWideValue : LWORD;
+    FByteValue : BYTE;
+    FWideIndex : USINT;
+    FByteIndex : USINT;
+    FForbidden : BOOL;
+    FEscalating : BOOL;
+    FSubjectEnable : BOOL;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FScenario : UINT;
+    FChecked : BOOL;
+    FEvaluateSubjects : BOOL;
+    FObservationReady : BOOL;
+    FFirstFailedScenario : UINT;
+    FFailedDuringEvaluation : BOOL;
+    FResultsMatch : BOOL;
+    FResults : AssertTrue;
+    FActivityMatch : BOOL;
+    FActivity : AssertTrue;
+    FInputsMatch : BOOL;
+    FInputs : AssertTrue;
+    FFindingsMatch : BOOL;
+    FFindings : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    ScenarioLowestBit : UINT := 1;
+    ScenarioHighestBit : UINT := 2;
+    ScenarioAdjacentBit : UINT := 3;
+    ScenarioForbiddenTrue : UINT := 4;
+    ScenarioInvalidIndex : UINT := 5;
+    ScenarioFailedThenError : UINT := 6;
+    LastScenario : UINT := ScenarioFailedThenError;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{565a9f5c-54d1-4ad2-b707-5c43a5e2a069}" />
+    <Method Name="AggregateResults" Id="{6990348c-d6dd-4cde-9b89-67bbd7ccbdf3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only outer checks, not intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FResults);
+Aggregator.AddProvider(Provider := FActivity);
+Aggregator.AddProvider(Provider := FInputs);
+Aggregator.AddProvider(Provider := FFindings);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{6b522bd2-038f-4475-8526-061a86d5536f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production subject once with caller-owned input storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTrueBit(Enable := FSubjectEnable,
+    State := E_State.Running,
+    IN := FWideValue,
+    BitIndex := FWideIndex);
+FNotEqualBit(Enable := FSubjectEnable,
+    State := E_State.Running,
+    IN := FByteValue,
+    BitIndex := FByteIndex,
+    Expected := FForbidden);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFinding" Id="{1e49d210-f66b-4414-89ab-ec0d18fd78b4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one subject finding in call order; expected outcomes come from the scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFinding : BOOL //! TRUE when the required finding checks pass; calls requiring no finding also succeed.
+VAR_INPUT
+    Subject : I_Assertion; //! Assertion interface supplying the expected finding identity.
+    ExpectedResult : E_Result; //! Independently authored result expected in the captured finding.
+    ExpectedFinding : BOOL; //! TRUE when this scenario requires a finding during active evaluation.
+END_VAR
+VAR_IN_OUT
+    Index : UINT; //! One-based next finding index; advanced when this call checks a required finding.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckFinding := TRUE;
+IF FEvaluateSubjects AND ExpectedFinding THEN
+    CheckFinding := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Name = Subject.Name)
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+        AND (FEvents[Index].EventType = E_EventType.Result)
+        AND (FEvents[Index].State = E_State.Running)
+        AND (FEvents[Index].Result = ExpectedResult)
+        AND (FEvents[Index].Message <> '');
+    Index := Index + 1;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{5824909f-8a5a-4dab-97a6-6ada3ca61d06}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact finding count and identities; at most one finding per subject.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    Matches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+Matches := CheckFinding(Subject := FTrueBit,
+    ExpectedResult := FTrueBitExpectedResult,
+    ExpectedFinding := FTrueBitExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+Matches := CheckFinding(Subject := FNotEqualBit,
+    ExpectedResult := FNotEqualBitExpectedResult,
+    ExpectedFinding := FNotEqualBitExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);
+IF FEvaluateSubjects AND (FScenario = ScenarioAdjacentBit) THEN
+    // SA0175: Fixed byte-substring checks of bounded diagnostic messages; no character offsets.
+    {analysis -175}
+    FFindingsMatch := FFindingsMatch
+        AND (FIND(FEvents[1].Message, 'BitIndex = 63') > 0)
+        AND (FIND(FEvents[2].Message, 'BitIndex = 7') > 0)
+        AND (FIND(FEvents[2].Message, 'Value = 16#40') > 0);
+    {analysis +175}
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{e598a007-77a9-4327-91a0-e5dbe94dd89a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects incomplete subject, capture or outer Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FResults.IsInitialized
+    AND FActivity.IsInitialized
+    AND FInputs.IsInitialized
+    AND FFindings.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Variant selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInputs" Id="{4fb2c7dd-8900-464d-9f79-44b703ac098a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies input preservation without using the tested comparison algorithm.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckInputs]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInputsMatch := (FTrueBit.IN = FWideValue)
+    AND (FTrueBit.BitIndex = FWideIndex)
+    AND (FNotEqualBit.IN = FByteValue)
+    AND (FNotEqualBit.BitIndex = FByteIndex)
+    AND (FNotEqualBit.Expected = FForbidden);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{2bd93bae-9e63-414d-ad0b-7eb24d3bc791}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal evaluation results, or NotEvaluated on the reset call.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FEvaluateSubjects THEN
+    FResultsMatch := (FTrueBit.Result = FTrueBitExpectedResult)
+        AND (FNotEqualBit.Result = FNotEqualBitExpectedResult);
+ELSE
+    FResultsMatch := (FTrueBit.Result = E_Result.NotEvaluated)
+        AND (FNotEqualBit.Result = E_Result.NotEvaluated);
+END_IF;
+FActivityMatch := (FTrueBit.Enabled = FSubjectEnable)
+    AND (FTrueBit.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FTrueBit.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FNotEqualBit.Enabled = FSubjectEnable)
+    AND (FNotEqualBit.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FNotEqualBit.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{567dc93e-87b7-4c4b-a3e6-fe8aed46b30f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FResults.Initialize(Parent := THIS^,
+    AssertionName := 'Results');
+FActivity.Initialize(Parent := THIS^,
+    AssertionName := 'Activity');
+FInputs.Initialize(Parent := THIS^,
+    AssertionName := 'Inputs');
+FFindings.Initialize(Parent := THIS^,
+    AssertionName := 'Findings');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FTrueBit.BindPublisher(Publisher := FCapture);
+Initialized := FTrueBit.Initialize(Parent := THIS^,
+    AssertionName := 'TrueBit');
+FSetupValid := FSetupValid AND Initialized;
+FNotEqualBit.BindPublisher(Publisher := FCapture);
+Initialized := FNotEqualBit.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualBit');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{a88339d3-871c-4391-89dc-02a9f879deda}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort; no asynchronous resource is owned.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{f2cf45f7-6f25-49f4-9938-e38020016d62}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches this call's checks before progression is permitted.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FResults(Enable := Check,
+    State := State,
+    IN := FResultsMatch);
+FActivity(Enable := Check,
+    State := State,
+    IN := FActivityMatch);
+FInputs(Enable := Check,
+    State := State,
+    IN := FInputsMatch);
+FFindings(Enable := Check,
+    State := State,
+    IN := FFindingsMatch);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{148d11f6-b5b1-4177-b422-dadece43b179}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{d965b5f4-dc7f-426e-8c3b-e14a52b23cf1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the scenario sequence and outer checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FScenario := ScenarioLowestBit;
+FEscalating := FALSE;
+FChecked := FALSE;
+FSubjectEnable := FALSE;
+FEvaluateSubjects := FALSE;
+FObservationReady := FALSE;
+FFirstFailedScenario := 0;
+FFailedDuringEvaluation := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FResults.Reset();
+FActivity.Reset();
+FInputs.Reset();
+FFindings.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{91566a18-ceb4-49f2-b96c-52621ef57f06}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumes reset, evaluates, then waits for the outer checks before advancing.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FEvaluateSubjects THEN
+        IF FScenario = LastScenario THEN
+            IF FEscalating THEN
+                CompleteTests();
+                RETURN;
+            END_IF;
+            FEscalating := TRUE;
+        ELSE
+            FScenario := FScenario + 1;
+        END_IF;
+    END_IF;
+    FEvaluateSubjects := FEscalating OR NOT FEvaluateSubjects;
+END_IF;
+
+IF NOT SelectScenario() THEN
+    RETURN;
+END_IF;
+FCapture.Reset();
+IF NOT FEvaluateSubjects THEN
+    ResetSubjects();
+END_IF;
+
+CallSubjects();
+CheckResults();
+CheckInputs();
+CheckFindings();
+IF (FFirstFailedScenario = 0)
+    AND NOT (FResultsMatch AND FActivityMatch AND FInputsMatch AND FFindingsMatch) THEN
+    FFirstFailedScenario := FScenario;
+    FFailedDuringEvaluation := FEvaluateSubjects;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{2671cc4f-7f65-4ea2-831b-ca9e23ca7463}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues reset; the next bound FB call consumes it without evaluating.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTrueBit.Reset();
+FNotEqualBit.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectScenario" Id="{26ff4a75-5894-4954-aae4-7fcf3f6853af}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects explicit stimuli and expected results for one scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectScenario : BOOL //! TRUE after selecting a supported scenario and its literal expectations; FALSE reports an unknown scenario.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectScenario := FALSE;
+FSubjectEnable := TRUE;
+FWideValue := LWORD#16#0000000000000001;
+FByteValue := BYTE#16#01;
+FWideIndex := 0;
+FByteIndex := 0;
+FForbidden := FALSE;
+CASE FScenario OF
+    ScenarioLowestBit:
+        FTrueBitExpectedResult := E_Result.Passed;
+        FTrueBitExpectedFinding := FALSE;
+        FNotEqualBitExpectedResult := E_Result.Passed;
+        FNotEqualBitExpectedFinding := FALSE;
+    ScenarioHighestBit:
+        FWideValue := LWORD#16#8000000000000000;
+        FByteValue := BYTE#16#80;
+        FWideIndex := 63;
+        FByteIndex := 7;
+        FTrueBitExpectedResult := E_Result.Passed;
+        FTrueBitExpectedFinding := FALSE;
+        FNotEqualBitExpectedResult := E_Result.Passed;
+        FNotEqualBitExpectedFinding := FALSE;
+    ScenarioAdjacentBit:
+        FWideValue := LWORD#16#4000000000000000;
+        FByteValue := BYTE#16#40;
+        FWideIndex := 63;
+        FByteIndex := 7;
+        FTrueBitExpectedResult := E_Result.Failed;
+        FTrueBitExpectedFinding := TRUE;
+        FNotEqualBitExpectedResult := E_Result.Failed;
+        FNotEqualBitExpectedFinding := TRUE;
+    ScenarioForbiddenTrue:
+        FByteValue := 0;
+        FForbidden := TRUE;
+        FTrueBitExpectedResult := E_Result.Passed;
+        FTrueBitExpectedFinding := FALSE;
+        FNotEqualBitExpectedResult := E_Result.Passed;
+        FNotEqualBitExpectedFinding := FALSE;
+    ScenarioInvalidIndex:
+        FWideIndex := 64;
+        FByteIndex := 8;
+        FTrueBitExpectedResult := E_Result.Error;
+        FTrueBitExpectedFinding := TRUE;
+        FNotEqualBitExpectedResult := E_Result.Error;
+        FNotEqualBitExpectedFinding := TRUE;
+    ScenarioFailedThenError:
+        FWideValue := 0;
+        FByteValue := 0;
+        FTrueBitExpectedResult := E_Result.Failed;
+        FTrueBitExpectedFinding := TRUE;
+        FNotEqualBitExpectedResult := E_Result.Failed;
+        FNotEqualBitExpectedFinding := TRUE;
+ELSE
+    Error(Message := 'Unknown variant Assertion scenario.');
+    RETURN;
+END_CASE;
+
+IF FEscalating THEN
+    FWideIndex := 64;
+    FByteIndex := 8;
+    FTrueBitExpectedResult := E_Result.Error;
+    FNotEqualBitExpectedResult := E_Result.Error;
+END_IF;
+SelectScenario := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

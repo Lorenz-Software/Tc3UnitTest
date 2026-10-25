@@ -1,0 +1,31 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="ReservationResetChild" Id="{b4ae866e-452a-4984-bc65-f40f6ac0cc58}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Delays only the concrete Reset completion; all lifecycle and reservation processing remains inherited.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK ReservationResetChild EXTENDS ReservationChildProbe
+VAR_INPUT
+    AllowResetCompletion : BOOL := TRUE; //! FALSE holds the real child in Reset; TRUE permits inherited Reset completion.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b4bebbf7-61eb-417e-a45b-083a3c14a85c}" />
+    <Method Name="ProcessReset" Id="{fa04e567-55e6-4011-a95f-530ccfbc72ae}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes the concrete Reset only when released by the local scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF AllowResetCompletion THEN
+    SUPER^.ProcessReset();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="SelectResultSeverity" Id="{bc0e6de8-b0cb-44a1-b16b-4387541d980a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Maps an evaluation result to logging severity, not result severity.</summary>
+<description>
+Passed and Failed map to Info; NotEvaluated and Abort map to Warning. Error and all other values map to Error. Logging severity is independent of the result aggregation order.
+</description>
+*)
+{endregion}
+FUNCTION INTERNAL SelectResultSeverity : E_EventSeverity //! Logging severity corresponding to Result.
+VAR_INPUT
+    Result : E_Result; //! Evaluation result to include or classify; its numeric value is not severity order.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE Result OF
+    E_Result.NotEvaluated,
+    E_Result.Abort:
+        SelectResultSeverity := E_EventSeverity.Warning;
+    E_Result.Passed,
+    E_Result.Failed:
+        SelectResultSeverity := E_EventSeverity.Info;
+ELSE
+    SelectResultSeverity := E_EventSeverity.Error;
+END_CASE;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

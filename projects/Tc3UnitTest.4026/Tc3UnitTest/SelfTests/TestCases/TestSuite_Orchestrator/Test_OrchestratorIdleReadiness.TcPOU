@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorIdleReadiness" Id="{1d74f879-7f2a-4f08-8297-26d8e1937407}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that readiness follows prior child observations and recovers without dispatch or diagnostics.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorIdleReadiness EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9aada311-5cab-4d45-8876-2b4f8cda63f3}" />
+    <Method Name="ConfigureScenario" Id="{d0f50fe0-079e-4a9a-828e-508bdbe2c26e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 4;
+
+{region "01 - Make the second child not ready after helper observation"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].Children[2].Ready := FALSE;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Observe not-ready child without dispatch"}
+FSteps[2].Task := E_OrchestratorTask.Idle;
+FSteps[2].Children[2].Ready := FALSE;
+{endregion}
+
+{region "03 - Restore child readiness after this observation"}
+FSteps[3].Task := E_OrchestratorTask.Idle;
+{endregion}
+
+{region "04 - Observe restored readiness"}
+FSteps[4].Task := E_OrchestratorTask.Idle;
+FSteps[4].ExpectedReady := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,120 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorExecutionCapacityWait" Id="{f4dda29a-8470-4961-8ec4-d00649d7630a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Waits silently for execution capacity, then starts each child exactly once without skipping the waiting candidate.</summary>
+<description>
+A ready first child cannot reserve for three calls, as with a slow event consumer.
+Reservation responses apply before the helper; child state responses apply afterwards.
+The second child proves correct continuation after capacity returns.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorExecutionCapacityWait EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b35ec3b7-15f0-4f0f-bb19-85e78a4107eb}" />
+    <Method Name="ConfigureScenario" Id="{02680c20-692f-4507-a257-c27eff76dd78}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reservation responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildCount := 2;
+FStepCount := 10;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Wait for first child execution capacity"}
+FSteps[2].ExecutionReservationResults[1] := E_EventReservationResult.WaitingForCapacity;
+FSteps[2].ExpectedUnacceptedExecutionReservations[1] := 1;
+FSteps[2].ExpectedSlot := 1;
+{endregion}
+
+{region "03 - Wait for first child execution capacity"}
+FSteps[3].ExecutionReservationResults[1] := E_EventReservationResult.WaitingForCapacity;
+FSteps[3].ExpectedUnacceptedExecutionReservations[1] := 1;
+FSteps[3].ExpectedSlot := 1;
+{endregion}
+
+{region "04 - Wait for first child execution capacity"}
+FSteps[4].ExecutionReservationResults[1] := E_EventReservationResult.WaitingForCapacity;
+FSteps[4].ExpectedUnacceptedExecutionReservations[1] := 1;
+FSteps[4].ExpectedSlot := 1;
+{endregion}
+
+{region "05 - Capacity restored - start first child"}
+FSteps[5].Children[1].State := E_State.Running;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].ExpectedStartChild := 1;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "06 - First child completes without another Start"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Passed;
+FSteps[6].ExpectedSlot := 1;
+FSteps[6].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "07 - Release first child and select successor"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].ExpectedSlot := 2;
+FSteps[7].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "08 - Start second child exactly once"}
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Passed;
+FSteps[8].Children[2].State := E_State.Completed;
+FSteps[8].Children[2].Ready := FALSE;
+FSteps[8].Children[2].Complete := TRUE;
+FSteps[8].Children[2].Result := E_Result.Passed;
+FSteps[8].ExpectedStartChild := 2;
+FSteps[8].ExpectedSlot := 2;
+FSteps[8].ExpectedReservations[2] := 1;
+{endregion}
+
+{region "09 - Release second child and finish"}
+FSteps[9].Children[1].State := E_State.Completed;
+FSteps[9].Children[1].Ready := FALSE;
+FSteps[9].Children[1].Complete := TRUE;
+FSteps[9].Children[1].Result := E_Result.Passed;
+FSteps[9].Children[2].State := E_State.Completed;
+FSteps[9].Children[2].Ready := FALSE;
+FSteps[9].Children[2].Complete := TRUE;
+FSteps[9].Children[2].Result := E_Result.Passed;
+FSteps[9].ExpectedFinished := TRUE;
+FSteps[9].ExpectedReleasedEntries[2] := 1;
+{endregion}
+
+{region "10 - Completion remains stable without redispatch"}
+FSteps[10].Children[1].State := E_State.Completed;
+FSteps[10].Children[1].Ready := FALSE;
+FSteps[10].Children[1].Complete := TRUE;
+FSteps[10].Children[1].Result := E_Result.Passed;
+FSteps[10].Children[2].State := E_State.Completed;
+FSteps[10].Children[2].Ready := FALSE;
+FSteps[10].Children[2].Complete := TRUE;
+FSteps[10].Children[2].Result := E_Result.Passed;
+FSteps[10].ExpectedFinished := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

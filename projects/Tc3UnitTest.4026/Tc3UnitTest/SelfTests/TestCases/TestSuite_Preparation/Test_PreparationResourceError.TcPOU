@@ -1,0 +1,431 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_PreparationResourceError" Id="{e0823125-464e-40c0-8657-d8973dcd95c7}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks resource faults before actions, during progress and after completion, without failing the outer Test Case.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_PreparationResourceError EXTENDS TestCaseBase
+VAR
+    FSubject : Prepare_ValueAtTarget;
+    FResource : PreparationResource;
+    FView : I_Preparation;
+    FObserved : ST_PreparationStatus;
+    FExpected : ST_PreparationStatus;
+    FObservedEnabled : BOOL;
+    FExpectedEnabled : BOOL;
+    FCheckPerformed : BOOL;
+    FObservedCommandWrites : UDINT;
+    FExpectedCommandWrites : UDINT;
+    FObservedActualValue : DINT;
+    FExpectedActualValue : DINT;
+    FObservedRequestedValue : DINT;
+    FExpectedRequestedValue : DINT;
+    FCheckDiagnosticState : AssertEqual_Int;
+    FCheckExecutionStatus : AssertEqual_Int;
+    FCheckReady : AssertEqual_Bool;
+    FCheckRunning : AssertEqual_Bool;
+    FCheckCompleted : AssertEqual_Bool;
+    FCheckError : AssertEqual_Bool;
+    FCheckEnabled : AssertEqual_Bool;
+    FCheckCommandWrites : AssertEqual_UDInt;
+    FCheckActualValue : AssertEqual_DInt;
+    FCheckRequestedValue : AssertEqual_DInt;
+END_VAR
+VAR CONSTANT
+    FaultBeforeAction : E_State := E_State.Running;
+    RecoveredRequest : E_State := E_State.Running + 1;
+    FaultDuringProgress : E_State := E_State.Running + 2;
+    RecoveredProgress : E_State := E_State.Running + 3;
+    RecoveredTarget : E_State := E_State.Running + 4;
+    FaultAfterCompletion : E_State := E_State.Running + 5;
+    CompletionWithoutReadiness : E_State := E_State.Running + 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6f076124-ca38-47b9-9bc8-84c08c05c380}" />
+    <Method Name="AggregateResults" Id="{e54df6a3-e2a9-4a3c-a616-f09c6f8580c8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes all owned Assertion results without executing the subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FCheckDiagnosticState);
+Aggregator.AddProvider(Provider := FCheckExecutionStatus);
+Aggregator.AddProvider(Provider := FCheckReady);
+Aggregator.AddProvider(Provider := FCheckRunning);
+Aggregator.AddProvider(Provider := FCheckCompleted);
+Aggregator.AddProvider(Provider := FCheckError);
+Aggregator.AddProvider(Provider := FCheckEnabled);
+Aggregator.AddProvider(Provider := FCheckCommandWrites);
+Aggregator.AddProvider(Provider := FCheckActualValue);
+Aggregator.AddProvider(Provider := FCheckRequestedValue);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{caacd3ee-f12b-49ca-b0f9-556fe4269eed}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires valid base configuration and every owned Assertion.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+IF NOT FCheckDiagnosticState.IsInitialized
+    OR NOT FCheckExecutionStatus.IsInitialized
+    OR NOT FCheckReady.IsInitialized
+    OR NOT FCheckRunning.IsInitialized
+    OR NOT FCheckCompleted.IsInitialized
+    OR NOT FCheckError.IsInitialized
+    OR NOT FCheckEnabled.IsInitialized
+    OR NOT FCheckCommandWrites.IsInitialized
+    OR NOT FCheckActualValue.IsInitialized
+    OR NOT FCheckRequestedValue.IsInitialized THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{ff1d4cd1-42d8-44cd-9bec-9ec3df937f5f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures this scenario, its local subjects and named Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 7;
+FCheckPerformed := FALSE;
+FResource.Initialize(InitialValue := 2);
+FSubject.Initialize(Resource := FResource);
+FView := FSubject;
+
+FCheckDiagnosticState.Initialize(Parent := THIS^,
+    AssertionName := 'DiagnosticState');
+FCheckExecutionStatus.Initialize(Parent := THIS^,
+    AssertionName := 'ExecutionStatus');
+FCheckReady.Initialize(Parent := THIS^,
+    AssertionName := 'Ready');
+FCheckRunning.Initialize(Parent := THIS^,
+    AssertionName := 'Running');
+FCheckCompleted.Initialize(Parent := THIS^,
+    AssertionName := 'Completed');
+FCheckError.Initialize(Parent := THIS^,
+    AssertionName := 'Error');
+FCheckEnabled.Initialize(Parent := THIS^,
+    AssertionName := 'Enabled');
+FCheckCommandWrites.Initialize(Parent := THIS^,
+    AssertionName := 'CommandWrites');
+FCheckActualValue.Initialize(Parent := THIS^,
+    AssertionName := 'ActualValue');
+FCheckRequestedValue.Initialize(Parent := THIS^,
+    AssertionName := 'RequestedValue');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{fbb748ae-6dfa-4554-b975-c6fde831687b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Ends scenario processing without issuing further resource commands.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{09751a55-8d35-490f-8b1f-5c5ea75069e9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares independent expected values with the captured observations; called when disabled as well.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCheckDiagnosticState(Enable := Enable,
+    State := State,
+    IN := TO_INT(FObserved.State),
+    Expected := TO_INT(FExpected.State));
+
+FCheckExecutionStatus(Enable := Enable,
+    State := State,
+    IN := TO_INT(FObserved.ExecutionStatus),
+    Expected := TO_INT(FExpected.ExecutionStatus));
+
+FCheckReady(Enable := Enable,
+    State := State,
+    IN := FObserved.Ready,
+    Expected := FExpected.Ready);
+
+FCheckRunning(Enable := Enable,
+    State := State,
+    IN := FObserved.Running,
+    Expected := FExpected.Running);
+
+FCheckCompleted(Enable := Enable,
+    State := State,
+    IN := FObserved.Completed,
+    Expected := FExpected.Completed);
+
+FCheckError(Enable := Enable,
+    State := State,
+    IN := FObserved.Error,
+    Expected := FExpected.Error);
+
+FCheckEnabled(Enable := Enable,
+    State := State,
+    IN := FObservedEnabled,
+    Expected := FExpectedEnabled);
+
+FCheckCommandWrites(Enable := Enable,
+    State := State,
+    IN := FObservedCommandWrites,
+    Expected := FExpectedCommandWrites);
+
+FCheckActualValue(Enable := Enable,
+    State := State,
+    IN := FObservedActualValue,
+    Expected := FExpectedActualValue);
+
+FCheckRequestedValue(Enable := Enable,
+    State := State,
+    IN := FObservedRequestedValue,
+    Expected := FExpectedRequestedValue);
+
+IF Enable
+    AND FCheckDiagnosticState.EvaluationActive
+    AND FCheckExecutionStatus.EvaluationActive
+    AND FCheckReady.EvaluationActive
+    AND FCheckRunning.EvaluationActive
+    AND FCheckCompleted.EvaluationActive
+    AND FCheckError.EvaluationActive
+    AND FCheckEnabled.EvaluationActive
+    AND FCheckCommandWrites.EvaluationActive
+    AND FCheckActualValue.EvaluationActive
+    AND FCheckRequestedValue.EvaluationActive THEN
+    FCheckPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{a746e8a5-a4c5-47dd-bce1-c973c7291127}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Subjects are exercised by the test, not used as its start prerequisite.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{be73c0b5-c9af-4a94-bd76-1f849455e9d6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restores repeatable fixture state and resets Assertions before returning to Idle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCheckPerformed := FALSE;
+FResource.Initialize(InitialValue := 2);
+FSubject.Initialize(Resource := FResource);
+FView := FSubject;
+FCheckDiagnosticState.Reset();
+FCheckExecutionStatus.Reset();
+FCheckReady.Reset();
+FCheckRunning.Reset();
+FCheckCompleted.Reset();
+FCheckError.Reset();
+FCheckEnabled.Reset();
+FCheckCommandWrites.Reset();
+FCheckActualValue.Reset();
+FCheckRequestedValue.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{2edb1a9e-069b-4f18-90d7-8826d02f8f09}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exercises one named scenario step per call; advances only after actual Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FCheckPerformed THEN
+    FCheckPerformed := FALSE;
+    IF State = CompletionWithoutReadiness THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    NextTestState();
+    IF NOT IsTestingActive THEN
+        RETURN;
+    END_IF;
+END_IF;
+
+CASE State OF
+    FaultBeforeAction:
+        FResource(Available := TRUE,
+            Fault := TRUE,
+            Advance := TRUE);
+        FSubject(Enable := TRUE,
+            TargetValue := 0);
+        FExpected.State := E_State.Error;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Error;
+        FExpected.Ready := FALSE;
+        FExpected.Running := FALSE;
+        FExpected.Completed := FALSE;
+        FExpected.Error := TRUE;
+        FExpectedEnabled := TRUE;
+        FExpectedCommandWrites := 0;
+        FExpectedActualValue := 2;
+        FExpectedRequestedValue := 2;
+
+    RecoveredRequest:
+        FResource(Available := TRUE,
+            Fault := FALSE,
+            Advance := FALSE);
+        FSubject(Enable := TRUE,
+            TargetValue := 0);
+        FExpected.State := E_State.Running;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Running;
+        FExpected.Ready := FALSE;
+        FExpected.Running := TRUE;
+        FExpected.Completed := FALSE;
+        FExpected.Error := FALSE;
+        FExpectedEnabled := TRUE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 2;
+        FExpectedRequestedValue := 0;
+
+    FaultDuringProgress:
+        FResource(Available := TRUE,
+            Fault := TRUE,
+            Advance := TRUE);
+        FSubject(Enable := TRUE,
+            TargetValue := 0);
+        FExpected.State := E_State.Error;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Error;
+        FExpected.Ready := FALSE;
+        FExpected.Running := FALSE;
+        FExpected.Completed := FALSE;
+        FExpected.Error := TRUE;
+        FExpectedEnabled := TRUE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 2;
+        FExpectedRequestedValue := 0;
+
+    RecoveredProgress:
+        FResource(Available := TRUE,
+            Fault := FALSE,
+            Advance := TRUE);
+        FSubject(Enable := TRUE,
+            TargetValue := 0);
+        FExpected.State := E_State.Running;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Running;
+        FExpected.Ready := FALSE;
+        FExpected.Running := TRUE;
+        FExpected.Completed := FALSE;
+        FExpected.Error := FALSE;
+        FExpectedEnabled := TRUE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 1;
+        FExpectedRequestedValue := 0;
+
+    RecoveredTarget:
+        FResource(Available := TRUE,
+            Fault := FALSE,
+            Advance := TRUE);
+        FSubject(Enable := TRUE,
+            TargetValue := 0);
+        FExpected.State := E_State.Completed;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Completed;
+        FExpected.Ready := TRUE;
+        FExpected.Running := FALSE;
+        FExpected.Completed := TRUE;
+        FExpected.Error := FALSE;
+        FExpectedEnabled := TRUE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 0;
+        FExpectedRequestedValue := 0;
+
+    FaultAfterCompletion:
+        FResource(Available := TRUE,
+            Fault := TRUE,
+            Advance := TRUE);
+        FSubject(Enable := FALSE,
+            TargetValue := 0);
+        FExpected.State := E_State.Error;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Error;
+        FExpected.Ready := FALSE;
+        FExpected.Running := FALSE;
+        FExpected.Completed := FALSE;
+        FExpected.Error := TRUE;
+        FExpectedEnabled := FALSE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 0;
+        FExpectedRequestedValue := 0;
+
+    CompletionWithoutReadiness:
+        FResource(Available := FALSE,
+            Fault := FALSE,
+            Advance := TRUE);
+        FSubject(Enable := FALSE,
+            TargetValue := 0);
+        FExpected.State := E_State.Completed;
+        FExpected.ExecutionStatus := E_ExecutionStatus.Completed;
+        FExpected.Ready := FALSE;
+        FExpected.Running := FALSE;
+        FExpected.Completed := TRUE;
+        FExpected.Error := FALSE;
+        FExpectedEnabled := FALSE;
+        FExpectedCommandWrites := 1;
+        FExpectedActualValue := 0;
+        FExpectedRequestedValue := 0;
+
+ELSE
+    Error(Message := 'Unexpected Preparation test state.');
+    RETURN;
+END_CASE;
+
+FObserved := FView.Status;
+FObservedEnabled := FSubject.Enabled;
+
+FObservedCommandWrites := FResource.CommandWriteCount;
+FObservedActualValue := FResource.ActualValue;
+FObservedRequestedValue := FResource.RequestedValue;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

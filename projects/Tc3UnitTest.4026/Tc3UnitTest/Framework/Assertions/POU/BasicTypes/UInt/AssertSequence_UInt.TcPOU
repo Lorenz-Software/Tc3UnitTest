@@ -1,0 +1,163 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertSequence_UInt" Id="{836590fb-f529-47f7-9667-67458ad81c2c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the observed value sequence; Evaluate also checks the current value and
+completeness.</summary>
+<description>
+
+Uses the whole Expected array from its declared lower bound. Keep its binding, bounds and
+values stable until Reset; supply it on reset and disabled FB calls as well.
+
+Observation accepts the current expected value and then permits advancing by one element
+on a later change. Repeated equal values do not advance. An unexpected value or an out-of-range
+sequence index reports Failed.
+
+Evaluate checks the current value and requires the final expected element to have been
+reached; only then can the result become Passed. Disabling observation retains progression.
+Reset restarts it.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertSequence_UInt EXTENDS AssertionWithEvaluationBase
+VAR_INPUT
+    IN : UINT; //! Actual value to observe.
+END_VAR
+VAR_IN_OUT CONSTANT
+    Expected : ARRAY[*] OF UINT; //! Complete expected sequence; read without modifying the supplied array.
+END_VAR
+VAR
+    FExpectedIndex : DINT;
+    FSequenceIndexInitialized : BOOL;
+    FAllowAdvance : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{bd4cabf9-f276-4a0e-907e-c45efe8ef618}" />
+    <Method Name="Assert" Id="{b8c3b757-3dc9-4fe1-b8dd-d8a4bae311c1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances at most one entry and checks the current value before explicit completeness evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    LowerIndex : DINT;
+    UpperIndex : DINT;
+    ExpectedValue : UINT;
+    MatchesExpected : BOOL;
+    AllowAdvance : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[LowerIndex := LOWER_BOUND(Expected, 1);
+UpperIndex := UPPER_BOUND(Expected, 1);
+
+IF NOT FSequenceIndexInitialized THEN
+    FExpectedIndex := LowerIndex;
+    FSequenceIndexInitialized := TRUE;
+END_IF;
+
+IF NOT (ObservationActive OR EvaluationActive) THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (FExpectedIndex < LowerIndex) OR (FExpectedIndex > UpperIndex) THEN
+    Message := CONCAT('Assertion failed: sequence index out of range. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', LowerIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(LowerIndex));
+    Message := CONCAT(Message, ', UpperIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(UpperIndex));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+AllowAdvance := FAllowAdvance;
+IF ObservationActive THEN
+    FAllowAdvance := TRUE;
+END_IF;
+
+ExpectedValue := Expected[FExpectedIndex];
+MatchesExpected := IN = ExpectedValue;
+
+IF AllowAdvance AND NOT MatchesExpected THEN
+    IF FExpectedIndex = UpperIndex THEN
+        Message := CONCAT('Assertion failed: sequence continued beyond its last entry. LastIndex = ',
+            DINT_TO_STRING(UpperIndex));
+        Message := CONCAT(Message, '.');
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+
+    FExpectedIndex := FExpectedIndex + 1;
+    ExpectedValue := Expected[FExpectedIndex];
+    MatchesExpected := IN = ExpectedValue;
+END_IF;
+
+IF NOT MatchesExpected THEN
+    ExpectedText := UINT_TO_STRING(ExpectedValue);
+    ActualText := UINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: sequence value does not match. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', Expected = ');
+    Message := CONCAT(Message, ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF FExpectedIndex <> UpperIndex THEN
+    Message := CONCAT('Assertion failed: sequence is incomplete. ExpectedIndex = ',
+        DINT_TO_STRING(FExpectedIndex));
+    Message := CONCAT(Message, ', LastIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(UpperIndex));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{efca7083-d7d8-4228-b951-43b54b1826e7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restart progression at the bound Expected array's lower index.</summary>
+<description>
+
+Runs only during the reset FB call with Expected supplied, not directly from Reset or
+Initialize. Clears permission to advance from a previous observation.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FExpectedIndex := LOWER_BOUND(Expected, 1);
+FSequenceIndexInitialized := TRUE;
+FAllowAdvance := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

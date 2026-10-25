@@ -1,0 +1,472 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionSignedRelations" Id="{18fc5986-e0da-4e39-a3fe-1ef492b91338}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks six native LINT comparison relations and full-width boundaries.</summary>
+<description>
+Each named row has explicit expected results, not a second comparison algorithm.
+One disabled subject call consumes Reset before one enabled comparison call.
+Outer checking Assertions latch every row before inputs advance; intentional
+subject failures remain in a Test-Case-owned Event Buffer, cleared between rows.
+Only the checking Assertions contribute to the outer result.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionSignedRelations EXTENDS TestCaseBase
+VAR
+    FEqualSubject : AssertEqual_LInt;
+    FNotEqualSubject : AssertNotEqual_LInt;
+    FLessThanSubject : AssertLessThan_LInt;
+    FLessEqualSubject : AssertLessEqual_LInt;
+    FGreaterThanSubject : AssertGreaterThan_LInt;
+    FGreaterEqualSubject : AssertGreaterEqual_LInt;
+    FActual : LINT;
+    FReference : LINT;
+    FExpectedEqualResult : E_Result;
+    FExpectedNotEqualResult : E_Result;
+    FExpectedLessThanResult : E_Result;
+    FExpectedLessEqualResult : E_Result;
+    FExpectedGreaterThanResult : E_Result;
+    FExpectedGreaterEqualResult : E_Result;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR
+    FEqualResult : AssertTrue;
+    FEqualResultMatches : BOOL;
+    FNotEqualResult : AssertTrue;
+    FNotEqualResultMatches : BOOL;
+    FLessThanResult : AssertTrue;
+    FLessThanResultMatches : BOOL;
+    FLessEqualResult : AssertTrue;
+    FLessEqualResultMatches : BOOL;
+    FGreaterThanResult : AssertTrue;
+    FGreaterThanResultMatches : BOOL;
+    FGreaterEqualResult : AssertTrue;
+    FGreaterEqualResultMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    ExpectedFindingCount : UDINT := 3;
+    BelowZero : UINT := 1;
+    EqualZero : UINT := 2;
+    AboveZero : UINT := 3;
+    MinimumBelowMaximum : UINT := 4;
+    MaximumAboveMinimum : UINT := 5;
+    MinimumEqual : UINT := 6;
+    MaximumEqual : UINT := 7;
+    LastRow : UINT := MaximumEqual;
+    LowestValue : LINT := LINT#-9223372036854775808;
+    HighestValue : LINT := LINT#9223372036854775807;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{bc3b2d88-74c3-498a-9d7b-6ceb9eb6c0ca}" />
+    <Method Name="AggregateResults" Id="{66b5b5e2-f2ac-411a-957c-0568d2f223da}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FEqualResult);
+Aggregator.AddProvider(Provider := FNotEqualResult);
+Aggregator.AddProvider(Provider := FLessThanResult);
+Aggregator.AddProvider(Provider := FLessEqualResult);
+Aggregator.AddProvider(Provider := FGreaterThanResult);
+Aggregator.AddProvider(Provider := FGreaterEqualResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{690d3f21-b8e9-4cff-b20c-0a6d11e4a402}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each real comparison once with the selected typed row inputs.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FReference);
+FNotEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FReference);
+FLessThanSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Maximum := FReference);
+FLessEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Maximum := FReference);
+FGreaterThanSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Minimum := FReference);
+FGreaterEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Minimum := FReference);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{e1cdf0a7-c46f-417d-b011-f0a8f89f9dd2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Preserves base validation and rejects incomplete subject or checking-Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FEqualResult.IsInitialized
+    AND FNotEqualResult.IsInitialized
+    AND FLessThanResult.IsInitialized
+    AND FLessEqualResult.IsInitialized
+    AND FGreaterThanResult.IsInitialized
+    AND FGreaterEqualResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Comparison selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{10bf36ad-9db2-4f55-ae37-eebf31706f3a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares observed results with the literal row expectations and checks local event loss/count.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualResultMatches := FEqualSubject.Result = FExpectedEqualResult;
+FNotEqualResultMatches := FNotEqualSubject.Result = FExpectedNotEqualResult;
+FLessThanResultMatches := FLessThanSubject.Result = FExpectedLessThanResult;
+FLessEqualResultMatches := FLessEqualSubject.Result = FExpectedLessEqualResult;
+FGreaterThanResultMatches := FGreaterThanSubject.Result = FExpectedGreaterThanResult;
+FGreaterEqualResultMatches := FGreaterEqualSubject.Result = FExpectedGreaterEqualResult;
+FCaptureIntegrityMatches := (FCaptureStatus.SequenceId = ExpectedFindingCount)
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{5734efa3-7c15-48c1-a7f6-3b291d8967d1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the local capture, checking Assertions and publisher-bound real comparisons.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualResult');
+FNotEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualResult');
+FLessThanResult.Initialize(Parent := THIS^,
+    AssertionName := 'LessThanResult');
+FLessEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'LessEqualResult');
+FGreaterThanResult.Initialize(Parent := THIS^,
+    AssertionName := 'GreaterThanResult');
+FGreaterEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'GreaterEqualResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualSubject');
+FSetupValid := FSetupValid AND Initialized;
+FLessThanSubject.BindPublisher(Publisher := FCapture);
+Initialized := FLessThanSubject.Initialize(Parent := THIS^,
+    AssertionName := 'LessThanSubject');
+FSetupValid := FSetupValid AND Initialized;
+FLessEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FLessEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'LessEqualSubject');
+FSetupValid := FSetupValid AND Initialized;
+FGreaterThanSubject.BindPublisher(Publisher := FCapture);
+Initialized := FGreaterThanSubject.Initialize(Parent := THIS^,
+    AssertionName := 'GreaterThanSubject');
+FSetupValid := FSetupValid AND Initialized;
+FGreaterEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FGreaterEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'GreaterEqualSubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{5afb0571-b507-403e-8420-8dc07f04ffb4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{f22847b0-9602-4ef2-be21-ae9db964ad38}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualResultMatches);
+FNotEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FNotEqualResultMatches);
+FLessThanResult(Enable := Evaluate,
+    State := State,
+    IN := FLessThanResultMatches);
+FLessEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FLessEqualResultMatches);
+FGreaterThanResult(Enable := Evaluate,
+    State := State,
+    IN := FGreaterThanResultMatches);
+FGreaterEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FGreaterEqualResultMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{f04e6d65-afc9-449f-9d10-e39889df9bcd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{d92ad24a-804e-4d58-91b9-9b98e3a25646}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := BelowZero;
+FRowPrepared := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FEqualResult.Reset();
+FEqualResultMatches := TRUE;
+FNotEqualResult.Reset();
+FNotEqualResultMatches := TRUE;
+FLessThanResult.Reset();
+FLessThanResultMatches := TRUE;
+FLessEqualResult.Reset();
+FLessEqualResultMatches := TRUE;
+FGreaterThanResult.Reset();
+FGreaterThanResultMatches := TRUE;
+FGreaterEqualResult.Reset();
+FGreaterEqualResultMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{5590d194-20cf-4ac8-92a2-d449cd219fa7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRow = LastRow THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FRow := FRow + 1;
+    FRowPrepared := FALSE;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    ResetSubjects();
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := TRUE);
+    CheckResults();
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{6c698521-3eab-4ac4-9cc3-c67222d4d265}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests a fresh result epoch for every comparison; CallSubjects consumes it.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject.Reset();
+FNotEqualSubject.Reset();
+FLessThanSubject.Reset();
+FLessEqualSubject.Reset();
+FGreaterThanSubject.Reset();
+FGreaterEqualSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{081e36e2-6040-451f-8bb7-4ecf4e994815}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal typed inputs and independent expected results for one comparison row.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FRow OF
+    BelowZero:
+        FActual := LINT#-1;
+        FReference := LINT#0;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedNotEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Passed;
+        FExpectedLessEqualResult := E_Result.Passed;
+        FExpectedGreaterThanResult := E_Result.Failed;
+        FExpectedGreaterEqualResult := E_Result.Failed;
+    EqualZero:
+        FActual := LINT#0;
+        FReference := LINT#0;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedNotEqualResult := E_Result.Failed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedLessEqualResult := E_Result.Passed;
+        FExpectedGreaterThanResult := E_Result.Failed;
+        FExpectedGreaterEqualResult := E_Result.Passed;
+    AboveZero:
+        FActual := LINT#1;
+        FReference := LINT#0;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedNotEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedLessEqualResult := E_Result.Failed;
+        FExpectedGreaterThanResult := E_Result.Passed;
+        FExpectedGreaterEqualResult := E_Result.Passed;
+    MinimumBelowMaximum:
+        FActual := LowestValue;
+        FReference := HighestValue;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedNotEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Passed;
+        FExpectedLessEqualResult := E_Result.Passed;
+        FExpectedGreaterThanResult := E_Result.Failed;
+        FExpectedGreaterEqualResult := E_Result.Failed;
+    MaximumAboveMinimum:
+        FActual := HighestValue;
+        FReference := LowestValue;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedNotEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedLessEqualResult := E_Result.Failed;
+        FExpectedGreaterThanResult := E_Result.Passed;
+        FExpectedGreaterEqualResult := E_Result.Passed;
+    MinimumEqual:
+        FActual := LowestValue;
+        FReference := LowestValue;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedNotEqualResult := E_Result.Failed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedLessEqualResult := E_Result.Passed;
+        FExpectedGreaterThanResult := E_Result.Failed;
+        FExpectedGreaterEqualResult := E_Result.Passed;
+    MaximumEqual:
+        FActual := HighestValue;
+        FReference := HighestValue;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedNotEqualResult := E_Result.Failed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedLessEqualResult := E_Result.Passed;
+        FExpectedGreaterThanResult := E_Result.Failed;
+        FExpectedGreaterEqualResult := E_Result.Passed;
+ELSE
+    Error(Message := 'Unknown comparison test row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

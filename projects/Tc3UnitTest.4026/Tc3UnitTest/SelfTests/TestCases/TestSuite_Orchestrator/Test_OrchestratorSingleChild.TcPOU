@@ -1,0 +1,60 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorSingleChild" Id="{ed3357e1-dc06-4143-bfb3-ac7873a6a138}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks a single registered child without a successor or unused-capacity access.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorSingleChild EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{e1990317-2708-47a9-8a86-e3be4bf67a0e}" />
+    <Method Name="ConfigureScenario" Id="{610fc927-00e7-4974-bc66-fea63e6a39a4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.Ordinary;
+FChildCount := 1;
+FStepCount := 4;
+
+{region "Cycle 01 - Idle readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "Cycle 02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Completed;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[1].Complete := TRUE;
+FSteps[2].Children[1].Result := E_Result.Passed;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 03 - Completed observation"}
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[1].Result := E_Result.Passed;
+FSteps[3].ExpectedReleasedEntries[1] := 1;
+FSteps[3].ExpectedFinished := TRUE;
+{endregion}
+
+{region "Cycle 04 - Completed observation"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[1].Result := E_Result.Passed;
+FSteps[4].ExpectedFinished := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

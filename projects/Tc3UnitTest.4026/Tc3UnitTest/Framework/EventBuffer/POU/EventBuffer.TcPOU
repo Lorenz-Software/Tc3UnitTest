@@ -1,0 +1,612 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="EventBuffer" Id="{71b0e485-031e-4d83-8634-cfd97d602429}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Single-task event service. Initialize with static external event storage and status fields before use.</summary>
+<description>
+All producer and administrative calls use one PLC task; this service provides no concurrent-access synchronization. Bind one-based caller-owned storage of length 3..32767 and status fields before use; usable capacity is length minus one. Keep every binding alive and stable, and reinitialize after any online change. Publications never overwrite unread events. One logical consumer owns acknowledgements in each epoch. Sequence exhaustion is outside supported operation; the UDINT counter saturates rather than wrapping.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK INTERNAL EventBuffer IMPLEMENTS I_EventPublisher, I_EventBuffer
+VAR
+    EventFifo : Fifo;
+    // Typed access for whole-array reset; valid only while the FIFO binding is valid.
+    {attribute 'TcNoSymbol'}
+    BufferEntries : POINTER TO ST_Event;
+    EmptyEvent : ST_Event;
+    BufferStatus : ST_EventBufferStatus;
+    ReservedEntries : UINT;
+    HasValidBinding : BOOL;
+    {attribute 'TcNoSymbol'}
+    FPublishedFifoControl : REFERENCE TO ST_FifoStatus;
+    {attribute 'TcNoSymbol'}
+    FPublishedStatus : REFERENCE TO ST_EventBufferStatus;
+    FPublicationOnlineChangeCount : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b3029003-0000-4000-8000-000000000010}" />
+    <Property Name="Capacity" Id="{0319c356-8627-407a-a50e-e6542f6f7690}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Usable event positions, independent of occupancy and reservations; zero when invalid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Capacity : UINT //! Usable event positions, independent of occupancy and reservations; zero when invalid.]]></Declaration>
+      <Get Name="Get" Id="{16e71498-20a6-4a9d-8ec2-990b2795fbcb}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Capacity := 0;
+IF NOT IsValid THEN
+    RETURN;
+END_IF;
+CurrentFifoStatus := FifoStatus;
+Capacity := CurrentFifoStatus.BufferLength - 1;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="DeleteBySequenceId" Id="{d5029005-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Release only eligible head events, bounded by the initial occupied entry count.</summary>
+*)
+{endregion}
+METHOD PRIVATE DeleteBySequenceId
+VAR_INPUT
+    RequestedSequenceId : UDINT; //! Captured inclusive contiguous acknowledgement watermark for the current epoch; never a physical slot.
+END_VAR
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+    RemainingEntries : UINT;
+    HeadEvent : ST_Event;
+    ReadResult : INT;
+    PopResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CurrentFifoStatus := FifoStatus;
+IF CurrentFifoStatus.ConfigError OR CurrentFifoStatus.IndexError THEN
+    RETURN;
+END_IF
+IF RequestedSequenceId <= BufferStatus.DeletedSequenceId THEN
+    RETURN;
+END_IF
+IF RequestedSequenceId > BufferStatus.SequenceId THEN
+    PublishDeleteDiagnostic(Severity := E_EventSeverity.Warning,
+        Reason := 'Requested sequence has not been produced.',
+        RequestedSequenceId := RequestedSequenceId,
+        HeadSequenceId := 0,
+        FifoResult := TO_INT(E_FifoResult.NoTransfer));
+    RETURN;
+END_IF
+
+FOR RemainingEntries := CurrentFifoStatus.ElementCount TO 1 BY -1 DO
+    ReadResult := EventFifo.Read(Target := HeadEvent);
+    IF ReadResult <= TO_INT(E_FifoResult.NoTransfer) THEN
+        PublishDeleteDiagnostic(Severity := E_EventSeverity.Error,
+            Reason := 'FIFO head could not be read.',
+            RequestedSequenceId := RequestedSequenceId,
+            HeadSequenceId := 0,
+            FifoResult := ReadResult);
+        RETURN;
+    END_IF
+    IF (HeadEvent.SequenceId = 0)
+        OR (HeadEvent.SequenceId <= BufferStatus.DeletedSequenceId)
+        OR (HeadEvent.SequenceId > RequestedSequenceId) THEN
+        PublishDeleteDiagnostic(Severity := E_EventSeverity.Warning,
+            Reason := 'FIFO head is outside the requested sequence range.',
+            RequestedSequenceId := RequestedSequenceId,
+            HeadSequenceId := HeadEvent.SequenceId,
+            FifoResult := TO_INT(E_FifoResult.NoTransfer));
+        RETURN;
+    END_IF
+
+    PopResult := EventFifo.Pop(Target := HeadEvent);
+    IF PopResult <= TO_INT(E_FifoResult.NoTransfer) THEN
+        IF PopResult <> TO_INT(E_FifoResult.NoTransfer) THEN
+            PublishDeleteDiagnostic(Severity := E_EventSeverity.Error,
+                Reason := 'FIFO could not remove and clear the head event.',
+                RequestedSequenceId := RequestedSequenceId,
+                HeadSequenceId := HeadEvent.SequenceId,
+                FifoResult := PopResult);
+        END_IF
+        RETURN;
+    END_IF
+
+    BufferStatus.DeletedSequenceId := HeadEvent.SequenceId;
+    IF BufferStatus.DeletedSequenceId >= RequestedSequenceId THEN
+        EXIT;
+    END_IF
+END_FOR;
+
+IF BufferStatus.DeletedSequenceId < RequestedSequenceId THEN
+    PublishDeleteDiagnostic(Severity := E_EventSeverity.Warning,
+        Reason := 'Buffer exhausted before the requested sequence was reached.',
+        RequestedSequenceId := RequestedSequenceId,
+        HeadSequenceId := 0,
+        FifoResult := TO_INT(E_FifoResult.NoTransfer));
+END_IF;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="FifoStatus" Id="{a2c02902-0000-4000-8000-000000000015}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Value snapshot of readable-range metadata.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC FifoStatus : ST_FifoStatus //! Value snapshot of readable-range metadata.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000025}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FifoStatus := EventFifo.Status;
+IF NOT HasValidBinding THEN
+    FifoStatus.ConfigError := TRUE;
+END_IF]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="FreeEntryCount" Id="{a2c02902-0000-4000-8000-000000000011}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Usable free event positions before reservations; zero when invalid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC FreeEntryCount : UINT //! Usable free event positions before reservations; zero when invalid.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000021}">
+        <Declaration><![CDATA[VAR
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FreeEntryCount := 0;
+CurrentFifoStatus := FifoStatus;
+IF CurrentFifoStatus.ConfigError OR CurrentFifoStatus.IndexError THEN
+    RETURN;
+END_IF
+FreeEntryCount := CurrentFifoStatus.BufferLength - 1 - CurrentFifoStatus.ElementCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="FreeReservedSpace" Id="{c4029004-0000-4000-8000-000000000002}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Release only reservations, never events; FALSE changes neither count.</summary>
+<description>
+Requires an initialized valid binding, but no free capacity or valid FIFO indices.
+
+Configuration and the owner contribution must be valid. Release is independent of free capacity and index validity; a zero release succeeds after the same accounting checks. It never removes events. Destructive buffer reset clears the aggregate count but does not repair stale owner-local contributions.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FreeReservedSpace : BOOL //! TRUE after updating both reservation counts; FALSE leaves both unchanged.
+VAR_INPUT
+    EntryCount : UINT; //! Number of this owner's reserved entries to release; does not delete events.
+END_VAR
+VAR_IN_OUT
+    OwnerReservedEntryCount : UINT; //! Owner's live reservation ledger; updated with the global count only on success, unchanged on rejection.
+END_VAR
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FreeReservedSpace := FALSE;
+CurrentFifoStatus := FifoStatus;
+IF CurrentFifoStatus.ConfigError THEN
+    RETURN;
+END_IF
+IF OwnerReservedEntryCount > ReservedEntries THEN
+    RETURN;
+END_IF
+IF EntryCount > OwnerReservedEntryCount THEN
+    RETURN;
+END_IF
+
+ReservedEntries := ReservedEntries - EntryCount;
+OwnerReservedEntryCount := OwnerReservedEntryCount - EntryCount;
+FreeReservedSpace := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetUtcTimestamp" Id="{b3029003-0000-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read UTC Unix nanoseconds from the runtime's 100 ns system timestamp.</summary>
+<description>
+Source: Tc2_System.F_GetSystemTime, epoch 1601-01-01 UTC.
+
+This is wall-clock publication time, not the ordering or acknowledgement identifier. Ordering and release use SequenceId independently of clock adjustments.
+</description>
+*)
+{endregion}
+METHOD PRIVATE GetUtcTimestamp : LINT //! UTC Unix time in nanoseconds converted from the 100 ns system timestamp.
+VAR
+    SystemTimeTicks : ULINT;
+END_VAR
+VAR CONSTANT
+    UnixEpochOffsetTicks : LINT := 116444736000000000;
+    NanosecondsPerTick : LINT := 100;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SystemTimeTicks := Tc2_System.F_GetSystemTime();
+GetUtcTimestamp := (ULINT_TO_LINT(SystemTimeTicks) - UnixEpochOffsetTicks)
+    * NanosecondsPerTick;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{a2c02902-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Bind one-based event storage and status fields; all storage must outlive this service.</summary>
+<description>
+FALSE publishes ConfigError and leaves the service unusable. Reinitialize after Online Change.
+
+Buffer must have lower bound 1 and physical length 3..32767; usable capacity is one less. Success clears every entry and resets sequence, deletion, loss and aggregate reservations. A failed call invalidates the service and resets its internal counters; the old binding is not a recovery fallback. Call as part of full initialization with matching owner-ledger initialization, not as isolated recovery during execution.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Initialize : BOOL //! TRUE when storage is bound and usable; FALSE leaves the service uninitialized.
+VAR_IN_OUT
+    Buffer : ARRAY[*] OF ST_Event; //! Caller-owned event array, bound by address until reinitialization; keep storage alive and unchanged.
+    FifoControl : ST_FifoStatus; //! Caller-owned FIFO status storage, retained and updated after buffer operations; must outlive the service.
+    Status : ST_EventBufferStatus; //! Caller-owned event-sequence/loss snapshot, retained and updated by the service; must outlive it.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+HasValidBinding := FALSE;
+BufferEntries := 0;
+FPublishedFifoControl REF= FifoControl;
+FPublishedStatus REF= Status;
+FPublicationOnlineChangeCount := TwinCAT_SystemInfoVarList._AppInfo.OnlineChangeCnt;
+BufferStatus.SequenceId := 0;
+BufferStatus.DeletedSequenceId := 0;
+BufferStatus.LostEventCount := 0;
+ReservedEntries := 0;
+
+IF LOWER_BOUND(Buffer, 1) <> 1 THEN
+    UpdatePublication();
+    RETURN;
+END_IF;
+IF NOT EventFifo.Initialize(OverwriteIfFull := FALSE,
+    Buffer := Buffer) THEN
+    UpdatePublication();
+    RETURN;
+END_IF;
+
+BufferEntries := ADR(Buffer[LOWER_BOUND(Buffer, 1)]);
+HasValidBinding := TRUE;
+Reset();
+Initialize := IsValid;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsValid" Id="{a2c02902-0000-4000-8000-000000000010}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>FIFO binding, configuration and indices are valid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsValid : BOOL //! FIFO binding, configuration and indices are valid.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000020}">
+        <Declaration><![CDATA[VAR
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CurrentFifoStatus := FifoStatus;
+IsValid := NOT CurrentFifoStatus.ConfigError AND NOT CurrentFifoStatus.IndexError;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LostEventCount" Id="{a2c02902-0000-4000-8000-000000000013}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Lost event count for producer diagnostics and aggregation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC LostEventCount : UINT //! Lost event count for producer diagnostics and aggregation.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000023}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LostEventCount := BufferStatus.LostEventCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ProcessDeleteRequest" Id="{d5029005-0000-4000-8000-000000000002}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Process the captured release watermark; clear the caller&#x27;s field only if unchanged.</summary>
+<description>
+Zero is a no-op. Nonzero requests must belong to the current epoch and acknowledge all earlier unread events contiguously. Stale or future requests and inconsistent or unreachable heads are rejected or stop processing; partial deletion remains possible. The caller field is cleared when still equal to the snapshot even after rejection, so clearing alone does not prove deletion. Read Status.DeletedSequenceId for actual progress.
+</description>
+*)
+{endregion}
+METHOD PUBLIC ProcessDeleteRequest
+VAR_IN_OUT
+    SequenceId : UDINT; //! Inclusive deletion watermark; zero means no request. Cleared only if unchanged after processing.
+END_VAR
+VAR
+    RequestedSequenceId : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RequestedSequenceId := SequenceId;
+IF RequestedSequenceId = 0 THEN
+    RETURN;
+END_IF
+
+DeleteBySequenceId(RequestedSequenceId := RequestedSequenceId);
+UpdatePublication();
+IF SequenceId = RequestedSequenceId THEN
+    SequenceId := 0;
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishCapacityWarning" Id="{b3029003-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Store the capacity diagnostic without recursively generating another diagnostic.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishCapacityWarning
+VAR
+    CapacityEvent : ST_Event;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CapacityEvent := EmptyEvent;
+CapacityEvent.OwnerScope := E_OwnerScope.Framework;
+CapacityEvent.EventType := E_EventType.Framework;
+CapacityEvent.Severity := E_EventSeverity.Error;
+CapacityEvent.Name := 'EventBuffer';
+CapacityEvent.Message := 'UnitTest event buffer almost full. Further events may be lost.';
+StoreEvent(Event := CapacityEvent);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishDeleteDiagnostic" Id="{d5029005-0000-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publish a bounded delete diagnostic with sequence context and the FIFO result.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishDeleteDiagnostic
+VAR_INPUT
+    Severity : E_EventSeverity; //! Logging severity of the Framework diagnostic; independent of test Result.
+    Reason : STRING(GVL_Constants.MessageLength); //! Reason text embedded with sequence context within the fixed diagnostic message capacity.
+    RequestedSequenceId : UDINT; //! Captured acknowledgement watermark that could not be fully processed.
+    HeadSequenceId : UDINT; //! Observed head event sequence, or zero when no head could be read.
+    FifoResult : INT; //! FIFO transfer outcome included as diagnostic text; zero means no transfer.
+END_VAR
+VAR
+    DiagnosticEvent : ST_Event;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[DiagnosticEvent := EmptyEvent;
+DiagnosticEvent.OwnerScope := E_OwnerScope.Framework;
+DiagnosticEvent.EventType := E_EventType.Framework;
+DiagnosticEvent.Severity := Severity;
+DiagnosticEvent.Name := 'EventBuffer';
+DiagnosticEvent.Message := CONCAT('Event-buffer delete: ', Reason);
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, ' Request=');
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, UDINT_TO_STRING(RequestedSequenceId));
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, ' Head=');
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, UDINT_TO_STRING(HeadSequenceId));
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, ' Deleted=');
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, UDINT_TO_STRING(BufferStatus.DeletedSequenceId));
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, ' Produced=');
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, UDINT_TO_STRING(BufferStatus.SequenceId));
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, ' FifoResult=');
+DiagnosticEvent.Message := CONCAT(DiagnosticEvent.Message, INT_TO_STRING(FifoResult));
+PublishEvent(Event := DiagnosticEvent);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishEvent" Id="{b3029003-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publish a value copy; positive slot on success, zero when full, negative on error.</summary>
+<description>
+Requires initialized storage. A capacity diagnostic never replaces the primary result.
+
+The returned outcome belongs to the requested event. A successful insertion that leaves the ring almost full also attempts a Framework capacity diagnostic; that extra attempt may fail and increase LostEventCount without changing the primary return. Reservations do not block insertion or decrease on publication. Sequence numbers may therefore have gaps and loss makes the log incomplete.
+</description>
+*)
+{endregion}
+METHOD PUBLIC PublishEvent : INT //! Positive physical slot on success, zero when full, negative E_EventPublishResult on error.
+VAR_INPUT
+    Event : ST_Event; //! Event payload copied into the buffer; SequenceId and Timestamp are assigned by the publisher.
+END_VAR
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[PublishEvent := StoreEvent(Event := Event);
+IF PublishEvent <= TO_INT(E_FifoResult.NoTransfer) THEN
+    RETURN;
+END_IF
+
+CurrentFifoStatus := EventFifo.Status;
+IF CurrentFifoStatus.BufferAlmostFull THEN
+    PublishCapacityWarning();
+END_IF]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{a2c02902-0000-4000-8000-000000000012}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregate producer reservations; not published externally.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReservedEntryCount : UINT //! Aggregate producer reservations; not published externally.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000022}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReservedEntryCount := ReservedEntries;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ReserveSpace" Id="{c4029004-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reserve additional event positions plus shared headroom; FALSE changes neither count.</summary>
+<description>
+Requires valid initialized configuration and a consistent owner contribution; positive requests also require valid indices.
+
+For a positive EntryCount, physical free capacity must cover the updated aggregate reservation plus shared headroom. EntryCount zero succeeds after configuration and owner-contribution checks, without testing indices or headroom. Success updates both ledgers in one single-task call; no event or FIFO index changes. A failed call leaves both counts unchanged.
+</description>
+*)
+{endregion}
+METHOD PUBLIC ReserveSpace : BOOL //! TRUE after updating both reservation counts; FALSE leaves both unchanged.
+VAR_INPUT
+    EntryCount : UINT; //! Additional number of event entries to reserve for this owner.
+    HeadroomEntryCount : UINT; //! Shared free entries checked for positive requests; not added to the owner's reservation.
+END_VAR
+VAR_IN_OUT
+    OwnerReservedEntryCount : UINT; //! Owner's live reservation ledger; updated with the global count only on success, unchanged on rejection.
+END_VAR
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+    AvailableEntries : UINT;
+    UpdatedReservedEntries : UDINT;
+    RequiredFreeEntries : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReserveSpace := FALSE;
+CurrentFifoStatus := FifoStatus;
+IF CurrentFifoStatus.ConfigError THEN
+    RETURN;
+END_IF
+IF OwnerReservedEntryCount > ReservedEntries THEN
+    RETURN;
+END_IF
+IF EntryCount = 0 THEN
+    ReserveSpace := TRUE;
+    RETURN;
+END_IF
+IF CurrentFifoStatus.IndexError THEN
+    RETURN;
+END_IF
+
+UpdatedReservedEntries := UINT_TO_UDINT(ReservedEntries) + UINT_TO_UDINT(EntryCount);
+RequiredFreeEntries := UpdatedReservedEntries + UINT_TO_UDINT(HeadroomEntryCount);
+AvailableEntries := CurrentFifoStatus.BufferLength - 1 - CurrentFifoStatus.ElementCount;
+IF RequiredFreeEntries > UINT_TO_UDINT(AvailableEntries) THEN
+    RETURN;
+END_IF
+
+ReservedEntries := UDINT_TO_UINT(UpdatedReservedEntries);
+OwnerReservedEntryCount := UDINT_TO_UINT(UINT_TO_UDINT(OwnerReservedEntryCount)
+    + UINT_TO_UDINT(EntryCount));
+ReserveSpace := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{d5029005-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear bound storage and begin an empty epoch; binding must remain valid.</summary>
+<description>
+Does not access external commands and does not publish an event.
+
+With a valid storage binding, clears the complete payload, FIFO state, sequence, deletion watermark, loss count and aggregate reservations. It does not rewrite owner-local ledgers. Run Control owns the preceding hierarchical release attempt and clearing external Reset/Delete commands. Consumers must discard acknowledgement assumptions from the old epoch. Invalid configuration prevents payload reset.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Reset
+VAR
+    CurrentFifoStatus : ST_FifoStatus;
+    EntryOffset : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CurrentFifoStatus := FifoStatus;
+IF CurrentFifoStatus.ConfigError OR (BufferEntries = 0) THEN
+    UpdatePublication();
+    RETURN;
+END_IF
+
+FOR EntryOffset := 0 TO CurrentFifoStatus.BufferLength - 1 DO
+    BufferEntries[EntryOffset] := EmptyEvent;
+END_FOR
+EventFifo.Reset();
+BufferStatus.SequenceId := 0;
+BufferStatus.DeletedSequenceId := 0;
+BufferStatus.LostEventCount := 0;
+ReservedEntries := 0;
+UpdatePublication();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Status" Id="{a2c02902-0000-4000-8000-000000000014}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Value snapshot of sequence, deletion and loss status.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Status : ST_EventBufferStatus //! Value snapshot of sequence, deletion and loss status.]]></Declaration>
+      <Get Name="Get" Id="{a2c02902-0000-4000-8000-000000000024}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status := BufferStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="StoreEvent" Id="{b3029003-0000-4000-8000-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Assign event identity/time and copy to FIFO; count each failed insertion once.</summary>
+*)
+{endregion}
+METHOD PRIVATE StoreEvent : INT //! Positive physical slot on insertion, zero when full, negative E_EventPublishResult on error; failed insertion increments the saturating loss count.
+VAR_IN_OUT
+    Event : ST_Event; //! Borrowed payload whose SequenceId and Timestamp are assigned before the FIFO copy when a binding exists.
+END_VAR
+VAR CONSTANT
+    MaximumSequenceId : UDINT := UDINT#16#FFFFFFFF;
+    MaximumLostEventCount : UINT := UINT#16#FFFF;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT HasValidBinding THEN
+    StoreEvent := TO_INT(E_FifoResult.ConfigError);
+ELSE
+    IF BufferStatus.SequenceId < MaximumSequenceId THEN
+        BufferStatus.SequenceId := BufferStatus.SequenceId + 1;
+    END_IF
+    Event.SequenceId := BufferStatus.SequenceId;
+    Event.Timestamp := GetUtcTimestamp();
+    StoreEvent := EventFifo.Push(Data := Event);
+END_IF
+
+IF (StoreEvent <= TO_INT(E_FifoResult.NoTransfer))
+    AND (BufferStatus.LostEventCount < MaximumLostEventCount) THEN
+    BufferStatus.LostEventCount := BufferStatus.LostEventCount + 1;
+END_IF
+
+UpdatePublication();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdatePublication" Id="{9cd03902-70a8-4cbe-9815-c204690781ad}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Refresh only the bound producer-owned status fields; never copy the event array.</summary>
+<description>
+Do not dereference a publication binding from before an Online Change.
+</description>
+*)
+{endregion}
+METHOD PRIVATE UpdatePublication]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT __ISVALIDREF(FPublishedFifoControl) OR NOT __ISVALIDREF(FPublishedStatus) THEN
+    RETURN;
+END_IF;
+IF FPublicationOnlineChangeCount <> TwinCAT_SystemInfoVarList._AppInfo.OnlineChangeCnt THEN
+    RETURN;
+END_IF;
+
+FPublishedFifoControl := FifoStatus;
+FPublishedStatus := BufferStatus;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

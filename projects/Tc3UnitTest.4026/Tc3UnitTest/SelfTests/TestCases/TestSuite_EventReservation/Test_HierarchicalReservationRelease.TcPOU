@@ -1,0 +1,356 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_HierarchicalReservationRelease" Id="{8d1aa06d-0cd7-413f-b819-251e2a0e9b19}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks real Suite and child contributions through synchronous hierarchical release.</summary>
+<description>
+SuiteIntegrationSubject owns two real Test Cases with one Assertion each. Their actual
+reservation methods update the same isolated EventBuffer; no child reservation markers are faked.
+No lifecycle is started: release must preserve all three Uninitialized states and a retained event.
+After complete execution-budget release, child Reset budgets are acquired while the Suite owns zero.
+A further hierarchical release must still visit those children. Empty repeat release must be harmless.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_HierarchicalReservationRelease EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FSubjectParent : I_RunControl;
+    FSuite : SuiteIntegrationSubject;
+    FInitialization : AssertTrue;
+    FInitializationMatches : BOOL;
+    FExecutionContributions : AssertTrue;
+    FExecutionContributionsMatches : BOOL;
+    FFullRelease : AssertTrue;
+    FFullReleaseMatches : BOOL;
+    FRepeatedRelease : AssertTrue;
+    FRepeatedReleaseMatches : BOOL;
+    FZeroOwnerCleanup : AssertTrue;
+    FZeroOwnerCleanupMatches : BOOL;
+    FStatePreserved : AssertTrue;
+    FStatePreservedMatches : BOOL;
+    FEventsPreserved : AssertTrue;
+    FEventsPreservedMatches : BOOL;
+    FStorageIntegrity : AssertTrue;
+    FStorageIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 97;
+    ChildExecutionBudget : UINT := 11;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2cac354d-abe9-4e56-bdb7-2b4b99c5c297}" />
+    <Method Name="AggregateResults" Id="{6e6c83ac-e766-42f4-93e9-e76a0af7abb1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInitialization);
+Aggregator.AddProvider(Provider := FExecutionContributions);
+Aggregator.AddProvider(Provider := FFullRelease);
+Aggregator.AddProvider(Provider := FRepeatedRelease);
+Aggregator.AddProvider(Provider := FZeroOwnerCleanup);
+Aggregator.AddProvider(Provider := FStatePreserved);
+Aggregator.AddProvider(Provider := FEventsPreserved);
+Aggregator.AddProvider(Provider := FStorageIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{60d13aa9-c8e8-4718-98e0-97ef29ea641a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies root identity only; the root never calls this isolated Suite.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{131c3326-6654-4491-8868-ef79fb26b246}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() OR (FSubjectParent = 0) THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FInitialization.IsInitialized
+    AND FExecutionContributions.IsInitialized
+    AND FFullRelease.IsInitialized
+    AND FRepeatedRelease.IsInitialized
+    AND FZeroOwnerCleanup.IsInitialized
+    AND FStatePreserved.IsInitialized
+    AND FEventsPreserved.IsInitialized
+    AND FStorageIntegrity.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{37144d00-c38c-446c-8e05-b82b0d390983}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FInitialization.Initialize(Parent := THIS^,
+    AssertionName := 'Initialization');
+FExecutionContributions.Initialize(Parent := THIS^,
+    AssertionName := 'ExecutionContributions');
+FFullRelease.Initialize(Parent := THIS^,
+    AssertionName := 'FullRelease');
+FRepeatedRelease.Initialize(Parent := THIS^,
+    AssertionName := 'RepeatedRelease');
+FZeroOwnerCleanup.Initialize(Parent := THIS^,
+    AssertionName := 'ZeroOwnerCleanup');
+FStatePreserved.Initialize(Parent := THIS^,
+    AssertionName := 'StatePreserved');
+FEventsPreserved.Initialize(Parent := THIS^,
+    AssertionName := 'EventsPreserved');
+FStorageIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'StorageIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{57f22c3f-7b8f-46a9-a603-3f8625124e3d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks actual subtree accounting without dispatching lifecycle requests.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer
+VAR
+    Config : ST_TestSuiteConfig;
+    FirstChild : I_TestCase;
+    SecondChild : I_TestCase;
+    Initialized : BOOL;
+    Released : BOOL;
+    SuiteReservation : E_EventReservationResult;
+    FirstReservation : E_EventReservationResult;
+    SecondReservation : E_EventReservationResult;
+    RetainedSequence : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialized := FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus);
+IF NOT Initialized THEN
+    Error(Message := 'Hierarchical release capture initialization failed.');
+    RETURN;
+END_IF;
+FSuite.BindPublisher(Publisher := FSubject);
+IF NOT FSuite.Initialize(Parent := FSubjectParent,
+    SuiteName := 'ReservationRelease',
+    Config := Config) THEN
+    Error(Message := 'Hierarchical release Suite initialization failed.');
+    RETURN;
+END_IF;
+FSuite();
+FirstChild := FSuite.GetTestCase(Index := FSuite.ChildArrayLowerBound);
+SecondChild := FSuite.GetTestCase(Index := FSuite.ChildArrayLowerBound + 1);
+FInitializationMatches := FSuite.IsInitialized AND FirstChild.IsInitialized AND SecondChild.IsInitialized
+    AND (FSuite.ChildCount = 2) AND FSuite.ChildCallsMatch;
+IF FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+    State := E_State.Uninitialized,
+    Severity := E_EventSeverity.Info,
+    Message := 'Retained across hierarchical reservation release.')) <= 0 THEN
+    Error(Message := 'Hierarchical release retained event setup failed.');
+    RETURN;
+END_IF;
+RetainedSequence := FBufferStatus.SequenceId;
+
+SuiteReservation := FSuite.ReserveExecutionEvents();
+FirstReservation := FirstChild.ReserveExecutionEvents();
+SecondReservation := SecondChild.ReserveExecutionEvents();
+FExecutionContributionsMatches := (SuiteReservation = E_EventReservationResult.Accepted)
+    AND (FirstReservation = E_EventReservationResult.Accepted)
+    AND (SecondReservation = E_EventReservationResult.Accepted)
+    AND (FSuite.ReservedEntryCount = GVL_Constants.TestSuiteExecutionEventCount)
+    AND (FirstChild.ReservedEntryCount = ChildExecutionBudget)
+    AND (SecondChild.ReservedEntryCount = ChildExecutionBudget)
+    AND (FSubject.ReservedEntryCount = GVL_Constants.TestSuiteExecutionEventCount + 2 * ChildExecutionBudget);
+
+Released := FSuite.FreeReservedEvents();
+FFullReleaseMatches := Released AND (FSuite.ReservedEntryCount = 0)
+    AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0)
+    AND (FSubject.ReservedEntryCount = 0);
+Released := FSuite.FreeReservedEvents();
+FRepeatedReleaseMatches := Released AND (FSubject.ReservedEntryCount = 0)
+    AND (FSuite.ReservedEntryCount = 0)
+    AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0);
+
+FirstReservation := FirstChild.ReserveResetEvents();
+SecondReservation := SecondChild.ReserveResetEvents();
+FZeroOwnerCleanupMatches := (FirstReservation = E_EventReservationResult.Accepted)
+    AND (SecondReservation = E_EventReservationResult.Accepted)
+    AND (FSuite.ReservedEntryCount = 0)
+    AND (FSubject.ReservedEntryCount = 2 * GVL_Constants.TestCaseResetEventCount);
+Released := FSuite.FreeReservedEvents();
+FZeroOwnerCleanupMatches := FZeroOwnerCleanupMatches AND Released
+    AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0)
+    AND (FSuite.ReservedEntryCount = 0) AND (FSubject.ReservedEntryCount = 0);
+FStatePreservedMatches := (FSuite.State = E_State.Uninitialized)
+    AND (FirstChild.State = E_State.Uninitialized) AND (SecondChild.State = E_State.Uninitialized);
+FEventsPreservedMatches := (FBufferStatus.SequenceId = RetainedSequence)
+    AND (FBufferStatus.DeletedSequenceId = 0) AND (FFifo.ElementCount = 1)
+    AND (FEvents[FFifo.IndexOut].SequenceId = RetainedSequence);
+FStorageIntegrityMatches := NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND (FBufferStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{79f8b074-15c9-4096-b54c-c355c28ef102}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{fac18210-3b68-4540-9334-42bc4fe4ccdd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FInitialization(Enable := Evaluate,
+    State := State,
+    IN := FInitializationMatches);
+FExecutionContributions(Enable := Evaluate,
+    State := State,
+    IN := FExecutionContributionsMatches);
+FFullRelease(Enable := Evaluate,
+    State := State,
+    IN := FFullReleaseMatches);
+FRepeatedRelease(Enable := Evaluate,
+    State := State,
+    IN := FRepeatedReleaseMatches);
+FZeroOwnerCleanup(Enable := Evaluate,
+    State := State,
+    IN := FZeroOwnerCleanupMatches);
+FStatePreserved(Enable := Evaluate,
+    State := State,
+    IN := FStatePreservedMatches);
+FEventsPreserved(Enable := Evaluate,
+    State := State,
+    IN := FEventsPreservedMatches);
+FStorageIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FStorageIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{1cdf140b-3d3c-4c6b-acaa-f8fea86f6917}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{493315d3-2367-47d8-8e82-b6c1d72ec8c6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FInitialization.Reset();
+FInitializationMatches := FALSE;
+FExecutionContributions.Reset();
+FExecutionContributionsMatches := FALSE;
+FFullRelease.Reset();
+FFullReleaseMatches := FALSE;
+FRepeatedRelease.Reset();
+FRepeatedReleaseMatches := FALSE;
+FZeroOwnerCleanup.Reset();
+FZeroOwnerCleanupMatches := FALSE;
+FStatePreserved.Reset();
+FStatePreservedMatches := FALSE;
+FEventsPreserved.Reset();
+FEventsPreservedMatches := FALSE;
+FStorageIntegrity.Reset();
+FStorageIntegrityMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{8e60b678-d38d-42d8-b50d-139161ced7b8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

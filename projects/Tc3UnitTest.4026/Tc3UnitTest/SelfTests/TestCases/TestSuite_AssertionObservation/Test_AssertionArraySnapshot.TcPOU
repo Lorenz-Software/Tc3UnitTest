@@ -1,0 +1,788 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionArraySnapshot" Id="{212a4b76-d31b-4f00-8172-e5c30d33c3cc}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks retained DINT array snapshots, independent bounds and delayed observation.</summary>
+<description>
+IN[-2..1] selects [-1..0], while Memory[5..7] stores two values and an untouched
+tail sentinel. Disable never replaces the snapshot. Reset invalidates it without
+clearing Memory; ObserveFirstCycle=FALSE delays capture until the second enabled
+call. Literal memory checks distinguish fixed snapshots from rolling history.
+Each named step calls each subject once and checks public gates, result and local
+findings before advancing in the next cycle. Outer Assertions collect checkpoints
+per trace; subjects never contribute their intentional failures to the test result.
+FirstFailedStep retains the first mismatch. No timed stimulus or expected-result
+algorithm is used.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionArraySnapshot EXTENDS TestCaseBase
+VAR
+    FImmediate : AssertArrayNoValueChange_DInt;
+    FDelayed : AssertArrayNoValueChange_DInt;
+    FInput : ARRAY[-2..1] OF DINT;
+    FImmediateMemory : ARRAY[5..7] OF DINT;
+    FDelayedMemory : ARRAY[5..7] OF DINT;
+    FExpectedImmediateFirst : DINT;
+    FExpectedImmediateSecond : DINT;
+    FExpectedDelayedFirst : DINT;
+    FExpectedDelayedSecond : DINT;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FStep : UINT;
+    FTrace : UINT;
+    FFirstFailedStep : UINT;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FStepMatches : BOOL;
+    FResultsMatch : BOOL;
+    FActivityMatches : BOOL;
+    FFindingsMatch : BOOL;
+    FMemoryMatches : BOOL;
+    FResetSubjects : BOOL;
+    FImmediateEnable : BOOL;
+    FImmediateResult : E_Result;
+    FImmediateObservation : BOOL;
+    FImmediateEvaluation : BOOL;
+    FImmediateFinding : E_Result;
+    FDelayedEnable : BOOL;
+    FDelayedResult : E_Result;
+    FDelayedObservation : BOOL;
+    FDelayedEvaluation : BOOL;
+    FDelayedFinding : E_Result;
+    FFixedSnapshot : AssertTrue;
+    FRetainedOnReenable : AssertTrue;
+    FRecaptureAfterReset : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    StepResetSnapshot : UINT := 1;
+    StepFirstObservation : UINT := 2;
+    StepDelayedCapture : UINT := 3;
+    StepEqualSnapshot : UINT := 4;
+    StepDivergence : UINT := 5;
+    StepReturnToSnapshot : UINT := 6;
+    StepResetForReenable : UINT := 7;
+    StepReenableTraceCapture : UINT := 8;
+    StepReenableTraceDelayedCapture : UINT := 9;
+    StepReenableTracePassed : UINT := 10;
+    StepDisabledChange : UINT := 11;
+    StepReenableHistory : UINT := 12;
+    StepReenableComparison : UINT := 13;
+    StepReenableDelayedComparison : UINT := 14;
+    StepResetKeepsMemory : UINT := 15;
+    StepNewSnapshot : UINT := 16;
+    StepNewDelayedSnapshot : UINT := 17;
+    StepNewSnapshotMatches : UINT := 18;
+    LastStep : UINT := StepNewSnapshotMatches;
+    TraceFixedSnapshot : UINT := 1;
+    TraceRetainedOnReenable : UINT := 2;
+    TraceRecaptureAfterReset : UINT := 3;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{40016b47-ce5e-42b4-a3f2-4289bf9abf67}" />
+    <Method Name="AggregateResults" Id="{9d5be4ed-899b-4014-af3d-45f170bf4052}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only the outer checks, not the intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FFixedSnapshot);
+Aggregator.AddProvider(Provider := FRetainedOnReenable);
+Aggregator.AddProvider(Provider := FRecaptureAfterReset);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{1af5a1ab-a9dd-444f-afc9-f68e84c670e5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each production subject with stable bindings and the selected stimulus.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FImmediate(Enable := FImmediateEnable,
+    State := E_State.Running,
+    StartIndex := -1,
+    Length := 2,
+    IN := FInput,
+    Memory := FImmediateMemory);
+FDelayed(Enable := FDelayedEnable,
+    State := E_State.Running,
+    StartIndex := -1,
+    Length := 2,
+    IN := FInput,
+    Memory := FDelayedMemory);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{75e72cc1-79cf-468b-b42f-46543885ea8f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks finding order, identities and exact count without retaining prior events.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    FindingMatches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+IF FImmediateFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FImmediate.Name,
+        ExpectedResult := FImmediateFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FDelayedFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FDelayed.Name,
+        ExpectedResult := FDelayedFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{05d07a11-425d-4131-9c82-cb2d4755c705}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an incomplete capture or subject setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FFixedSnapshot.IsInitialized
+    AND FRetainedOnReenable.IsInitialized
+    AND FRecaptureAfterReset.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Observation selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckMemory" Id="{61930624-fc79-4702-9671-4a4756c36b09}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the selected snapshot and untouched sentinels.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckMemory]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMemoryMatches := (FImmediateMemory[5] = FExpectedImmediateFirst)
+    AND (FImmediateMemory[6] = FExpectedImmediateSecond)
+    AND (FDelayedMemory[5] = FExpectedDelayedFirst)
+    AND (FDelayedMemory[6] = FExpectedDelayedSecond)
+    AND (FImmediateMemory[7] = -999)
+    AND (FDelayedMemory[7] = -999)
+    AND (FInput[-2] = -100)
+    AND (FInput[1] = 100);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{6b847cd3-574f-493b-8658-f8d16204efed}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal result and observation/evaluation expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResultsMatch := (FImmediate.Result = FImmediateResult)
+    AND (FDelayed.Result = FDelayedResult);
+FActivityMatches := (FImmediate.Enabled = FImmediateEnable)
+    AND (FImmediate.ObservationActive = FImmediateObservation)
+    AND (FImmediate.EvaluationActive = FImmediateEvaluation)
+    AND (FDelayed.Enabled = FDelayedEnable)
+    AND (FDelayed.ObservationActive = FDelayedObservation)
+    AND (FDelayed.EvaluationActive = FDelayedEvaluation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{cac00298-e622-4896-9484-c38a3052afd6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FFixedSnapshot.Initialize(Parent := THIS^,
+    AssertionName := 'FixedSnapshot');
+FRetainedOnReenable.Initialize(Parent := THIS^,
+    AssertionName := 'RetainedOnReenable');
+FRecaptureAfterReset.Initialize(Parent := THIS^,
+    AssertionName := 'RecaptureAfterReset');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FImmediate.BindPublisher(Publisher := FCapture);
+Initialized := FImmediate.Initialize(Parent := THIS^,
+    AssertionName := 'Immediate',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FDelayed.BindPublisher(Publisher := FCapture);
+Initialized := FDelayed.Initialize(Parent := THIS^,
+    AssertionName := 'Delayed',
+    ObserveFirstCycle := FALSE);
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{e319d556-972c-45bb-a106-6ec766b21f4a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one expected Failed or Error finding from the bounded local capture.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{8f936802-3b9c-4480-bbe5-85c407947a62}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{7679d039-ddc7-4b71-9010-0bccd6b2a78b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks this checkpoint before the next cycle advances the trace.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FFixedSnapshot(Enable := Check AND (FTrace = TraceFixedSnapshot),
+    State := State,
+    IN := FStepMatches);
+FRetainedOnReenable(Enable := Check AND (FTrace = TraceRetainedOnReenable),
+    State := State,
+    IN := FStepMatches);
+FRecaptureAfterReset(Enable := Check AND (FTrace = TraceRecaptureAfterReset),
+    State := State,
+    IN := FStepMatches);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{aee5d96a-95ad-4c5b-ba6e-af30747d6a99}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{6d45049e-0e65-48dd-b13d-dd2222c6ce9d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets checkpoint bookkeeping and queues each subject reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := StepResetSnapshot;
+FTrace := 0;
+FFirstFailedStep := 0;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FFixedSnapshot.Reset();
+FRetainedOnReenable.Reset();
+FRecaptureAfterReset.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{af9d26fd-8def-44de-bfc3-73929eda1c45}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes exactly one named checkpoint per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = LastStep THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+
+IF NOT SelectStep() THEN
+    RETURN;
+END_IF;
+FCapture.Reset();
+IF FResetSubjects THEN
+    ResetSubjects();
+END_IF;
+CallSubjects();
+CheckResults();
+CheckMemory();
+CheckFindings();
+FStepMatches := FResultsMatch AND FActivityMatches AND FMemoryMatches AND FFindingsMatch;
+IF NOT FStepMatches AND (FFirstFailedStep = 0) THEN
+    FFirstFailedStep := FStep;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{40d9634f-c784-4f1a-8490-6d2a6da5918c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues subject reset; the next bound call consumes it.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FImmediate.Reset();
+FDelayed.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectStep" Id="{8d90b188-4138-464e-8608-24af8595fb33}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal stimuli, gates and findings for a named checkpoint.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectStep : BOOL //! TRUE after selecting a supported script step and its literal expectations; FALSE reports an unknown step.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectStep := FALSE;
+FImmediateFinding := E_Result.NotEvaluated;
+FDelayedFinding := E_Result.NotEvaluated;
+CASE FStep OF
+    StepResetSnapshot:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := TRUE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := -777;
+        FExpectedImmediateSecond := -888;
+        FExpectedDelayedFirst := -777;
+        FExpectedDelayedSecond := -888;
+        FImmediateMemory[5] := -777;
+        FImmediateMemory[6] := -888;
+        FImmediateMemory[7] := -999;
+        FDelayedMemory[5] := -777;
+        FDelayedMemory[6] := -888;
+        FDelayedMemory[7] := -999;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := FALSE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepFirstObservation:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := -777;
+        FExpectedDelayedSecond := -888;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepDelayedCapture:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := FALSE;
+    StepEqualSnapshot:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+    StepDivergence:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 11;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Failed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FImmediateFinding := E_Result.Failed;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Failed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+        FDelayedFinding := E_Result.Failed;
+    StepReturnToSnapshot:
+        FTrace := TraceFixedSnapshot;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Failed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Failed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+    StepResetForReenable:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := TRUE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := FALSE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepReenableTraceCapture:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepReenableTraceDelayedCapture:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := FALSE;
+    StepReenableTracePassed:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 10;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+    StepDisabledChange:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 30;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := FALSE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := FALSE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := FALSE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepReenableHistory:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 30;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepReenableComparison:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 30;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Failed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FImmediateFinding := E_Result.Failed;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := FALSE;
+    StepReenableDelayedComparison:
+        FTrace := TraceRetainedOnReenable;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 30;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Failed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Failed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+        FDelayedFinding := E_Result.Failed;
+    StepResetKeepsMemory:
+        FTrace := TraceRecaptureAfterReset;
+        FResetSubjects := TRUE;
+        FInput[-2] := -100;
+        FInput[-1] := 40;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 10;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := FALSE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepNewSnapshot:
+        FTrace := TraceRecaptureAfterReset;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 40;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 40;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 10;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.NotEvaluated;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := FALSE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := FALSE;
+        FDelayedEvaluation := FALSE;
+    StepNewDelayedSnapshot:
+        FTrace := TraceRecaptureAfterReset;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 40;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 40;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 40;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.NotEvaluated;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := FALSE;
+    StepNewSnapshotMatches:
+        FTrace := TraceRecaptureAfterReset;
+        FResetSubjects := FALSE;
+        FInput[-2] := -100;
+        FInput[-1] := 40;
+        FInput[0] := 20;
+        FInput[1] := 100;
+        FExpectedImmediateFirst := 40;
+        FExpectedImmediateSecond := 20;
+        FExpectedDelayedFirst := 40;
+        FExpectedDelayedSecond := 20;
+        FImmediateEnable := TRUE;
+        FImmediateResult := E_Result.Passed;
+        FImmediateObservation := TRUE;
+        FImmediateEvaluation := TRUE;
+        FDelayedEnable := TRUE;
+        FDelayedResult := E_Result.Passed;
+        FDelayedObservation := TRUE;
+        FDelayedEvaluation := TRUE;
+ELSE
+    Error(Message := 'Unknown observation checkpoint.');
+    RETURN;
+END_CASE;
+SelectStep := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

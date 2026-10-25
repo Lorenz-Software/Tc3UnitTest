@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_Bool" Id="{2a34fc91-c933-4f7a-b1b0-4ab51f7d30a4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected BOOL value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_Bool EXTENDS AssertionBase
+VAR_INPUT
+    IN : BOOL; //! Actual value checked or observed by this Assertion.
+    Expected : BOOL; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{d79b487a-e91e-4e8c-b5b3-09eb11bb3cd8}" />
+    <Method Name="Assert" Id="{461c9238-6380-4e6d-8169-e5f7d964d8e2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality with the expected BOOL value.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := BOOL_TO_STRING(Expected);
+    ActualText := BOOL_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

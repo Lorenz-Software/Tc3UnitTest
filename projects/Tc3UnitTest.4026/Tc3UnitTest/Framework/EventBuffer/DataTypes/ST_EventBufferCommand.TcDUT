@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_EventBufferCommand" Id="{358667c7-976c-4a5b-8686-c1efaa7628b8}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>External Event Buffer requests; zero sequence means no delete request.</summary>
+<description>
+Run Control handles Reset before Delete, attempts hierarchical reservation release and clears both commands after destructive reset. Delete clearing follows a captured-value comparison; a cleared request alone does not confirm deletion. Replacing a pending Delete request is permitted only with a higher valid contiguous watermark.
+</description>
+*)
+{endregion}
+TYPE ST_EventBufferCommand :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    Reset : BOOL := FALSE; //! Destructive buffer reset request; Run Control attempts subtree reservation release first and then clears this flag.
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    DeleteSequenceId : UDINT := 0; //! Inclusive contiguous acknowledgement watermark; zero means no request. The buffer clears an unchanged request.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

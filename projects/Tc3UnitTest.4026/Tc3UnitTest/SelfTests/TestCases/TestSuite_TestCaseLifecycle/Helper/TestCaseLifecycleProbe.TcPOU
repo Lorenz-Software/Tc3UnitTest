@@ -1,0 +1,357 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestCaseLifecycleProbe" Id="{0eacf2f1-432e-402c-94d7-977e47e74f8d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Provides controllable application hooks around the unchanged TestCaseBase lifecycle.
+</summary>
+
+<description>
+
+Controlled behavior
+
+Inputs emulate concrete application decisions inside the Process* overrides.
+The overrides call the real base APIs for errors and phase completion;
+they do not replace the Sequencer or assign its state directly.
+Two real Assertions provide child results: Condition is controlled,
+while ReferenceCondition always receives TRUE.
+
+Per-call trace
+
+Each override records method, state and Enable before performing its action.
+A transition inside one hook is visible when the following hook records its entry.
+The FB call clears the previous trace before invoking SUPER^().
+The fixed trace buffer belongs to this probe, not to the event stream.
+
+Binding and evaluation
+
+Bind supplies the isolated publisher and phase counts before Initialize.
+The outer TestCaseLifecycleTestBase drives this object and judges its observations;
+the subject's own result is test data, not the outer selftest verdict.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK TestCaseLifecycleProbe EXTENDS TestCaseBase
+VAR_INPUT
+    Ready : BOOL := TRUE; //! Scenario readiness release, combined with inherited startability.
+    ResetCompleted : BOOL := TRUE; //! TRUE permits the Reset hook to report completion.
+    PreparationTargetReached : BOOL := FALSE; //! Scripted preparation target condition.
+    AdvancePreparation : BOOL := FALSE; //! TRUE permits the preparation hook to advance its state.
+    FinishPreparations : BOOL := FALSE; //! TRUE permits the preparation hook to complete its phase.
+    AdvanceTest : BOOL := FALSE; //! TRUE permits the test hook to advance its state.
+    FinishTests : BOOL := FALSE; //! TRUE permits the test hook to complete its phase.
+    AssertionCondition : BOOL := TRUE; //! Condition supplied to the controlled Assertion.
+    AbortCompleted : BOOL := TRUE; //! TRUE permits the Abort hook to report completion.
+    ResetError : BOOL := FALSE; //! TRUE injects a technical Error from the Reset hook.
+    TestError : BOOL := FALSE; //! TRUE injects a technical Error from the test hook.
+    AbortError : BOOL := FALSE; //! TRUE injects a technical Error from the Abort hook.
+    PreparationError : BOOL := FALSE; //! TRUE injects a technical Error from the preparation hook.
+END_VAR
+VAR
+    FConfiguredPreparationCount : INT;
+    FConfiguredTestCount : INT := 1;
+    FAssertion : AssertTrue;
+    FReferenceAssertion : AssertTrue;
+    FHooks : ARRAY[1..HookCapacity] OF ST_LifecycleHook;
+    FHookCount : UINT;
+    FTraceOverflow : BOOL;
+END_VAR
+VAR CONSTANT
+    HookCapacity : UINT := 6;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[// Keep only this call's observations; SUPER^ invokes the instrumented overrides below.
+FHookCount := 0;
+FTraceOverflow := FALSE;
+SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{62b13a54-ed3c-42bd-a0cb-a353966980c8}" />
+    <Method Name="AggregateResults" Id="{89b4476a-d071-423f-bb2c-7ff781eefc71}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes both real child results; the inherited base owns interpretation and counters.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Aggregate,
+    Enabled := TRUE);
+Aggregator.AddProvider(Provider := FAssertion);
+Aggregator.AddProvider(Provider := FReferenceAssertion);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Bind" Id="{68c13752-9ba2-446f-baff-42a1a8d00af3}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects publisher and scenario shape before calling the inherited Initialize.</summary>
+*)
+{endregion}
+METHOD PUBLIC Bind
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+    PreparationCount : INT; //! Preparation-state count supplied to the next concrete Configure call.
+    TestCount : INT; //! Test-state count supplied to the next concrete Configure call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;
+FConfiguredPreparationCount := PreparationCount;
+FConfiguredTestCount := TestCount;
+FAssertion.BindPublisher(Publisher := Publisher);
+FReferenceAssertion.BindPublisher(Publisher := Publisher);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{1da17191-cd1d-4b76-b7cb-3ea9a1d51f13}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Keeps the base validation and rejects an unusable owned Assertion.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization()
+    AND FAssertion.IsInitialized AND FReferenceAssertion.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{28006232-1bf6-40da-ac5f-bed7c6323e62}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the two real Assertions and configures the requested phase counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := FConfiguredPreparationCount;
+FTestStateCount := FConfiguredTestCount;
+FHookCount := 0;
+FTraceOverflow := FALSE;
+FAssertion.Initialize(Parent := THIS^,
+    AssertionName := 'Condition');
+FReferenceAssertion.Initialize(Parent := THIS^,
+    AssertionName := 'ReferenceCondition');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetHook" Id="{314dcb4e-163e-47fa-95e5-b1adda30c1df}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the recorded entry; an invalid index returns the empty observation.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetHook : ST_LifecycleHook //! Recorded hook entry at Index; an empty entry when Index is outside 1..HookCount.
+VAR_INPUT
+    Index : UINT; //! One-based hook-entry index within 1..HookCount; other indices return an empty entry.
+END_VAR
+VAR
+    EmptyHook : ST_LifecycleHook;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetHook := EmptyHook;
+IF (Index < 1) OR (Index > FHookCount) THEN
+    RETURN;
+END_IF;
+
+GetHook := FHooks[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="HookCount" Id="{74b4861b-012c-4d27-8fb6-fc718b05c425}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of observations from the latest subject call.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HookCount : UINT //! Number of observations from the latest subject call.]]></Declaration>
+      <Get Name="Get" Id="{8eaefd4e-f1f1-4638-9064-420b324f191c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HookCount := FHookCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{6830046b-f4bd-4928-83df-42c37bdfedc9}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Combines base startability with the scenario release.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Combines base startability with the scenario release.]]></Declaration>
+      <Get Name="Get" Id="{2b3817ec-3510-4427-a0b9-82da4ee9ec8e}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := SUPER^.IsReady AND Ready;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ProcessAbort" Id="{ac9676b2-2e3d-4bee-830f-e12e92ba4780}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Records activation, supports a controlled cleanup failure and waits for the explicit completion release.
+</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Abort,
+    Enabled := Enable);
+IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF AbortError THEN
+    Error(Message := 'Controlled abort failure.');
+END_IF;
+IF AbortCompleted THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{39b699f8-5cb6-4f0c-8df4-05598426df03}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls both real Assertions even when disabled to consume their reset requests.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Assertions,
+    Enabled := Enable);
+FAssertion(Enable := Enable,
+    State := State,
+    IN := AssertionCondition);
+FReferenceAssertion(Enable := Enable,
+    State := State,
+    IN := TRUE);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{8ed39f4a-83ec-47c9-9670-0f484d5a3ffe}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies controlled target observations and explicit multi-stage completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Preparations,
+    Enabled := Enable);
+// Emulate the concrete application's combined observation without another Preparation FB.
+// The Sequencer has already run; explicit completion below can still transition immediately.
+UpdatePreparationStatus(Ready := TRUE,
+    Running := Enable AND NOT PreparationTargetReached,
+    Completed := PreparationTargetReached,
+    HasError := PreparationError);
+IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF AdvancePreparation THEN
+    NextPreparationState();
+ELSIF FinishPreparations THEN
+    CompletePreparations();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{6f0758dc-c821-468b-8309-82f80bd0609c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets both real Assertions and completes only on the explicit fixture release.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Reset,
+    Enabled := TRUE);
+FAssertion.Reset();
+FReferenceAssertion.Reset();
+// Deliberately allow Error followed by CompleteReset in the same call.
+// The base must preserve Error and choose finalization instead of a successful Idle result.
+IF ResetError THEN
+    Error(Message := 'Controlled reset failure.');
+END_IF;
+IF ResetCompleted THEN
+    CompleteReset();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{8343adfd-1629-407c-bb55-5e6d9aa562da}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances or completes only when enabled and explicitly instructed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RecordHook(Hook := E_LifecycleHook.Tests,
+    Enabled := Enable);
+IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+// Use the real base API for error and transition stimulus; never assign the subject state directly.
+IF TestError THEN
+    Error(Message := 'Controlled test failure.');
+    RETURN;
+END_IF;
+IF AdvanceTest THEN
+    NextTestState();
+ELSIF FinishTests THEN
+    CompleteTests();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RecordHook" Id="{b5199268-f90d-4070-84f6-6b0c18955b54}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Appends one hook-entry observation with bounded storage and explicit overflow reporting.</summary>
+*)
+{endregion}
+METHOD PRIVATE RecordHook
+VAR_INPUT
+    Hook : E_LifecycleHook; //! Hook being entered; appended to the bounded per-call trace.
+    Enabled : BOOL; //! Hook permission recorded together with the current entry state.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FHookCount >= HookCapacity THEN
+    FTraceOverflow := TRUE;
+    RETURN;
+END_IF;
+
+FHookCount := FHookCount + 1;
+FHooks[FHookCount].Hook := Hook;
+FHooks[FHookCount].State := State;
+FHooks[FHookCount].Enabled := Enabled;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TraceOverflow" Id="{b8434383-817b-4163-898b-5f1face070b4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a call exceeding the bounded hook trace.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TraceOverflow : BOOL //! Reports a call exceeding the bounded hook trace.]]></Declaration>
+      <Get Name="Get" Id="{d519a521-5d63-4ac2-9e0b-b7a2234d8c0a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TraceOverflow := FTraceOverflow;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

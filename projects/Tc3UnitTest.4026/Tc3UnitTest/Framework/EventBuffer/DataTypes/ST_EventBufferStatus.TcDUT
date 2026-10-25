@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_EventBufferStatus" Id="{070ec1a9-2339-4e78-9434-ee6f68ba8667}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Producer sequence, contiguous deletion watermark and loss count.</summary>
+<description>
+Sequence may advance before insertion succeeds, so gaps and a latest assigned value above the highest readable event are possible. The sequence saturates at UDINT maximum; reaching exhaustion is unsupported. LostEventCount saturates at UINT maximum and any nonzero count invalidates event-log completeness. Reset starts a new epoch with all three fields zero.
+</description>
+*)
+{endregion}
+TYPE ST_EventBufferStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SequenceId : UDINT := 0; //! Latest producer sequence in the current epoch, including attempted insertions.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    DeletedSequenceId : UDINT := 0; //! SequenceId of the last event actually released in the current epoch; request clearing alone is not deletion.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    LostEventCount : UINT := 0; //! Number of failed event insertions; saturates at UINT maximum until buffer reset.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

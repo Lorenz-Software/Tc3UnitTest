@@ -1,0 +1,108 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorMissingStartReaction" Id="{f4656f12-b003-4b7b-a5db-a8d4b1e43dac}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Detects missing Start response on the following call, releases its reservation and prevents retries.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorMissingStartReaction EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ce4b9311-d111-4367-b3fd-74aca3ca5270}" />
+    <Method Name="ConfigureScenario" Id="{29f5b3b2-aa83-4df3-a2f7-913a6394541b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 12;
+
+{region "01 - Idle readiness before child processing"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Request Start but leave child Idle"}
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "03 - Following helper call must reject missing response"}
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedDiagnosticCount := 1;
+FSteps[3].ExpectedReleasedEntries[1] := 1;
+FSteps[3].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "04 - No retry or duplicate diagnostic"}
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedDiagnosticCount := 1;
+FSteps[4].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "05 - Idle preserves the held error"}
+FSteps[5].Task := E_OrchestratorTask.Idle;
+FSteps[5].ExpectedDiagnosticCount := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "06 - Execution cannot bypass held error"}
+FSteps[6].ExpectedDiagnosticCount := 1;
+FSteps[6].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "07 - New Reset clears helper error without clearing captured evidence"}
+FSteps[7].Task := E_OrchestratorTask.Reset;
+FSteps[7].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "08 - All already-ready children count as reset-complete"}
+FSteps[8].Task := E_OrchestratorTask.Reset;
+FSteps[8].ExpectedDiagnosticCount := 1;
+FSteps[8].ExpectedResetFinished := TRUE;
+{endregion}
+
+{region "09 - Owner returns to ready Idle"}
+FSteps[9].Task := E_OrchestratorTask.Idle;
+FSteps[9].ExpectedDiagnosticCount := 1;
+FSteps[9].ExpectedReady := TRUE;
+{endregion}
+
+{region "10 - Start is admitted again only after Reset"}
+FSteps[10].Children[1].State := E_State.Completed;
+FSteps[10].Children[1].Result := E_Result.Passed;
+FSteps[10].Children[1].Ready := FALSE;
+FSteps[10].Children[1].Complete := TRUE;
+FSteps[10].ExpectedStartChild := 1;
+FSteps[10].ExpectedSlot := 1;
+FSteps[10].ExpectedDiagnosticCount := 1;
+FSteps[10].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "11 - Successful start response does not create another diagnostic"}
+FSteps[11].Children[1].State := E_State.Completed;
+FSteps[11].Children[1].Result := E_Result.Passed;
+FSteps[11].Children[1].Ready := FALSE;
+FSteps[11].Children[1].Complete := TRUE;
+FSteps[11].ExpectedSlot := 2;
+FSteps[11].ExpectedDiagnosticCount := 1;
+FSteps[11].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "12 - Owner stops the local scenario without starting later children"}
+FSteps[12].Task := E_OrchestratorTask.Idle;
+FSteps[12].Children[1].State := E_State.Completed;
+FSteps[12].Children[1].Result := E_Result.Passed;
+FSteps[12].Children[1].Ready := FALSE;
+FSteps[12].Children[1].Complete := TRUE;
+FSteps[12].ExpectedDiagnosticCount := 1;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

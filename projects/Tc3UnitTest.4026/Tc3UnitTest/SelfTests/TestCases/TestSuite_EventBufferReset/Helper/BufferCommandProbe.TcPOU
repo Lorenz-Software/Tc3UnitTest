@@ -1,0 +1,122 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="BufferCommandProbe" Id="{4a1a79a1-4b11-45aa-896b-1313883b2c95}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Real Event Buffer with command-order observations; BeginObservation excludes setup calls.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK BufferCommandProbe EXTENDS EventBuffer
+VAR
+    FOperationCount : UINT;
+    FResetOrder : UINT;
+    FResetCount : UINT;
+    FDeleteCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="BeginObservation" Id="{fbe11983-8805-4bb8-892c-bfb625539b5e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears only test observations, not buffer contents or reservations.</summary>
+*)
+{endregion}
+METHOD PUBLIC BeginObservation]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOperationCount := 0;
+FResetOrder := 0;
+FResetCount := 0;
+FDeleteCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="DeleteCount" Id="{23c1c274-87bb-49dd-9a9f-b4891a899c0e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded DeleteCount for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC DeleteCount : UINT //! Recorded DeleteCount for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{8c566c29-a49e-4c4a-8696-bf97c5b862bb}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[DeleteCount := FDeleteCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ProcessDeleteRequest" Id="{fc339740-4b67-4eb7-98f4-2dc09923c70d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts nonzero delete commands, then delegates unchanged to the real buffer.</summary>
+*)
+{endregion}
+METHOD PUBLIC ProcessDeleteRequest
+VAR_IN_OUT
+    SequenceId : UDINT; //! Pending delete watermark passed through to the inherited consumer, which clears the request.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF SequenceId <> 0 THEN
+    FDeleteCount := FDeleteCount + 1;
+END_IF;
+SUPER^.ProcessDeleteRequest(SequenceId := SequenceId);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RecordRelease" Id="{1fb633e2-7c21-409f-946e-c261f3a29b83}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Suite release attempt in the same order domain as Reset.</summary>
+*)
+{endregion}
+METHOD PUBLIC RecordRelease : UINT //! Incremented operation sequence number shared with buffer Reset observations.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOperationCount := FOperationCount + 1;
+RecordRelease := FOperationCount;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{231d6610-4709-46a1-b8f5-9295f236b307}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records entry, then executes the unchanged real hard reset.</summary>
+*)
+{endregion}
+METHOD PUBLIC Reset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOperationCount := FOperationCount + 1;
+FResetOrder := FOperationCount;
+FResetCount := FResetCount + 1;
+SUPER^.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ResetCount" Id="{1bf08b79-2a19-445b-b79c-7814150f706c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded ResetCount for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ResetCount : UINT //! Recorded ResetCount for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{54db9886-8b32-4a5e-a0dd-f8a0705b43eb}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResetCount := FResetCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ResetOrder" Id="{4bb794e9-ee04-4b3f-bafb-6bf0d57adb15}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded ResetOrder for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ResetOrder : UINT //! Recorded ResetOrder for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{3ac8839a-b67f-41a6-91d0-5d8125a1a055}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResetOrder := FResetOrder;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

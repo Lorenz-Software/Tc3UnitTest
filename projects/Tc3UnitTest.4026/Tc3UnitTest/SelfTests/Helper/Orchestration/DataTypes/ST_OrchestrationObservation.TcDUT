@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_OrchestrationObservation" Id="{c4ac9d42-6190-4142-aabb-a7ad698e000a}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Scripted child view applied only by its FB call, after helper processing.</summary>
+*)
+{endregion}
+TYPE ST_OrchestrationObservation :
+STRUCT
+    State : E_State := E_State.Idle; //! Child lifecycle state accepted by the next child-body call.
+    Result : E_Result := E_Result.NotEvaluated; //! Child result accepted by the next child-body call.
+    Ready : BOOL := TRUE; //! Scripted child readiness accepted by the next child-body call.
+    Complete : BOOL; //! Scripted terminal completion accepted by the next child-body call.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

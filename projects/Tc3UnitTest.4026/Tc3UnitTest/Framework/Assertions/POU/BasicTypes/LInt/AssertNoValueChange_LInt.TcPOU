@@ -1,0 +1,112 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoValueChange_LInt" Id="{1396f58b-5d08-475b-aba0-3238e8f379f7}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality between consecutive active observations.</summary>
+<description>
+
+The first active observation establishes a baseline without deciding a result. Disabling
+observation invalidates that baseline, not the held Result. Re-enabling first establishes a new
+baseline; Reset clears history.
+
+ObserveFirstCycle FALSE delays the first observation by one enabled call.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoValueChange_LInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : LINT; //! Actual value to observe.
+END_VAR
+VAR
+    FINPrevious : LINT;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6fc88b47-a6d3-4117-a708-bf43af238206}" />
+    <Method Name="Assert" Id="{096451a5-b7a8-4578-a5fd-1894eb650368}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observe the current value before evaluating a change against the previous observation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    PreviousValue : LINT;
+    Message : STRING(GVL_Constants.MessageLength);
+    PreviousText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+PreviousValue := FINPrevious;
+FINPrevious := IN;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> PreviousValue THEN
+    PreviousText := LINT_TO_STRING(PreviousValue);
+    ActualText := LINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value changed unexpectedly. Previous = ',
+        PreviousText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{4cd9cbea-a10c-4df0-ae1a-381b43464779}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has an active observation and a preceding observation
+baseline.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has an active observation and a preceding observation baseline.]]></Declaration>
+      <Get Name="Get" Id="{6de5d23a-f670-469f-9f5b-d9678b273bd1}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{27331021-86ff-4fa8-9ea6-88c213328c1d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear observation history and the current evaluation gate.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := 0;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

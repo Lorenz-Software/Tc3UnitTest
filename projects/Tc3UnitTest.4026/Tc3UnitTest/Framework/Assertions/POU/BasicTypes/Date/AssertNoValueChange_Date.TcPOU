@@ -1,0 +1,114 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoValueChange_Date" Id="{681fb132-5bc0-4bed-a0e3-c971d8bc1ca9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality between consecutive active observations.</summary>
+<description>
+
+The first active observation establishes a baseline without deciding a result. Disabling
+observation invalidates that baseline, not the held Result. Re-enabling first establishes a new
+baseline; Reset clears history.
+
+ObserveFirstCycle FALSE delays the first observation by one enabled call.
+
+Compares calendar days only; hidden time-of-day components are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoValueChange_Date EXTENDS AssertionBase
+VAR_INPUT
+    IN : DATE; //! Actual value to observe.
+END_VAR
+VAR
+    FINPrevious : DATE;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6c3b4231-68cc-4c32-8a3c-8d7898ca0c69}" />
+    <Method Name="Assert" Id="{72ab5fe6-c2be-44c4-ac4f-9fb59c5451bc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observe the current value before evaluating a change against the previous observation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    PreviousValue : DATE;
+    Message : STRING(GVL_Constants.MessageLength);
+    PreviousText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+PreviousValue := FINPrevious;
+FINPrevious := IN;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF DateToDayNumber(Value := IN) <> DateToDayNumber(Value := PreviousValue) THEN
+    PreviousText := DATE_TO_STRING(PreviousValue);
+    ActualText := DATE_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value changed unexpectedly. Previous = ',
+        PreviousText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{ddb91828-b9f9-4720-a1e0-62885a32a22f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has an active observation and a preceding observation
+baseline.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has an active observation and a preceding observation baseline.]]></Declaration>
+      <Get Name="Get" Id="{03cf5663-d805-48b8-b7c1-3f306c7c5b78}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{30c72a84-8dbe-4dc4-aa93-03f42bfc5d8e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear observation history and the current evaluation gate.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := D#1970-01-01;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

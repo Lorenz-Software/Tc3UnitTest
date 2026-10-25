@@ -1,0 +1,194 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayContainsArray_LReal" Id="{e222010a-3326-4102-ac28-e4416851c9b7}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Searches the selected IN range for the complete contiguous Expected pattern.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+The complete Expected pattern must be nonempty and fit the selected IN range; an
+oversized pattern reports Error, not a missing-match result.
+
+Expected must not contain NaN (Error), but may contain either infinity. Actual NaN never
+matches; equal signed infinities match. Non-finite data elsewhere in a search does not
+invalidate the entire range.
+
+Tolerance is absolute, in the same units as the values, finite and non-negative. Its
+default zero requests exact comparison. The equality boundary is inclusive; larger differences
+are unequal. Difference checking avoids overflow for large finite operands.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayContainsArray_LReal EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of searched elements, from 1 through 255.
+    Tolerance : LREAL := 0.0; //! Maximum absolute difference accepted as equal; must be finite and non-negative.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF LREAL; //! Read-only search data; keep stable during the call.
+    Expected : ARRAY[*] OF LREAL; //! Read-only expected sequence starting at its own lower bound; must fit the selected actual range.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{06fdedba-72eb-40a0-b620-0fe42ec5dd0a}" />
+    <Method Name="Assert" Id="{b138b815-4e87-42c3-9b7b-47709c18e4e0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration before searching the selected range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ExpectedLowerIndex : DINT;
+    ExpectedUpperIndex : DINT;
+    ExpectedLength : LINT;
+    ExpectedIndex : DINT;
+    CandidateOffset : LINT;
+    PatternFound : BOOL;
+    PatternMatches : BOOL;
+    ValuesEqual : BOOL;
+    ExpectedValue : LREAL;
+    Message : STRING(GVL_Constants.MessageLength);
+    Value : LREAL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := Tolerance) THEN
+    Error(Message := 'Assertion error: Tolerance must be finite.');
+    RETURN;
+END_IF;
+
+IF Tolerance < 0.0 THEN
+    Error(Message := 'Assertion error: Tolerance must not be negative.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+ExpectedLowerIndex := LOWER_BOUND(Expected, 1);
+ExpectedUpperIndex := UPPER_BOUND(Expected, 1);
+ExpectedLength := DINT_TO_LINT(ExpectedUpperIndex) - DINT_TO_LINT(ExpectedLowerIndex) + 1;
+
+IF (Length = 0)
+    OR (ExpectedLength <= 0) OR (ExpectedLength > USINT_TO_LINT(Length))
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range or pattern is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, ', ExpectedLength = ');
+    Message := CONCAT(Message, LINT_TO_STRING(ExpectedLength));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO ExpectedLength - 1 DO
+    ExpectedIndex := LINT_TO_DINT(DINT_TO_LINT(ExpectedLowerIndex) + Offset);
+    ExpectedValue := Expected[ExpectedIndex];
+    IF Tc2_Utilities.LrealIsNaN(x := ExpectedValue) THEN
+        Message := CONCAT('Assertion error: Expected must not contain NaN. Index = ',
+            DINT_TO_STRING(ExpectedIndex));
+        Error(Message := Message);
+        RETURN;
+    END_IF;
+END_FOR;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+PatternFound := FALSE;
+FOR CandidateOffset := 0 TO USINT_TO_LINT(Length) - ExpectedLength DO
+    PatternMatches := TRUE;
+    FOR Offset := 0 TO ExpectedLength - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset + Offset);
+        ExpectedIndex := LINT_TO_DINT(DINT_TO_LINT(ExpectedLowerIndex) + Offset);
+        Value := IN[InIndex];
+        ExpectedValue := Expected[ExpectedIndex];
+        ValuesEqual := FALSE;
+        IF NOT Tc2_Utilities.LrealIsNaN(x := Value) THEN
+            IF Value = ExpectedValue THEN
+                ValuesEqual := TRUE;
+            ELSIF Tc2_Utilities.LrealIsFinite(x := Value)
+                AND Tc2_Utilities.LrealIsFinite(x := ExpectedValue) THEN
+                ValuesEqual := IsWithinTolerance_LReal(IN := Value,
+                    Expected := ExpectedValue,
+                    Tolerance := Tolerance);
+            END_IF;
+        END_IF;
+        IF NOT ValuesEqual THEN
+            PatternMatches := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+
+    IF PatternMatches THEN
+        PatternFound := TRUE;
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF NOT PatternFound THEN
+    Message := CONCAT('Assertion failed: array range does not contain Expected pattern. ExpectedRange = [',
+        DINT_TO_STRING(ExpectedLowerIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, DINT_TO_STRING(ExpectedUpperIndex));
+    Message := CONCAT(Message, '], ActualRange = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ']');
+    Message := CONCAT(Message, ', Tolerance = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_LReal(Value := Tolerance));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

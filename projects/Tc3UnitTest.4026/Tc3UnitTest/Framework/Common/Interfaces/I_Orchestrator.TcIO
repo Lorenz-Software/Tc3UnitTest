@@ -1,0 +1,155 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_Orchestrator" Id="{a6e27120-26b8-44b3-8958-cd3cdd31a05f}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owner-facing initialization, cyclic execution and observations of the selected scheduler.</summary>
+<description>
+Initialize with an owner-validated, nonempty, stable collection before Execute. The owner calls Execute once before all concrete child FBs in the same task; the helper dispatches requests, while the owner retains concrete calls, aggregation and timeout supervision. Do not execute the same helper both through Execute and its concrete FB body in one cycle.
+
+The default Orchestrator admits at most one new Start or Reset per call; shared slots allow overlapping execution, not simultaneous admission. Repeating a task preserves progress, and completion never chooses the next task. Technical Error is held until Initialize or entry into a new Reset task; Idle does not clear it. Reset/Abort completion is separate from a successful outcome, so inspect Result as well as the corresponding completion flag.
+</description>
+*)
+{endregion}
+INTERFACE I_Orchestrator]]></Declaration>
+    <Property Name="CurrentTask" Id="{1ea1147f-54b5-472d-ba51-6d8d042562c6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Last task supplied to the scheduler.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY CurrentTask : E_OrchestratorTask //! Last task supplied to the scheduler.]]></Declaration>
+      <Get Name="Get" Id="{40c4e389-1cc5-48e7-b8a7-0ccbdefacfb6}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="Execute" Id="{528c9862-5a74-4fe5-a77c-04a866205b0b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes the selected task once, before the owner&#x27;s child FB calls.</summary>
+*)
+{endregion}
+METHOD Execute
+VAR_INPUT
+    Task : E_OrchestratorTask; //! Owner-selected work for this call; a task change initializes its scheduling once.
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="Initialize" Id="{4417e804-8d64-4539-83bf-287e9734a63d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the validated collection and initializes scheduling before the first Execute call.</summary>
+<description>
+Capacity, occupied entries, naming and slots are owner/builder responsibilities. The owner must also accept child initialization before enabling regular execution. The default helper caches lower bound and count, not the capacity upper bound, and retains the collection interface for later indexed reads. A failed default initialization drops the old binding rather than preserving it as a fallback.
+</description>
+*)
+{endregion}
+METHOD Initialize : BOOL //! TRUE when the child collection is accepted and scheduling is initialized.
+VAR_INPUT
+    Collection : I_OrchestratableCollection; //! Initialized, stable child collection retained by the scheduler; its owner and children must outlive use.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="IsAbortFinished" Id="{5f618d9c-868d-4248-a16f-26e68aa1c96d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Abort task is finished, with reservations reconciled.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsAbortFinished : BOOL //! Current Abort task is finished, with reservations reconciled.]]></Declaration>
+      <Get Name="Get" Id="{52e8fed7-fccd-4162-8d60-5ee6596f7363}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsExecutionFinished" Id="{f1a5dd46-cf4c-41e3-b0e9-e4e667d67aad}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Execution task completed all slots without a technical error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsExecutionFinished : BOOL //! Current Execution task completed all slots without a technical error.]]></Declaration>
+      <Get Name="Get" Id="{3eb6e2fe-1a36-4be0-9b4c-23e3b3ad89c1}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{db545713-2ac2-4d59-ba66-ce46c8a7e538}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collection binding and occupied bounds were accepted by Initialize.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsInitialized : BOOL //! Collection binding and occupied bounds were accepted by Initialize.]]></Declaration>
+      <Get Name="Get" Id="{bcb2b0d7-f8a1-4fc0-911b-ed57ad2f11e4}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{8befc8b6-b8fa-431c-a8b5-aa9f755f75a2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Execution may start from Idle with ready children, reconciled reservations and no held error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsReady : BOOL //! Execution may start from Idle with ready children, reconciled reservations and no held error.]]></Declaration>
+      <Get Name="Get" Id="{4eb504bc-25db-4172-b4fd-13b26241bb04}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsResetActive" Id="{bf850669-5a4f-42bc-9799-7a2403199bcb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether Reset is the assigned task, including after completion until a task change.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsResetActive : BOOL //! TRUE while Reset is the assigned task; completion alone does not clear this indication.]]></Declaration>
+      <Get Name="Get" Id="{987a8408-05ef-4ea8-8e47-df9cae537ff4}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsResetFinished" Id="{6ea5173e-8fd2-4dd9-9a60-e0a3f3542768}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Reset task is finished; failed terminal children also count as finished.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsResetFinished : BOOL //! Current Reset task is finished; failed terminal children also count as finished.]]></Declaration>
+      <Get Name="Get" Id="{0d841ef5-55b8-488e-b385-867a6d9371e1}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{776bb9a8-bcf2-422f-9a27-dc57f9316908}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Neutral or held technical Error; task completion is reported separately.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY Result : E_Result //! Neutral or held technical Error; task completion is reported separately.]]></Declaration>
+      <Get Name="Get" Id="{b7cdcf2a-92b5-4ba2-9bf1-7a1a9c45d9b7}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

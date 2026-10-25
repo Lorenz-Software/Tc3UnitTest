@@ -1,0 +1,238 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControl" Id="{3dc841e7-010e-4add-a0fa-c0750b5cbcba}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Composes the selftest Suites and forwards the external communication storage to the root base.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK RunControl EXTENDS RunControlBase
+VAR
+    FSmoke : TestSuite_Smoke;
+    FPreparation : TestSuite_Preparation;
+    FTestCaseLifecycle : TestSuite_TestCaseLifecycle;
+    FOrchestratorTests : TestSuite_Orchestrator;
+    FSerialOrchestration : TestSuite_SerialOrchestration;
+    FParallelOrchestration : TestSuite_ParallelOrchestration;
+    FParallelSlotsOrchestration : TestSuite_ParallelSlotsOrchestration;
+    FSuiteBuilderTests : TestSuite_TestSuiteConfigurationBuilder;
+    FRunControlBuilderTests : TestSuite_RunControlConfigurationBuilder;
+    FTestSuites : ARRAY[1..SuiteCapacity] OF I_TestSuite;
+    FTestSuiteLifecycle : TestSuite_TestSuiteLifecycle;
+    FRunControlLifecycle : TestSuite_RunControlLifecycle;
+    FCommandAdapter : TestSuite_CommandAdapter;
+    FEventDelivery : TestSuite_EventDelivery;
+    FEventReservation : TestSuite_EventReservation;
+    FEventBufferReset : TestSuite_EventBufferReset;
+    FAssertionLifecycle : TestSuite_AssertionLifecycle;
+    FAssertionComparisons : TestSuite_AssertionComparisons;
+    FAssertionFloatingPoint : TestSuite_AssertionFloatingPoint;
+    FAssertionObservation : TestSuite_AssertionObservation;
+    FAssertionText : TestSuite_AssertionText;
+    FAssertionArrays : TestSuite_AssertionArrays;
+    FAssertionVariants : TestSuite_AssertionVariants;
+END_VAR
+VAR CONSTANT
+    SuiteCapacity : UINT := 22;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ControlData := ControlData);]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{60f3122b-dd02-44d4-bcf0-fae52e52617f}" />
+    <Method Name="Configure" Id="{9a81ee06-82d3-467b-a8bc-95e4917e915f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the selftest Suites serially. Root and Suite Reset timeouts allow 15 seconds for event-consumer backpressure.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : RunControlConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    SuiteConfig : ST_TestSuiteConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfig.Timeout := T#60s;
+FConfig.ResetTimeout := T#15s;
+SuiteConfig.ResetTimeout := T#15s;
+
+Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FTestSuites);
+
+FSmoke.Initialize(Parent := THIS^,
+    SuiteName := 'Smoke',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FSmoke);
+
+FPreparation.Initialize(Parent := THIS^,
+    SuiteName := 'Preparation',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FPreparation);
+
+FTestCaseLifecycle.Initialize(Parent := THIS^,
+    SuiteName := 'TestCaseLifecycle',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FTestCaseLifecycle);
+
+FOrchestratorTests.Initialize(Parent := THIS^,
+    SuiteName := 'Orchestrator',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FOrchestratorTests);
+
+FSerialOrchestration.Initialize(Parent := THIS^,
+    SuiteName := 'SerialOrchestration',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FSerialOrchestration);
+
+FParallelOrchestration.Initialize(Parent := THIS^,
+    SuiteName := 'ParallelOrchestration',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FParallelOrchestration);
+
+FParallelSlotsOrchestration.Initialize(Parent := THIS^,
+    SuiteName := 'ParallelSlotsOrchestration',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FParallelSlotsOrchestration);
+
+FSuiteBuilderTests.Initialize(Parent := THIS^,
+    SuiteName := 'SuiteBuilder',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FSuiteBuilderTests);
+
+FRunControlBuilderTests.Initialize(Parent := THIS^,
+    SuiteName := 'RunControlBuilder',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FRunControlBuilderTests);
+
+FTestSuiteLifecycle.BindSubjectParent(Parent := THIS^);
+FTestSuiteLifecycle.Initialize(Parent := THIS^,
+    SuiteName := 'TestSuiteLifecycle',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FTestSuiteLifecycle);
+
+FRunControlLifecycle.Initialize(Parent := THIS^,
+    SuiteName := 'RunControlLifecycle',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FRunControlLifecycle);
+
+FCommandAdapter.Initialize(Parent := THIS^,
+    SuiteName := 'CommandAdapter',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FCommandAdapter);
+
+FEventDelivery.Initialize(Parent := THIS^,
+    SuiteName := 'EventDelivery',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FEventDelivery);
+
+FEventReservation.BindSubjectParent(Parent := THIS^);
+FEventReservation.Initialize(Parent := THIS^,
+    SuiteName := 'EventReservation',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FEventReservation);
+
+FEventBufferReset.Initialize(Parent := THIS^,
+    SuiteName := 'EventBufferReset',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FEventBufferReset);
+
+FAssertionLifecycle.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionLifecycle',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionLifecycle);
+
+FAssertionComparisons.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionComparisons',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionComparisons);
+
+FAssertionFloatingPoint.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionFloatingPoint',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionFloatingPoint);
+
+FAssertionObservation.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionObservation',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionObservation);
+
+FAssertionText.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionText',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionText);
+
+FAssertionArrays.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionArrays',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionArrays);
+
+FAssertionVariants.Initialize(Parent := THIS^,
+    SuiteName := 'AssertionVariants',
+    Config := SuiteConfig);
+Builder.Register(TestSuite := FAssertionVariants);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestSuite" Id="{0fa4d82f-e776-46f1-a0f5-c003d8a83583}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered Suite from the same array used during configuration.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestSuite : I_TestSuite //! Typed Suite interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestSuite := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+
+GetTestSuite := FTestSuites[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestSuites" Id="{8a71d1d5-7f95-4d1a-8dfa-29fa75e611c7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned Suite once per initialized root cycle, including completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestSuites]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSmoke();
+FPreparation();
+FTestCaseLifecycle();
+FOrchestratorTests();
+FSerialOrchestration();
+FParallelOrchestration();
+FParallelSlotsOrchestration();
+FSuiteBuilderTests();
+FRunControlBuilderTests();
+
+FTestSuiteLifecycle();
+FRunControlLifecycle();
+
+FCommandAdapter();
+
+FEventDelivery();
+
+FEventReservation();
+FEventBufferReset();
+FAssertionLifecycle();
+FAssertionComparisons();
+FAssertionFloatingPoint();
+FAssertionObservation();
+
+FAssertionText();
+
+FAssertionArrays();
+FAssertionVariants();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

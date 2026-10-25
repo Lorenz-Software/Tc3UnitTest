@@ -1,0 +1,378 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Fifo" Id="{e76fe7ce-8eb6-4f46-b685-b46e2c6ec975}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Internal ST_Event ring buffer; storage stays owned by the caller.</summary>
+<description>
+Binds caller-owned ST_Event storage of physical length 3..32767; usable capacity is one less than that length. Logical transfer slots are one-based regardless of the array's declared lower bound. Keep the bound storage alive and unchanged. Any online change invalidates the binding and requires Initialize again. Reset discards logical contents without clearing payload bytes; Pop and Release clear transferred or acknowledged entries.
+
+
+Transfer operations and positive-count Release check configuration before indices. Invalid indices cause those operations to reset both indices and return IndexError without transferring data; this discards logical contents without clearing old payloads. Status reports invalid state without repairing it. A zero-count Release is an unconditional no-op, including when uninitialized. Calls are serialized within one PLC task; this utility provides no synchronization.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK INTERNAL Fifo
+VAR
+    {attribute 'TcNoSymbol'}
+    FBufferEntries : POINTER TO ST_Event;
+    FBufferLength : UINT;
+    FWriteIndex : UINT := 1;
+    FReadIndex : UINT := 1;
+    FInitialized : BOOL;
+    FOverwriteOnFull : BOOL;
+    {attribute 'TcNoSymbol'}
+    FBindingOnlineChangeCount : UDINT;
+END_VAR
+VAR CONSTANT
+    FirstBufferIndex : UINT := 1;
+    MinimumBufferLength : UINT := 3;
+    MaximumBufferLength : UINT := 32767;
+    EmptyEvent : ST_Event := (SequenceId := 0);
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6cf9f860-411c-4a83-a475-33b40f7fdd8f}" />
+    <Method Name="AreIndicesValid" Id="{a15b5d50-aa3e-4f8d-98c2-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check both logical indices before accessing bound storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE AreIndicesValid : BOOL //! TRUE when both stored logical indices are within 1..BufferLength.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AreIndicesValid := (FWriteIndex >= FirstBufferIndex) AND (FWriteIndex <= FBufferLength)
+    AND (FReadIndex >= FirstBufferIndex) AND (FReadIndex <= FBufferLength);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FB_reinit" Id="{a15b5d50-aa3e-4f8d-98c2-00000000000d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Invalidate stored array access after instance relocation.</summary>
+*)
+{endregion}
+METHOD FB_reinit : BOOL //! TRUE after invalidating the old array binding; Initialize is required before further access.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialized := FALSE;
+FBufferEntries := 0;
+FBufferLength := 0;
+FOverwriteOnFull := FALSE;
+Reset();
+FB_reinit := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{a15b5d50-aa3e-4f8d-98c2-000000000006}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Bind live ST_Event storage; initialize indices without clearing the array.</summary>
+<description>
+The supplied array must contain 3..32767 entries and remain alive with a stable binding. One physical position stays unused. A failed call invalidates the previous binding. Initialize does not clear existing payload bytes.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Initialize : BOOL //! TRUE when storage is bound and usable; FALSE leaves the service uninitialized.
+VAR_INPUT
+    OverwriteIfFull : BOOL := FALSE; //! TRUE replaces the oldest event when full; default FALSE rejects insertion.
+END_VAR
+VAR_IN_OUT
+    Buffer : ARRAY[*] OF ST_Event; //! Caller-owned event array, bound by address until reinitialization; keep storage alive and unchanged.
+END_VAR
+VAR
+    ConfiguredBufferLength : LINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FInitialized := FALSE;
+FBufferEntries := 0;
+FBufferLength := 0;
+FOverwriteOnFull := FALSE;
+Reset();
+
+ConfiguredBufferLength := TO_LINT(UPPER_BOUND(Buffer, 1))
+    - TO_LINT(LOWER_BOUND(Buffer, 1)) + 1;
+IF (ConfiguredBufferLength < TO_LINT(MinimumBufferLength))
+    OR (ConfiguredBufferLength > TO_LINT(MaximumBufferLength)) THEN
+    RETURN;
+END_IF;
+
+FBufferEntries := ADR(Buffer[LOWER_BOUND(Buffer, 1)]);
+FBufferLength := LINT_TO_UINT(ConfiguredBufferLength);
+FOverwriteOnFull := OverwriteIfFull;
+FBindingOnlineChangeCount := TwinCAT_SystemInfoVarList._AppInfo.OnlineChangeCnt;
+FInitialized := TRUE;
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsConfigValid" Id="{a15b5d50-aa3e-4f8d-98c2-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate binding lifetime and capacity without dereferencing the array.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsConfigValid : BOOL //! TRUE when initialization, capacity and binding are valid and no online change has invalidated the binding.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsConfigValid := FInitialized AND (FBufferEntries <> 0)
+    AND (FBufferLength >= MinimumBufferLength) AND (FBufferLength <= MaximumBufferLength)
+    AND (FBindingOnlineChangeCount = TwinCAT_SystemInfoVarList._AppInfo.OnlineChangeCnt);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsOutputTargetValid" Id="{a15b5d50-aa3e-4f8d-98c2-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reject output storage overlapping the array; requires valid configuration.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsOutputTargetValid : BOOL //! TRUE when Target does not overlap bound event storage; configuration must already be valid.
+VAR_IN_OUT CONSTANT
+    Target : ST_Event; //! Borrowed output object whose address range is checked against the bound event array.
+END_VAR
+VAR
+    TargetStart : __UXINT;
+    BufferStart : __UXINT;
+    BufferEnd : __UXINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[TargetStart := TO___UXINT(ADR(Target));
+BufferStart := TO___UXINT(FBufferEntries);
+BufferEnd := TO___UXINT(ADR(FBufferEntries[FBufferLength - 1]))
+    + TO___UXINT(SIZEOF(ST_Event) - 1);
+IF TargetStart < BufferStart THEN
+    IsOutputTargetValid := (BufferStart - TargetStart) >= TO___UXINT(SIZEOF(ST_Event));
+ELSE
+    IsOutputTargetValid := TargetStart > BufferEnd;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="NextIndex" Id="{a15b5d50-aa3e-4f8d-98c2-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advance one logical slot, wrapping before incrementing past capacity.</summary>
+*)
+{endregion}
+METHOD PRIVATE NextIndex : UINT //! Following one-based ring index, wrapping from BufferLength to 1.
+VAR_INPUT
+    CurrentIndex : UINT; //! Caller-validated logical ring index in 1..BufferLength.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF CurrentIndex = FBufferLength THEN
+    NextIndex := FirstBufferIndex;
+ELSE
+    NextIndex := CurrentIndex + 1;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Pop" Id="{a15b5d50-aa3e-4f8d-98c2-00000000000b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Copy and remove the oldest event; Target must be outside the bound array.</summary>
+*)
+{endregion}
+METHOD PUBLIC Pop : INT //! Positive physical slot on transfer, zero when no transfer is possible, negative E_FifoResult on error.
+VAR_IN_OUT
+    Target : ST_Event; //! Destination for the oldest event copy; must not overlap the bound array.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsConfigValid() THEN
+    Pop := TO_INT(E_FifoResult.ConfigError);
+    RETURN;
+END_IF;
+IF NOT AreIndicesValid() THEN
+    Reset();
+    Pop := TO_INT(E_FifoResult.IndexError);
+    RETURN;
+END_IF;
+IF FReadIndex = FWriteIndex THEN
+    Pop := TO_INT(E_FifoResult.NoTransfer);
+    RETURN;
+END_IF;
+IF NOT IsOutputTargetValid(Target := Target) THEN
+    Pop := TO_INT(E_FifoResult.DataError);
+    RETURN;
+END_IF;
+
+Target := FBufferEntries[FReadIndex - FirstBufferIndex];
+FBufferEntries[FReadIndex - FirstBufferIndex] := EmptyEvent;
+Pop := UINT_TO_INT(FReadIndex);
+FReadIndex := NextIndex(CurrentIndex := FReadIndex);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Push" Id="{a15b5d50-aa3e-4f8d-98c2-000000000009}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Copy one event; return its physical slot, no transfer, or a named error.</summary>
+*)
+{endregion}
+METHOD PUBLIC Push : INT //! Positive physical slot on transfer, zero when no transfer is possible, negative E_FifoResult on error.
+VAR_INPUT
+    Data : ST_Event; //! Event copied into the next free FIFO slot.
+END_VAR
+VAR
+    NextWriteIndex : UINT;
+    BufferFull : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsConfigValid() THEN
+    Push := TO_INT(E_FifoResult.ConfigError);
+    RETURN;
+END_IF;
+IF NOT AreIndicesValid() THEN
+    Reset();
+    Push := TO_INT(E_FifoResult.IndexError);
+    RETURN;
+END_IF;
+
+NextWriteIndex := NextIndex(CurrentIndex := FWriteIndex);
+BufferFull := NextWriteIndex = FReadIndex;
+IF BufferFull AND NOT FOverwriteOnFull THEN
+    Push := TO_INT(E_FifoResult.NoTransfer);
+    RETURN;
+END_IF;
+
+FBufferEntries[FWriteIndex - FirstBufferIndex] := Data;
+Push := UINT_TO_INT(FWriteIndex);
+IF BufferFull THEN
+    FReadIndex := NextIndex(CurrentIndex := FReadIndex);
+END_IF;
+FWriteIndex := NextWriteIndex;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Read" Id="{a15b5d50-aa3e-4f8d-98c2-00000000000a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Copy without removing the oldest event; Target must be outside the bound array.</summary>
+*)
+{endregion}
+METHOD PUBLIC Read : INT //! Positive physical slot on transfer, zero when no transfer is possible, negative E_FifoResult on error.
+VAR_IN_OUT
+    Target : ST_Event; //! Destination for the oldest event copy; must not overlap the bound array.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsConfigValid() THEN
+    Read := TO_INT(E_FifoResult.ConfigError);
+    RETURN;
+END_IF;
+IF NOT AreIndicesValid() THEN
+    Reset();
+    Read := TO_INT(E_FifoResult.IndexError);
+    RETURN;
+END_IF;
+IF FReadIndex = FWriteIndex THEN
+    Read := TO_INT(E_FifoResult.NoTransfer);
+    RETURN;
+END_IF;
+IF NOT IsOutputTargetValid(Target := Target) THEN
+    Read := TO_INT(E_FifoResult.DataError);
+    RETURN;
+END_IF;
+
+Target := FBufferEntries[FReadIndex - FirstBufferIndex];
+Read := UINT_TO_INT(FReadIndex);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Release" Id="{a15b5d50-aa3e-4f8d-98c2-00000000000c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear and release Count oldest entries; an excessive count changes nothing.</summary>
+<description>
+Count zero returns NoTransfer before configuration or index checks. For a positive count, configuration/index validation precedes the occupancy-range check. A valid excessive request returns ReleaseCountError without mutation; an index error instead resets logical contents and returns IndexError. Clearing a valid range costs proportionally to Count.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Release : INT //! Number of released entries; negative E_FifoResult on failure.
+VAR_INPUT
+    Count : UINT; //! Number of oldest events to clear and release; excessive requests change nothing.
+END_VAR
+VAR
+    AvailableCount : UINT;
+    ReleaseReadIndex : UINT;
+    ClearedCount : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Count = 0 THEN
+    Release := TO_INT(E_FifoResult.NoTransfer);
+    RETURN;
+END_IF;
+IF NOT IsConfigValid() THEN
+    Release := TO_INT(E_FifoResult.ConfigError);
+    RETURN;
+END_IF;
+IF NOT AreIndicesValid() THEN
+    Reset();
+    Release := TO_INT(E_FifoResult.IndexError);
+    RETURN;
+END_IF;
+
+IF FWriteIndex >= FReadIndex THEN
+    AvailableCount := FWriteIndex - FReadIndex;
+ELSE
+    AvailableCount := FBufferLength - FReadIndex + FWriteIndex;
+END_IF;
+IF Count > AvailableCount THEN
+    Release := TO_INT(E_FifoResult.ReleaseCountError);
+    RETURN;
+END_IF;
+
+ReleaseReadIndex := FReadIndex;
+FOR ClearedCount := FirstBufferIndex TO Count DO
+    FBufferEntries[ReleaseReadIndex - FirstBufferIndex] := EmptyEvent;
+    ReleaseReadIndex := NextIndex(CurrentIndex := ReleaseReadIndex);
+END_FOR;
+
+FReadIndex := ReleaseReadIndex;
+Release := UINT_TO_INT(Count);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{a15b5d50-aa3e-4f8d-98c2-000000000007}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Discard logical contents, retaining binding and payload storage.</summary>
+*)
+{endregion}
+METHOD PUBLIC Reset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FWriteIndex := FirstBufferIndex;
+FReadIndex := FirstBufferIndex;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Status" Id="{a1308a17-58f1-4a96-a14b-f8e482398a23}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Snapshot of binding validity, indices and derived occupancy.</summary>
+*)
+{endregion}
+PROPERTY PUBLIC Status : ST_FifoStatus //! Snapshot of binding validity, indices and derived occupancy.]]></Declaration>
+      <Get Name="Get" Id="{a15b5d50-aa3e-4f8d-98c2-000000000008}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status.ConfigError := NOT IsConfigValid();
+Status.IndexError := FALSE;
+Status.IndexIn := FWriteIndex;
+Status.IndexOut := FReadIndex;
+Status.BufferAlmostFull := FALSE;
+Status.BufferFull := FALSE;
+Status.BufferEmpty := FALSE;
+Status.ElementCount := 0;
+Status.BufferLength := FBufferLength;
+IF Status.ConfigError THEN
+    RETURN;
+END_IF
+
+Status.IndexError := NOT AreIndicesValid();
+IF Status.IndexError THEN
+    RETURN;
+END_IF
+
+IF FWriteIndex >= FReadIndex THEN
+    Status.ElementCount := FWriteIndex - FReadIndex;
+ELSE
+    Status.ElementCount := FBufferLength - FReadIndex + FWriteIndex;
+END_IF
+Status.BufferEmpty := Status.ElementCount = 0;
+Status.BufferAlmostFull := Status.ElementCount = FBufferLength - 2;
+Status.BufferFull := Status.ElementCount >= FBufferLength - 1;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

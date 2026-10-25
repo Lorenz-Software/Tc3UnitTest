@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertInRange_SInt" Id="{bc41e647-7dbc-4018-b69a-45e698620c55}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether the SINT value is inside the inclusive range.</summary>
+<description>
+
+Minimum &gt; Maximum reports Error during active evaluation; equal bounds are
+valid.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertInRange_SInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : SINT; //! Actual value checked or observed by this Assertion.
+    Minimum : SINT; //! Inclusive lower bound of the comparison; for a range, must not exceed Maximum.
+    Maximum : SINT; //! Inclusive upper bound of the comparison; for a range, must not be below Minimum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f6ac7267-85d1-4ef2-8784-54f36744d7ab}" />
+    <Method Name="Assert" Id="{72cdd30e-80c7-498a-8317-c2d26d7fc77a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check whether the SINT value is inside the inclusive range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Minimum > Maximum THEN
+    MinimumText := SINT_TO_STRING(Minimum);
+    MaximumText := SINT_TO_STRING(Maximum);
+    Message := CONCAT('Assertion error: minimum exceeds maximum. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (IN < Minimum) OR (IN > Maximum) THEN
+    MinimumText := SINT_TO_STRING(Minimum);
+    MaximumText := SINT_TO_STRING(Maximum);
+    ActualText := SINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is outside allowed range. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

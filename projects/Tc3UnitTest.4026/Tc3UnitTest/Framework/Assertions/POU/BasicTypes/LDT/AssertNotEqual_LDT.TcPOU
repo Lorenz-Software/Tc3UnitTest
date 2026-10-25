@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotEqual_LDT" Id="{d015e2c5-dce1-428a-889b-7407d7381143}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks inequality with the forbidden LDT value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotEqual_LDT EXTENDS AssertionBase
+VAR_INPUT
+    IN : LDT; //! Actual value checked or observed by this Assertion.
+    Expected : LDT; //! Value that must differ from IN under this Assertion's comparison rules.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{dfa0fd3b-a110-41ac-9d90-2cceb05ff8ff}" />
+    <Method Name="Assert" Id="{2c59ff43-4b38-41fd-9e5b-10a990c2c5d5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN = Expected THEN
+    ExpectedText := LDT_TO_STRING(Expected);
+    ActualText := LDT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are equal but should differ. NotExpected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertGreaterEqual_UInt" Id="{daac4d4e-36af-4e1d-8083-f4210eb95b77}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at least Minimum.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertGreaterEqual_UInt EXTENDS AssertionBase
+VAR_INPUT
+    IN : UINT; //! Actual value checked or observed by this Assertion.
+    Minimum : UINT; //! Inclusive lower bound of the comparison; for a range, must not exceed Maximum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{985bc88c-2a8b-421d-86af-79fe569e32f8}" />
+    <Method Name="Assert" Id="{32ee3ad2-b274-4acc-8e8f-ec44713166a7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is at least Minimum.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN < Minimum THEN
+    MinimumText := UINT_TO_STRING(Minimum);
+    ActualText := UINT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is below minimum. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

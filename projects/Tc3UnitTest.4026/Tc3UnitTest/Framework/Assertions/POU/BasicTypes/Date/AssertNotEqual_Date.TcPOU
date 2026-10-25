@@ -1,0 +1,64 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotEqual_Date" Id="{17e30485-6cd6-4083-b8ec-4567a96c7c9b}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks inequality with the forbidden DATE value.</summary>
+<description>
+
+Compares calendar days only; hidden time-of-day components are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotEqual_Date EXTENDS AssertionBase
+VAR_INPUT
+    IN : DATE; //! Actual value checked or observed by this Assertion.
+    Expected : DATE; //! Value that must differ from IN under this Assertion's comparison rules.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1719c7af-b1d3-4392-bfba-66bf8a9563a7}" />
+    <Method Name="Assert" Id="{b12305af-17df-49f7-851f-fdadf4b6f9bc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF DateToDayNumber(Value := IN) = DateToDayNumber(Value := Expected) THEN
+    ExpectedText := DATE_TO_STRING(Expected);
+    ActualText := DATE_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are equal but should differ. NotExpected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

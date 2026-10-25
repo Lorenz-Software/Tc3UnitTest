@@ -1,0 +1,75 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertFalseMask_DWord" Id="{bb5ee961-1e6b-4f0e-a928-9e5a695dedfe}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that all selected bits are FALSE.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertFalseMask_DWord EXTENDS AssertionBase
+VAR_INPUT
+    IN : DWORD; //! Actual bitfield.
+    Mask : DWORD := 16#FFFFFFFF; //! Selects evaluated bits; defaults to all bits. An empty mask produces Error during evaluation.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{adc653bb-119d-4b63-beeb-9fa95b69b311}" />
+    <Method Name="Assert" Id="{92ecedb9-d3e9-4cc2-a203-9d0c4451400e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an empty mask before comparing selected bits.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaskText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    NoMask : DWORD := 16#00;
+    HexDigitCount : USINT := 8;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Mask = NoMask THEN
+    MaskText := CreateAssertionTextValue_Hex(Value := DWORD_TO_LWORD(Mask),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion error: mask must not be empty. Mask = ',
+        MaskText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (IN AND Mask) <> NoMask THEN
+    MaskText := CreateAssertionTextValue_Hex(Value := DWORD_TO_LWORD(Mask),
+        DigitCount := HexDigitCount);
+    ActualText := CreateAssertionTextValue_Hex(Value := DWORD_TO_LWORD(IN),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: selected bits are not all FALSE. Mask = ',
+        MaskText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

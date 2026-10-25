@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_OrchestrationMode" Id="{df79b6f1-38a8-416e-bbb5-ea9a2d0bc616}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Child scheduling strategy represented by effective execution slots.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_OrchestrationMode :
+(
+    Serial := 0, //! Run one child per slot, in registration order.
+    Parallel := 1, //! Run all children in one shared slot.
+    ParallelSlots := 2 //! Run children in ascending explicit slots; finish one slot before starting the next.
+);
+END_TYPE
+]]></Declaration>
+  </DUT>
+</TcPlcObject>

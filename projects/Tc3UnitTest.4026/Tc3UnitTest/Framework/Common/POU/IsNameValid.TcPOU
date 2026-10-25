@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="IsNameValid" Id="{ba01d7e6-c1e6-4eaf-a616-762aa1142874}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates the unshortened full name against hierarchy, character and length rules. Depth: 1 Run Control, 2 Suite, 3 Test Case, 4 Assertion (remaining suffix may contain dots).</summary>
+*)
+{endregion}
+FUNCTION INTERNAL IsNameValid : BOOL //! TRUE only when the full name satisfies depth, ASCII character and length rules.
+VAR_INPUT
+    Depth : UINT; //! Required hierarchy depth: 1 Run Control, 2 Suite, 3 Test Case, 4 Assertion.
+END_VAR
+VAR_IN_OUT CONSTANT
+    Name : STRING(2 * GVL_Constants.NameLength + 1); //! Unshortened full hierarchical name; borrowed read-only and checked against Depth and NameLength.
+END_VAR
+VAR
+    Index : INT;
+    NameLength : INT;
+    Segment : UINT := 1;
+    SegmentLength : UINT;
+    Character : BYTE;
+END_VAR
+VAR CONSTANT
+    RootDepth : UINT := 1;
+    AssertionDepth : UINT := 4;
+    HierarchySeparator : BYTE := 16#2E;
+    FirstUppercaseLetter : BYTE := 16#41;
+    LastUppercaseLetter : BYTE := 16#5A;
+    FirstLowercaseLetter : BYTE := 16#61;
+    LastLowercaseLetter : BYTE := 16#7A;
+    FirstDigit : BYTE := 16#30;
+    LastDigit : BYTE := 16#39;
+    Underscore : BYTE := 16#5F;
+    Hyphen : BYTE := 16#2D;
+    LastAsciiCharacter : BYTE := 16#7F;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IsNameValid := FALSE;
+NameLength := LEN(Name);
+IF (NameLength = 0) OR (NameLength > GVL_Constants.NameLength) THEN
+    RETURN;
+END_IF;
+
+IF (Depth < RootDepth) OR (Depth > AssertionDepth) THEN
+    RETURN;
+END_IF;
+
+FOR Index := 0 TO NameLength - 1 DO
+    // SA0175: ASCII name contract; byte-based access is intentional and bounded.
+    {analysis -175}
+    Character := Name[Index];
+    {analysis +175}
+    IF (Depth = AssertionDepth) AND (Segment = AssertionDepth) THEN
+        IF Character > LastAsciiCharacter THEN
+            RETURN;
+        END_IF;
+        SegmentLength := SegmentLength + 1;
+    ELSIF Character = HierarchySeparator THEN
+        IF (SegmentLength = 0) OR (Segment >= Depth) THEN
+            RETURN;
+        END_IF;
+        Segment := Segment + 1;
+        SegmentLength := 0;
+    ELSE
+        IF NOT (((Character >= FirstUppercaseLetter) AND (Character <= LastUppercaseLetter))
+            OR ((Character >= FirstLowercaseLetter) AND (Character <= LastLowercaseLetter))
+            OR ((Character >= FirstDigit) AND (Character <= LastDigit))
+            OR (Character = Underscore) OR (Character = Hyphen)) THEN
+            RETURN;
+        END_IF;
+        SegmentLength := SegmentLength + 1;
+    END_IF;
+END_FOR;
+
+IsNameValid := (Segment = Depth) AND (SegmentLength > 0);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_Constants" Id="{04e82630-4a98-4c10-8258-8b796ccce409}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fixed framework capacities, lifecycle event allowances and communication contract versions.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    {attribute 'TcNoSymbol'}
+    NameLength : UINT := 80; //! Maximum ASCII owner-name content length, excluding the terminator; part of the event contract.
+
+    {attribute 'TcNoSymbol'}
+    ResourceNameLength : UINT := 32; //! Maximum ASCII resource-name content length, excluding the terminator.
+    {attribute 'TcNoSymbol'}
+    MessageLength : UINT := 254; //! Maximum ASCII event-message content length, excluding the terminator.
+    {attribute 'TcNoSymbol'}
+    AssertionValueLength : UINT := 40; //! Maximum diagnostic value-preview content length; independent of input text capacity.
+
+    {attribute 'TcNoSymbol'}
+    VersionLength : UINT := 10; //! Maximum version-text content length for Major.Minor.Build, excluding the terminator.
+    {attribute 'TcNoSymbol'}
+    DirectAccessContractVersion : STRING(VersionLength) := '1.0.0'; //! Version of the PLC-owned Run Control direct-access contract.
+    {attribute 'TcNoSymbol'}
+    EventStreamContractVersion : STRING(VersionLength) := '1.0.0'; //! Version of the PLC-owned event-stream transfer and acknowledgement contract.
+
+    {attribute 'TcNoSymbol'}
+    TestSuiteExecutionEventCount : UINT := 10; //! Own Suite lifecycle events only; child reservations remain independent.
+    {attribute 'TcNoSymbol'}
+    TestSuiteResetEventCount : UINT := 4; //! Own Suite Reset-event allowance in entries; child reservations remain independent.
+    {attribute 'TcNoSymbol'}
+    TestCaseResetEventCount : UINT := 3; //! Own Test Case Reset-event allowance in entries.
+END_VAR
+]]></Declaration>
+  </GVL>
+</TcPlcObject>

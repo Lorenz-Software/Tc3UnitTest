@@ -1,0 +1,116 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoValueChange_WChar" Id="{f39590c1-a9a4-46eb-9403-75381395ba8f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality between consecutive active observations.</summary>
+<description>
+
+The first active observation establishes a baseline without deciding a result. Disabling
+observation invalidates that baseline, not the held Result. Re-enabling first establishes a new
+baseline; Reset clears history.
+
+ObserveFirstCycle FALSE delays the first observation by one enabled call.
+
+Compares the numeric character code without case folding or encoding validation.
+Printable ASCII diagnostics include the character and hexadecimal code; other codes use a
+hexadecimal representation.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoValueChange_WChar EXTENDS AssertionBase
+VAR_INPUT
+    IN : WORD; //! Actual character code.
+END_VAR
+VAR
+    FINPrevious : WORD;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b53598a9-a833-440a-a099-e7b4773e587e}" />
+    <Method Name="Assert" Id="{37e952be-3c6e-4295-bf72-502de254bd69}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Captures the current character and compares consecutive observations.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    PreviousValue : WORD;
+    Message : STRING(GVL_Constants.MessageLength);
+    PreviousText : STRING;
+    ActualText : STRING;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+PreviousValue := FINPrevious;
+FINPrevious := IN;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> PreviousValue THEN
+    PreviousText := CreateAssertionTextValue_WChar(Value := PreviousValue);
+    ActualText := CreateAssertionTextValue_WChar(Value := IN);
+    Message := CONCAT('Assertion failed: value changed unexpectedly. Previous = ',
+        PreviousText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{8e3135a3-26f0-4f21-a447-7b60d1610e20}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has an active observation and a preceding observation
+baseline.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has an active observation and a preceding observation baseline.]]></Declaration>
+      <Get Name="Get" Id="{c5641f96-3132-4892-bfb3-fa1abf42b34a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{cddcbcd9-c47f-4cc5-b8fd-22054387861c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears observation history and the comparison gate.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := 0;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

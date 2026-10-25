@@ -1,0 +1,88 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_EventBufferReset" Id="{9d59fe61-4bb6-4994-bf46-fcac7a26c670}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks coordinated hard buffer reset on isolated real storage and hierarchy.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_EventBufferReset EXTENDS TestSuiteBase
+VAR
+    FEpochs : Test_BufferResetEpochs;
+    FCommands : Test_BufferResetCommands;
+    FActiveRun : Test_BufferResetActiveRun;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 3;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f79cae6d-068c-42e3-952d-49d238dd39ff}" />
+    <Method Name="Configure" Id="{22c998a9-e75b-40c9-bacb-9f8602a7bcec}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the isolated event scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FEpochs.Initialize(Parent := THIS^,
+    TestName := 'Epochs',
+    Config := TestConfig);
+Builder.Register(TestCase := FEpochs);
+FCommands.Initialize(Parent := THIS^,
+    TestName := 'Commands',
+    Config := TestConfig);
+Builder.Register(TestCase := FCommands);
+FActiveRun.Initialize(Parent := THIS^,
+    TestName := 'ActiveRun',
+    Config := TestConfig);
+Builder.Register(TestCase := FActiveRun);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{f1709d71-1bf5-4210-b577-04843b6cc175}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{6932f44a-3014-4889-b551-480a4cdb6eab}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEpochs();
+FCommands();
+FActiveRun();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

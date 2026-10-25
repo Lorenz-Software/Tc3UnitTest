@@ -1,0 +1,54 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertFalse" Id="{b87f4aa9-fa53-4f56-911a-fb75b82991aa}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the BOOL value is FALSE.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertFalse EXTENDS AssertionBase
+VAR_INPUT
+    IN : BOOL; //! Actual value checked or observed by this Assertion.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9e1dd573-62d0-4c58-ab80-fe9faa40ecc6}" />
+    <Method Name="Assert" Id="{93bb4574-0e61-4da9-9978-ae68ac01536f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate whether the BOOL value is FALSE.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN THEN
+    ActualText := BOOL_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = FALSE, Actual = ',
+        ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoValueChange_String" Id="{b65bb74d-85c4-406a-b4c3-0a2ca8ffe2d4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality between consecutive active observations.</summary>
+<description>
+
+The first active observation establishes a baseline without deciding a result. Disabling
+observation invalidates that baseline, not the held Result. Re-enabling first establishes a new
+baseline; Reset clears history.
+
+ObserveFirstCycle FALSE delays the first observation by one enabled call.
+
+Read-only text must remain stable during the call and fit the configured Param_Assertions
+text capacity. Invalid references or a missing terminator within that capacity report
+Error.
+
+Diagnostic previews are shortened; the comparison still covers the complete validated
+text.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoValueChange_String EXTENDS AssertionBase
+VAR_IN_OUT CONSTANT
+    IN : STRING(Param_Assertions.AssertionStringLength); //! Actual text; content capacity is set by Param_Assertions.
+END_VAR
+VAR
+    FINPrevious : STRING(Param_Assertions.AssertionStringLength);
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{86142885-50d5-43dd-b907-756063f72fc9}" />
+    <Method Name="Assert" Id="{4721393b-32a9-4b5d-a43d-c3125e02a9e0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates text length before comparison and result escalation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    PreviousText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := IN) THEN
+    Error(Message := 'Assertion error: IN exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+IF NOT EvaluationActive THEN
+    FINPrevious := IN;
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    FINPrevious := IN;
+    RETURN;
+END_IF;
+
+IF IN <> FINPrevious THEN
+    PreviousText := CreateAssertionTextValue_String(Value := FINPrevious);
+    ActualText := CreateAssertionTextValue_String(Value := IN);
+    FINPrevious := IN;
+    Message := CONCAT('Assertion failed: value changed unexpectedly. Previous = ',
+        PreviousText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{2fe9f410-fa5d-4a0e-993f-9e15ee42d5aa}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has an active observation and a preceding observation
+baseline.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has an active observation and a preceding observation baseline.]]></Declaration>
+      <Get Name="Get" Id="{57aae165-94f7-4363-b34d-cfc4d5f8c8df}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{1cee1640-f3d5-4f0e-ac3b-284794eea83f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears the stored baseline and observation gate.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := '';
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

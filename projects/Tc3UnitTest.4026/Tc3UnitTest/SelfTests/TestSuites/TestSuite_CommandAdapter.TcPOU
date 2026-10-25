@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_CommandAdapter" Id="{5e741ec9-4848-44df-8c56-07dc977ec340}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Groups isolated command-adapter initialization, qualification and field-independence tests.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_CommandAdapter EXTENDS TestSuiteBase
+VAR
+    FInitialization : Test_CommandAdapterInitialization;
+    FReinitialization : Test_CommandAdapterInitialization;
+    FStartQualification : Test_CommandQualification;
+    FAbortQualification : Test_CommandQualification;
+    FResetQualification : Test_CommandQualification;
+    FIndependentCommands : Test_CommandIndependence;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{49490400-0000-4000-8000-000000000002}" />
+    <Method Name="Configure" Id="{49490400-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the local command scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FInitialization.Initialize(Parent := THIS^,
+    TestName := 'Initialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FInitialization);
+FReinitialization.Initialize(Parent := THIS^,
+    TestName := 'Reinitialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FReinitialization);
+FStartQualification.Initialize(Parent := THIS^,
+    TestName := 'StartQualification',
+    Config := TestConfig);
+Builder.Register(TestCase := FStartQualification);
+FAbortQualification.Initialize(Parent := THIS^,
+    TestName := 'AbortQualification',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortQualification);
+FResetQualification.Initialize(Parent := THIS^,
+    TestName := 'ResetQualification',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetQualification);
+FIndependentCommands.Initialize(Parent := THIS^,
+    TestName := 'IndependentCommands',
+    Config := TestConfig);
+Builder.Register(TestCase := FIndependentCommands);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{49490400-0000-4000-8000-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{49490400-0000-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialization(PrimeHistory := FALSE);
+FReinitialization(PrimeHistory := TRUE);
+FStartQualification(Command := E_AdapterCommand.Start);
+FAbortQualification(Command := E_AdapterCommand.Abort);
+FResetQualification(Command := E_AdapterCommand.Reset);
+FIndependentCommands();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

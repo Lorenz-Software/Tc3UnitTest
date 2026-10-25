@@ -1,0 +1,41 @@
+{{!include(public/help.css)}}
+{{!include(public/help.js)}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>{{title}} | {{_helpProduct}}</title>
+  <link rel="stylesheet" href="{{_rel}}public/help.css">
+  <link rel="stylesheet" href="{{_rel}}help-project.css">
+  <script defer src="{{_rel}}help-search.js"></script>
+  <script defer src="{{_rel}}public/help.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="help-header">
+    <button class="menu-toggle" type="button" aria-controls="sidebar" aria-expanded="false">Contents</button>
+    <a class="brand" href="{{_rel}}index.html"><span class="brand-mark" aria-hidden="true">{{_helpBrandMark}}</span><span>{{_helpProduct}}<small>{{_helpSubtitle}}</small></span></a>
+    <button class="header-search" type="button" aria-label="Search the documentation" aria-haspopup="dialog" aria-controls="help-search-dialog"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><span>Search</span><kbd>Ctrl K</kbd></button>
+    {{#_helpHeaderLogo}}<a class="header-author-link" href="{{_rel}}about.html" title="About {{_helpAuthor}}"><img class="header-author-logo" src="{{_rel}}{{_helpHeaderLogo}}" alt="About {{_helpAuthor}}"></a>{{/_helpHeaderLogo}}
+  </header>
+  <div class="help-shell">
+    <aside class="sidebar" id="sidebar" aria-label="Documentation navigation">
+      <div class="sidebar-scroll">
+      <nav id="help-navigation" aria-label="Documentation">{{{_helpNavigation}}}</nav>
+      </div>
+
+    </aside>
+    <main id="main" tabindex="-1"><p class="eyebrow">Library documentation</p><article>{{!body}}</article></main>
+    <aside class="page-outline" aria-label="On this page"><p>On this page</p><nav id="page-outline"></nav></aside>
+  </div>
+  <dialog class="search-dialog" id="help-search-dialog" aria-labelledby="help-search-title">
+    <div class="search-dialog-heading"><h2 id="help-search-title">Search the documentation</h2><button class="search-close" type="button" aria-label="Close search">×</button></div>
+    <div class="search-box"><label for="help-search">Name, topic or behavior</label><div class="search-input"><input id="help-search" type="search" placeholder="Search guides and API…" autocomplete="off" autofocus></div></div>
+    <p class="search-hint">Search all guides and API descriptions. Open with Ctrl+K or /; close with Escape.</p>
+    <section id="help-results" hidden aria-label="Search results"><p id="help-search-status" role="status" aria-live="polite"></p><ul></ul></section>
+  </dialog>
+  <footer class="help-footer"><div class="footer-notice">{{_helpCopyright}}{{#_helpVersion}} <span aria-hidden="true">·</span> <span class="library-version" title="Library version">v{{_helpVersion}}</span>{{/_helpVersion}} <span aria-hidden="true">·</span> <a href="{{_rel}}about.html">About and license</a></div><button class="theme-toggle" type="button" aria-label="Switch to dark theme" title="Switch to dark theme"><svg class="theme-moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20 15A8 8 0 0 1 9 4a8 8 0 1 0 11 11Z"/></svg><svg class="theme-sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5"/></svg></button></footer>
+</body>
+</html>

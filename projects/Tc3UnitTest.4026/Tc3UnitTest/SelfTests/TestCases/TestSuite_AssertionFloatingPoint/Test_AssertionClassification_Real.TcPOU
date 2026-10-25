@@ -1,0 +1,538 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionClassification_Real" Id="{032f504d-f888-45f7-a9fe-3db2c9199d17}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks REAL scalar classification with literal expected results and isolated findings.</summary>
+<description>
+Each named row selects checked data and independent expected outcomes.
+SelectRow does not derive expectations from the production classification algorithm.
+A disabled preparation call consumes subject reset requests before evaluation.
+A first-enabled warm-up verifies ObserveFirstCycle FALSE before normal classification checks.
+The evaluated call is repeated on the next cycle to verify no duplicate finding.
+Only outer Assertions contribute to the Test Case; deliberate subject failures stay in the local capture.
+Preservation rows verify held Failed and disabled-call behavior; other rows reset subjects.
+Special values are supplied by integer bit patterns, never exceptional floating-point arithmetic.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionClassification_Real EXTENDS TestCaseBase
+VAR
+    FIsNaNSubject : AssertIsNaN_Real;
+    FIsNaNResult : AssertTrue;
+    FExpectedIsNaN : E_Result;
+    FFindingIsNaN : E_Result;
+    FIsFiniteSubject : AssertIsFinite_Real;
+    FIsFiniteResult : AssertTrue;
+    FExpectedIsFinite : E_Result;
+    FFindingIsFinite : E_Result;
+    FIsInfiniteSubject : AssertIsInfinite_Real;
+    FIsInfiniteResult : AssertTrue;
+    FExpectedIsInfinite : E_Result;
+    FFindingIsInfinite : E_Result;
+    FFirstCycleGate : AssertTrue;
+    FFirstCyclePending : BOOL;
+    FGateObservationReady : BOOL;
+    FGateMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FFindingDetails : AssertTrue;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FValue : FloatingPointBits_Real;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FRepeatChecked : BOOL;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FPreserveResults : BOOL;
+    FSubjectEnable : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 16;
+    QuietNaNBits : DWORD := DWORD#16#7FC00000;
+    SignalingNaNBits : DWORD := DWORD#16#7F800001;
+    PositiveInfinityBits : DWORD := DWORD#16#7F800000;
+    NegativeInfinityBits : DWORD := DWORD#16#FF800000;
+    PositiveZeroBits : DWORD := DWORD#16#00000000;
+    NegativeZeroBits : DWORD := DWORD#16#80000000;
+    PositiveSubnormalBits : DWORD := DWORD#16#00000001;
+    NegativeSubnormalBits : DWORD := DWORD#16#80000001;
+    OrdinaryFiniteBits : DWORD := DWORD#16#3F800000;
+    MaximumFiniteBits : DWORD := DWORD#16#7F7FFFFF;
+    RowQuietNaN : UINT := 1;
+    RowSignalingNaN : UINT := 2;
+    RowPositiveInfinity : UINT := 3;
+    RowNegativeInfinity : UINT := 4;
+    RowPositiveZero : UINT := 5;
+    RowNegativeZero : UINT := 6;
+    RowPositiveSubnormal : UINT := 7;
+    RowNegativeSubnormal : UINT := 8;
+    RowOrdinaryFinite : UINT := 9;
+    RowMaximumFinite : UINT := 10;
+    RowHoldResults : UINT := 11;
+    RowDisabledHold : UINT := 12;
+    LastRow : UINT := RowDisabledHold;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a6310004-0000-4000-8000-000000000000}" />
+    <Method Name="AggregateResults" Id="{a6310004-0001-4000-8000-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects verdicts, excluding deliberate subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FIsNaNResult);
+Aggregator.AddProvider(Provider := FIsFiniteResult);
+Aggregator.AddProvider(Provider := FIsInfiniteResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);
+Aggregator.AddProvider(Provider := FFindingDetails);
+Aggregator.AddProvider(Provider := FFirstCycleGate);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{a6310004-0001-4000-8000-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each concrete production subject with the selected data.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FIsNaNSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FValue.Value);
+FIsFiniteSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FValue.Value);
+FIsInfiniteSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FValue.Value);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{a6310004-0001-4000-8000-000000000001}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects incomplete subject or verdict setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+CheckInitialization := FSetupValid
+    AND FIsNaNResult.IsInitialized
+    AND FIsFiniteResult.IsInitialized
+    AND FIsInfiniteResult.IsInitialized
+    AND FFirstCycleGate.IsInitialized
+    AND FCaptureIntegrity.IsInitialized
+    AND FFindingDetails.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{a6310004-0001-4000-8000-000000000000}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes isolated subjects and the outer verdict Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FIsNaNResult.Initialize(Parent := THIS^,
+    AssertionName := 'IsNaNResult');
+FIsFiniteResult.Initialize(Parent := THIS^,
+    AssertionName := 'IsFiniteResult');
+FIsInfiniteResult.Initialize(Parent := THIS^,
+    AssertionName := 'IsInfiniteResult');
+FFirstCycleGate.Initialize(Parent := THIS^,
+    AssertionName := 'FirstCycleGate');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FFindingDetails.Initialize(Parent := THIS^,
+    AssertionName := 'FindingDetails');
+FIsNaNSubject.BindPublisher(Publisher := FCapture);
+Initialized := FIsNaNSubject.Initialize(Parent := THIS^,
+    AssertionName := 'IsNaNSubject',
+    ObserveFirstCycle := FALSE);
+FSetupValid := FSetupValid AND Initialized;
+FIsFiniteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FIsFiniteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'IsFiniteSubject',
+    ObserveFirstCycle := FALSE);
+FSetupValid := FSetupValid AND Initialized;
+FIsInfiniteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FIsInfiniteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'IsInfiniteSubject',
+    ObserveFirstCycle := FALSE);
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{a6310004-0001-4000-8000-000000000010}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks ordered capture metadata and meaningful diagnostic text.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+    ExpectedMessage : STRING(GVL_Constants.MessageLength); //! Exact diagnostic text expected in the selected finding.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '')
+    AND (FEvents[Index].Message = ExpectedMessage);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{a6310004-0001-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous cleanup is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{a6310004-0001-4000-8000-000000000011}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks results and isolated findings before allowing the script to advance.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+    FindingIndex : UINT;
+    DetailsMatch : BOOL;
+    FindingMatches : BOOL;
+    ExpectedMessage : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFirstCycleGate(Enable := Enable AND FGateObservationReady,
+    State := State,
+    IN := FGateMatches);
+Evaluate := Enable AND FObservationReady;
+FIsNaNResult(Enable := Evaluate,
+    State := State,
+    IN := FIsNaNSubject.Result = FExpectedIsNaN);
+FIsFiniteResult(Enable := Evaluate,
+    State := State,
+    IN := FIsFiniteSubject.Result = FExpectedIsFinite);
+FIsInfiniteResult(Enable := Evaluate,
+    State := State,
+    IN := FIsInfiniteSubject.Result = FExpectedIsInfinite);
+DetailsMatch := TRUE;
+FindingIndex := 1;
+IF Evaluate THEN
+    IF FFindingIsNaN <> E_Result.NotEvaluated THEN
+        ExpectedMessage := CONCAT('Assertion failed: expected NaN. Actual = ',
+            CreateAssertionTextValue_Real(Value := FValue.Value));
+        ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FIsNaNSubject.Name,
+            ExpectedResult := FFindingIsNaN,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingIsFinite <> E_Result.NotEvaluated THEN
+        ExpectedMessage := CONCAT('Assertion failed: expected a finite value. Actual = ',
+            CreateAssertionTextValue_Real(Value := FValue.Value));
+        ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FIsFiniteSubject.Name,
+            ExpectedResult := FFindingIsFinite,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingIsInfinite <> E_Result.NotEvaluated THEN
+        ExpectedMessage := CONCAT('Assertion failed: expected positive or negative infinity. Actual = ',
+            CreateAssertionTextValue_Real(Value := FValue.Value));
+        ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FIsInfiniteSubject.Name,
+            ExpectedResult := FFindingIsInfinite,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+END_IF;
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := (FCaptureStatus.SequenceId = UINT_TO_UDINT(FindingIndex - 1))
+        AND (FCaptureStatus.LostEventCount = 0)
+        AND (FCaptureFifo.ElementCount = FindingIndex - 1));
+FFindingDetails(Enable := Evaluate,
+    State := State,
+    IN := DetailsMatch);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{a6310004-0001-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{a6310004-0001-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the row script and resets outer verdicts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFirstCycleGate.Reset();
+FFirstCyclePending := FALSE;
+FGateObservationReady := FALSE;
+FGateMatches := FALSE;
+FRow := RowQuietNaN;
+FRowPrepared := FALSE;
+FRepeatChecked := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FIsNaNResult.Reset();
+FIsFiniteResult.Reset();
+FIsInfiniteResult.Reset();
+FCaptureIntegrity.Reset();
+FFindingDetails.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{a6310004-0001-4000-8000-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Prepares, checks and repeats each row over separate PLC cycles.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+FGateObservationReady := FALSE;
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRepeatChecked THEN
+        IF FRow = LastRow THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FRow := FRow + 1;
+        FRowPrepared := FALSE;
+        FRepeatChecked := FALSE;
+    ELSE
+        FRepeatChecked := TRUE;
+    END_IF;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    IF NOT FPreserveResults THEN
+        ResetSubjects();
+    END_IF;
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+    FFirstCyclePending := TRUE;
+ELSIF FFirstCyclePending THEN
+    CallSubjects(Enable := FSubjectEnable);
+    FFirstCyclePending := FALSE;
+    FGateMatches := (FIsNaNSubject.Result = E_Result.NotEvaluated)
+        AND (FIsFiniteSubject.Result = E_Result.NotEvaluated)
+        AND (FIsInfiniteSubject.Result = E_Result.NotEvaluated)
+        AND (FCaptureStatus.SequenceId = 0);
+    FGateObservationReady := NOT FPreserveResults;
+ELSE
+    CallSubjects(Enable := FSubjectEnable);
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{a6310004-0001-4000-8000-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues normal subject resets; CallSubjects consumes them.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FIsNaNSubject.Reset();
+FIsFiniteSubject.Reset();
+FIsInfiniteSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{a6310004-0001-4000-8000-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies literal expectations; only named hold/escalation rows preserve subjects.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreserveResults := FALSE;
+FSubjectEnable := TRUE;
+
+CASE FRow OF
+    RowQuietNaN:
+        FValue.Bits := QuietNaNBits;
+        FExpectedIsNaN := E_Result.Passed;
+        FFindingIsNaN := E_Result.NotEvaluated;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.Failed;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowSignalingNaN:
+        FValue.Bits := SignalingNaNBits;
+        FExpectedIsNaN := E_Result.Passed;
+        FFindingIsNaN := E_Result.NotEvaluated;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.Failed;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowPositiveInfinity:
+        FValue.Bits := PositiveInfinityBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.Failed;
+        FExpectedIsInfinite := E_Result.Passed;
+        FFindingIsInfinite := E_Result.NotEvaluated;
+    RowNegativeInfinity:
+        FValue.Bits := NegativeInfinityBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.Failed;
+        FExpectedIsInfinite := E_Result.Passed;
+        FFindingIsInfinite := E_Result.NotEvaluated;
+    RowPositiveZero:
+        FValue.Bits := PositiveZeroBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowNegativeZero:
+        FValue.Bits := NegativeZeroBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowPositiveSubnormal:
+        FValue.Bits := PositiveSubnormalBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowNegativeSubnormal:
+        FValue.Bits := NegativeSubnormalBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowOrdinaryFinite:
+        FValue.Bits := OrdinaryFiniteBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowMaximumFinite:
+        FValue.Bits := MaximumFiniteBits;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.Failed;
+        FExpectedIsFinite := E_Result.Passed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.Failed;
+    RowHoldResults:
+        FValue.Bits := QuietNaNBits;
+        FPreserveResults := TRUE;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.NotEvaluated;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.Failed;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.NotEvaluated;
+    RowDisabledHold:
+        FValue.Bits := PositiveInfinityBits;
+        FSubjectEnable := FALSE;
+        FPreserveResults := TRUE;
+        FExpectedIsNaN := E_Result.Failed;
+        FFindingIsNaN := E_Result.NotEvaluated;
+        FExpectedIsFinite := E_Result.Failed;
+        FFindingIsFinite := E_Result.NotEvaluated;
+        FExpectedIsInfinite := E_Result.Failed;
+        FFindingIsInfinite := E_Result.NotEvaluated;
+ELSE
+    Error(Message := 'Unknown classification selftest row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

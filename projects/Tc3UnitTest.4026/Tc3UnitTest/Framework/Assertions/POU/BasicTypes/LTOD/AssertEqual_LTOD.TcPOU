@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_LTOD" Id="{b32b9288-b7da-4d4e-89d6-8f35eef44947}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks equality with the expected LTOD value.</summary>
+<description>
+
+A value at or beyond 24 hours reports Error before comparison or baseline capture.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_LTOD EXTENDS AssertionBase
+VAR_INPUT
+    IN : LTOD; //! Actual value checked or observed by this Assertion.
+    Expected : LTOD; //! Reference value for comparison with IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{54c1626a-9c5d-4902-88ba-c80b559c591d}" />
+    <Method Name="Assert" Id="{8aea6aa9-c194-497a-95e7-0a6ad79ae7b6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_LTOD(Value := IN) THEN
+    Error(Message := 'Assertion error: IN is outside the valid LTOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_LTOD(Value := Expected) THEN
+    Error(Message := 'Assertion error: Expected is outside the valid LTOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := LTOD_TO_STRING(Expected);
+    ActualText := LTOD_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

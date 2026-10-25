@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_Char" Id="{d7045209-e5c0-4280-8ab2-e1ee7a7ec4a0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Formats printable ASCII as a quoted character and hexadecimal code; other values as code only. Output is ASCII and at most 11 characters.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_Char : STRING(11) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    Value : BYTE; //! Character code to render; no character validation is performed.
+END_VAR
+VAR
+    HexText : STRING(5);
+    Text : STRING(11);
+END_VAR
+VAR CONSTANT
+    FirstPrintableAscii : BYTE := 16#20;
+    LastPrintableAscii : BYTE := 16#7E;
+    HexDigitCount : USINT := 2;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[HexText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Value),
+    DigitCount := HexDigitCount);
+
+IF (Value < FirstPrintableAscii) OR (Value > LastPrintableAscii) THEN
+    CreateAssertionTextValue_Char := HexText;
+    RETURN;
+END_IF;
+
+Text := '$' $' (';
+// SA0175: Printable-ASCII guard; index 1 fits the quoted template.
+{analysis -175}
+Text[1] := Value;
+{analysis +175}
+Text := CONCAT(Text, HexText);
+CreateAssertionTextValue_Char := CONCAT(Text, ')');]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

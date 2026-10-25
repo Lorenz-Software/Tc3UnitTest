@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_PreparationStatus" Id="{c5a9ae4c-e5ef-4002-9331-3704a9c9b495}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Preparation progress; Ready does not imply Completed.</summary>
+<description>
+State is diagnostic progress of the Preparation, not the owning Test Case's lifecycle. Ready and Completed are independent observations. The concrete Preparation maintains a current consistent snapshot on every call, including disabled observation; querying Status does not refresh it or perform resource actions. Initial Unknown/Uninitialized values describe a not-yet-observed instance.
+</description>
+*)
+{endregion}
+TYPE ST_PreparationStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    State : E_State := E_State.Uninitialized; //! Concrete Preparation state; independent of the coarse ExecutionStatus.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ExecutionStatus : E_ExecutionStatus := E_ExecutionStatus.Unknown; //! Current observed preparation condition; not a retained test result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Ready : BOOL := FALSE; //! Resource can be driven to the target condition; FALSE while Running. Does not mean target reached.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Running : BOOL := FALSE; //! Preparation is actively driving the resource toward its target.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Completed : BOOL := FALSE; //! Target condition is currently reached; not latched by the base.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Error : BOOL := FALSE; //! Preparation cannot continue meaningfully.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

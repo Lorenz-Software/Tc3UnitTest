@@ -1,0 +1,63 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="MAIN" Id="{f6ef711c-94de-4f34-a7ec-b8a220811b3f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the selftest hierarchy on the first task cycle and executes its command adapter and root.</summary>
+<description>
+Assign MAIN once to the single cyclic task that owns the hierarchy. A nonpositive current task
+index skips all work. On FirstCycle, clear old commands through the adapter, initialize the
+actual Event Stream storage/status, then initialize the SelfTests root with that same buffer service.
+The library's default publisher must refer to the matching service before configuration diagnostics.
+
+Normal processing calls the command adapter before the concrete root on every valid task call,
+including after initialization failure or lifecycle completion. The stored initialization outcomes
+are diagnostic values, not cyclic execution gates; failed owner setup prevents normal child work
+inside the base. There is no automatic cyclic initialization retry or automatic Start of tests.
+
+Successful root initialization queues its initial lifecycle Reset; readiness is established over
+subsequent cycles. Rebuilding setup requires configuration reactivation or PLC Cold Reset and the
+coordinated first-cycle path. Normal Stop/Start and lifecycle Reset do not rebuild configuration.
+This executable selftest composition is outside the packaged library and consumer API reference.
+</description>
+*)
+{endregion}
+PROGRAM MAIN
+VAR
+    {attribute 'TcNoSymbol'}
+    FRunControl : RunControl; //! Statically owned selftest root; invoked once after command intake on every valid task call.
+    {attribute 'TcNoSymbol'}
+    FCommandAdapter : RunControlCommandAdapter; //! Owner-local command sampler; initialized before the Event Buffer and called before the root.
+    {attribute 'TcNoSymbol'}
+    FEventBufferInitialized : BOOL; //! Last first-cycle Event Buffer initialization outcome; diagnostic only, not a cyclic call gate.
+    {attribute 'TcNoSymbol'}
+    FFrameworkInitialized : BOOL; //! Last first-cycle hierarchy initialization outcome; TRUE does not yet imply Idle or Ready.
+END_VAR
+VAR_TEMP
+    TaskIndex : DINT; //! Current cyclic PLC task index; nonpositive values skip initialization and execution.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TaskIndex := Tc2_System.GETCURTASKINDEXEX();
+IF TaskIndex <= 0 THEN
+    RETURN;
+END_IF;
+
+IF TwinCAT_SystemInfoVarList._TaskInfo[TaskIndex].FirstCycle THEN
+    FCommandAdapter.Initialize(ControlData := GVL_UnitTest.RunControl.ControlData);
+
+    FEventBufferInitialized := GVL_EventBuffer.Instance.Initialize(Buffer := GVL_UnitTest.EventStream.Buffer,
+        FifoControl := GVL_UnitTest.EventStream.FifoControl,
+        Status := GVL_UnitTest.EventStream.Status);
+
+    FFrameworkInitialized := FRunControl.Initialize(Name := 'SelfTests',
+        EventBuffer := GVL_EventBuffer.Instance);
+END_IF;
+
+FCommandAdapter(RunControl := FRunControl,
+    Commands := GVL_UnitTest.RunControl.ControlData.Cmd);
+FRunControl(ControlData := GVL_UnitTest.RunControl.ControlData);
+
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

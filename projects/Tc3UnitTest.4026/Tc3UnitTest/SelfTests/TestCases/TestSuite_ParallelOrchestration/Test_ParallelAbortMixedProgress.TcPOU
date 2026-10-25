@@ -1,0 +1,116 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ParallelAbortMixedProgress" Id="{eddd99ef-e0ad-472a-9006-c9ca53a9b10e}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aborts only active parallel work while leaving completed and never-started ready children untouched.</summary>
+<description>
+Child 2 completes on its Start call while child 1 runs. The owner selects Abort before
+child 3 starts. Start confirmation, terminal release and active-child Abort happen in the
+same helper call; completion waits for child 1.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ParallelAbortMixedProgress EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{e700583e-a1d5-46c7-aa21-06265206043b}" />
+    <Method Name="ConfigureScenario" Id="{d51f69cd-7500-48d6-b4f1-748e5d02ad4c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reachable child responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 1;
+FStepCount := 7;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Start immediately completing child 2"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[2].State := E_State.Completed;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].Children[2].Complete := TRUE;
+FSteps[3].Children[2].Result := E_Result.Passed;
+FSteps[3].ExpectedStartChild := 2;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].MaxActiveChildCount := 2;
+{endregion}
+
+{region "04 - Owner selects Abort while child 3 remains unstarted"}
+FSteps[4].Task := E_OrchestratorTask.Abort;
+FSteps[4].Children[1].State := E_State.Aborting;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Result := E_Result.Abort;
+FSteps[4].Children[2].State := E_State.Completed;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].Children[2].Complete := TRUE;
+FSteps[4].Children[2].Result := E_Result.Passed;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].ExpectedReleasedEntries[2] := 1;
+FSteps[4].ExpectedAbortRequests[1] := 1;
+{endregion}
+
+{region "05 - Wait for the active child's controlled completion"}
+FSteps[5].Task := E_OrchestratorTask.Abort;
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Abort;
+FSteps[5].Children[2].State := E_State.Completed;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[2].Complete := TRUE;
+FSteps[5].Children[2].Result := E_Result.Passed;
+FSteps[5].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "06 - Release child 1 and finish Abort"}
+FSteps[6].Task := E_OrchestratorTask.Abort;
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Abort;
+FSteps[6].Children[2].State := E_State.Completed;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].Children[2].Complete := TRUE;
+FSteps[6].Children[2].Result := E_Result.Passed;
+FSteps[6].ExpectedAbortFinished := TRUE;
+FSteps[6].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "07 - No repeated Abort or new Start after completion"}
+FSteps[7].Task := E_OrchestratorTask.Abort;
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Abort;
+FSteps[7].Children[2].State := E_State.Completed;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[2].Complete := TRUE;
+FSteps[7].Children[2].Result := E_Result.Passed;
+FSteps[7].ExpectedAbortFinished := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

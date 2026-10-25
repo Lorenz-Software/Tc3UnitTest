@@ -1,0 +1,242 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_CommandIndependence" Id="{2e289513-e5c1-470d-92bd-b4b775711ef7}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies independent command qualification and selective clearing across staggered writes.</summary>
+<description>
+The initial Start/Reset pair is sampled before Abort is written after that call. The pair
+must be forwarded while Abort remains pending. Further post-call Start, Reset and Abort
+writes rotate which field is newly sampled versus accepted. After those requests drain,
+all three bits are raised together and must all be forwarded exactly once after two samples.
+Fixed count and bit traces are the oracle; no request order or lifecycle priority is asserted.
+Buffer commands and selected Name/Status fields are changed before each call and must survive.
+CheckSample captures pre-post-write observations so Assertion processing cannot confuse the
+test's own later writes with the adapter's output. There is one subject call per active cycle.
+These deterministic boundaries do not prove arbitrary ADS interleavings inside an FB call.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_CommandIndependence EXTENDS TestCaseBase
+VAR
+    FSubject : RunControlCommandAdapter;
+    FOwner : RunControlRequestRecorder;
+    FControl : ST_RunControl;
+    FStep : UINT;
+    FSampleChecked : BOOL;
+    FForwarding : AssertTrue;
+    FForwardingMatches : BOOL;
+    FSelectiveClearing : AssertTrue;
+    FSelectiveClearingMatches : BOOL;
+    FUnrelatedFields : AssertTrue;
+    FUnrelatedFieldsMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    PairFirstSample : UINT := 0;
+    PairAccepted : UINT := 1;
+    AbortAccepted : UINT := 2;
+    StartAccepted : UINT := 3;
+    ResetAccepted : UINT := 4;
+    SecondAbortAccepted : UINT := 5;
+    AllFirstSample : UINT := 8;
+    LastSample : UINT := 10;
+    ExpectedStartCounts : ARRAY[0..LastSample] OF UINT := [0, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4];
+    ExpectedAbortCounts : ARRAY[0..LastSample] OF UINT := [0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3];
+    ExpectedResetCounts : ARRAY[0..LastSample] OF UINT := [0, 1, 1, 1, 2, 2, 2, 3, 3, 4, 4];
+    ExpectedStartBits : ARRAY[0..LastSample] OF BOOL := [TRUE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, FALSE];
+    ExpectedAbortBits : ARRAY[0..LastSample] OF BOOL := [FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE];
+    ExpectedResetBits : ARRAY[0..LastSample] OF BOOL := [TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, TRUE, FALSE, FALSE];
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{49490300-0000-4000-8000-000000000001}" />
+    <Method Name="AggregateResults" Id="{49490300-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FForwarding);
+Aggregator.AddProvider(Provider := FSelectiveClearing);
+Aggregator.AddProvider(Provider := FUnrelatedFields);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckSample" Id="{49490300-0000-4000-8000-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Uses fixed expected traces, independent of adapter request order.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckSample]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FForwardingMatches := (FOwner.StartCount = ExpectedStartCounts[FStep])
+    AND (FOwner.AbortCount = ExpectedAbortCounts[FStep])
+    AND (FOwner.ResetCount = ExpectedResetCounts[FStep]);
+FSelectiveClearingMatches := (FControl.Cmd.Start = ExpectedStartBits[FStep])
+    AND (FControl.Cmd.Abort = ExpectedAbortBits[FStep])
+    AND (FControl.Cmd.Reset = ExpectedResetBits[FStep]);
+FUnrelatedFieldsMatches := (FControl.Name = 'CommandProjection')
+    AND (FControl.Status.Execution.State = E_State.Completed)
+    AND (FControl.Status.Execution.Result = E_Result.Failed)
+    AND (FControl.Status.SuiteCountTotal = FStep + 1)
+    AND (FControl.Status.Runtime = UINT_TO_TIME(FStep + 1))
+    AND (FControl.BufferCmd.Reset = ((FStep MOD 2) = 0))
+    AND (FControl.BufferCmd.DeleteSequenceId = UINT_TO_UDINT(FStep + 1));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{49490300-0000-4000-8000-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the independent forwarding, clearing and projection checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FForwarding.Initialize(Parent := THIS^,
+    AssertionName := 'Forwarding');
+FSelectiveClearing.Initialize(Parent := THIS^,
+    AssertionName := 'SelectiveClearing');
+FUnrelatedFields.Initialize(Parent := THIS^,
+    AssertionName := 'UnrelatedFields');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{49490300-0000-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous resource is involved.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{49490300-0000-4000-8000-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches every sample's observations before the script advances.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FForwarding(Enable := Enable,
+    State := State,
+    IN := FForwardingMatches);
+FSelectiveClearing(Enable := Enable,
+    State := State,
+    IN := FSelectiveClearingMatches);
+FUnrelatedFields(Enable := Enable,
+    State := State,
+    IN := FUnrelatedFieldsMatches);
+IF Enable THEN
+    FSampleChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{49490300-0000-4000-8000-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{49490300-0000-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears local commands, sampling history, recorded calls and checking state.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubject.Initialize(ControlData := FControl);
+FOwner.Clear();
+FStep := PairFirstSample;
+FSampleChecked := FALSE;
+FForwarding.Reset();
+FForwardingMatches := FALSE;
+FSelectiveClearing.Reset();
+FSelectiveClearingMatches := FALSE;
+FUnrelatedFields.Reset();
+FUnrelatedFieldsMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{49490300-0000-4000-8000-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Places writes before or after one adapter call; captures observations before post-call writes.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FSampleChecked THEN
+    IF FStep = LastSample THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+    FSampleChecked := FALSE;
+END_IF;
+CASE FStep OF
+    PairFirstSample:
+        FControl.Cmd.Start := TRUE;
+        FControl.Cmd.Reset := TRUE;
+    AllFirstSample:
+        FControl.Cmd.Start := TRUE;
+        FControl.Cmd.Abort := TRUE;
+        FControl.Cmd.Reset := TRUE;
+END_CASE;
+FControl.Name := 'CommandProjection';
+FControl.Status.Execution.State := E_State.Completed;
+FControl.Status.Execution.Result := E_Result.Failed;
+FControl.Status.SuiteCountTotal := FStep + 1;
+FControl.Status.Runtime := UINT_TO_TIME(FStep + 1);
+FControl.BufferCmd.Reset := (FStep MOD 2) = 0;
+FControl.BufferCmd.DeleteSequenceId := UINT_TO_UDINT(FStep + 1);
+FSubject(RunControl := FOwner,
+    Commands := FControl.Cmd);
+CheckSample();
+// These writes happen after the observation and become the next call's first sample.
+CASE FStep OF
+    PairFirstSample, StartAccepted:
+        FControl.Cmd.Abort := TRUE;
+    PairAccepted, ResetAccepted:
+        FControl.Cmd.Start := TRUE;
+    AbortAccepted, SecondAbortAccepted:
+        FControl.Cmd.Reset := TRUE;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertionWithEvaluationBase" Id="{6e34cee9-fce5-4de0-9e3b-1ad4d0ac8b6a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Base for observation and explicitly requested result evaluation.</summary>
+<description>
+
+Enable and ObserveFirstCycle control ObservationActive. Evaluate controls
+EvaluationActive independently of both, provided initialization succeeded and this is not a
+reset call. Evaluate is a level input, not a latched request.
+
+A concrete Assert implementation performs observation under ObservationActive and decides
+the held result under EvaluationActive. Evaluation with Enable FALSE is supported;
+ObserveFirstCycle delays observation, not explicit evaluation. Derived FB bodies call SUPER^()
+once.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT AssertionWithEvaluationBase EXTENDS AssertionBase
+VAR_INPUT
+    Evaluate : BOOL; //! Requests result evaluation independently of Enable; initialization and reset still gate evaluation.
+END_VAR
+VAR
+    FEvaluate : BOOL;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FEvaluate := Evaluate;
+SUPER^();]]></ST>
+    </Implementation>
+    <Property Name="EvaluationActive" Id="{08a679e3-874b-468b-b8e0-93384d2fa785}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Indicate explicit evaluation independently of observation.</summary>
+<description>
+
+TRUE when initialized, Evaluate was accepted by the FB call and the call is not
+resetting. Neither Enable nor ObserveFirstCycle suppresses this gate.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! TRUE when initialized, Evaluate was accepted and the call is not resetting; independent of Enable.]]></Declaration>
+      <Get Name="Get" Id="{f0c609eb-c8da-4bea-b77f-ff071897b3ff}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := IsInitialized AND FEvaluate AND NOT FResetActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

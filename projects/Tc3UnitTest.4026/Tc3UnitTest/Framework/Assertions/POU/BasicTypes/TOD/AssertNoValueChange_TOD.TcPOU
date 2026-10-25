@@ -1,0 +1,119 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoValueChange_TOD" Id="{5ad8391c-880d-4b25-8177-8a76fc77cebf}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check equality between consecutive active observations.</summary>
+<description>
+
+The first active observation establishes a baseline without deciding a result. Disabling
+observation invalidates that baseline, not the held Result. Re-enabling first establishes a new
+baseline; Reset clears history.
+
+ObserveFirstCycle FALSE delays the first observation by one enabled call.
+
+An observed value at or beyond 24 hours reports Error, including baseline capture.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoValueChange_TOD EXTENDS AssertionBase
+VAR_INPUT
+    IN : TOD; //! Actual value to observe.
+END_VAR
+VAR
+    FINPrevious : TOD;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{4d36db6e-1641-42c2-9d7c-bedc10be889a}" />
+    <Method Name="Assert" Id="{dfee096e-e080-41e7-aa91-e20a94243e72}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observe the current value before evaluating a change against the previous observation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    PreviousValue : TOD;
+    Message : STRING(GVL_Constants.MessageLength);
+    PreviousText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_TOD(Value := IN) THEN
+    Error(Message := 'Assertion error: IN is outside the valid TOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+PreviousValue := FINPrevious;
+FINPrevious := IN;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> PreviousValue THEN
+    PreviousText := TOD_TO_STRING(PreviousValue);
+    ActualText := TOD_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value changed unexpectedly. Previous = ',
+        PreviousText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{1ea34fa6-ebc2-4219-b4bd-c55c5299f73b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has an active observation and a preceding observation
+baseline.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has an active observation and a preceding observation baseline.]]></Declaration>
+      <Get Name="Get" Id="{9b7ff975-160c-4db2-ba3e-01817bede75a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{4912aa07-6bd3-4ece-aca2-55e6dc826f6f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear observation history and the current evaluation gate.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := TOD#00:00:00;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

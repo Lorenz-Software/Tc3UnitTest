@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="BufferResetRunControlProbe" Id="{0ce362a4-f882-4d26-b6bd-02cfd1703e8d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Run Control using two borrowed Suite doubles and the existing controlled Orchestrator.</summary>
+<description>
+Bind and BindChildren precede Initialize. The real base handles external Buffer commands and
+lifecycle; only scheduling is controlled so an Idle Orchestrator cannot add unrelated release calls.
+ProcessTestSuites calls both borrowed concrete children once and presents stable Idle observations.
+References remain valid for the enclosing Test Case lifetime. No production buffer command is replaced.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK BufferResetRunControlProbe EXTENDS RunControlBase
+VAR
+    FFirstSuite : REFERENCE TO BufferReleaseSuiteDouble;
+    FSecondSuite : REFERENCE TO BufferReleaseSuiteDouble;
+    FSuites : ARRAY[4..5] OF I_TestSuite;
+    FIdleObservation : ST_OrchestrationObservation;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ControlData := ControlData);]]></ST>
+    </Implementation>
+    <Method Name="Bind" Id="{b81c19dd-8caf-4dbd-8c18-6235b1b122a7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects isolated dependencies before production Initialize.</summary>
+*)
+{endregion}
+METHOD PUBLIC Bind
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+    Helper : I_Orchestrator; //! Nonzero injected orchestration helper retained before owner initialization; keep it alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;
+FOrchestrator := Helper;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindChildren" Id="{6d68403c-9367-42b8-a2c7-de7c43073a72}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the test-owned concrete Suites before root initialization.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindChildren
+VAR_IN_OUT
+    {attribute 'analysis' := '-167'}
+    FirstSuite : BufferReleaseSuiteDouble; //! First borrowed Suite double retained by reference; keep it alive through subject use.
+    {attribute 'analysis' := '-167'}
+    SecondSuite : BufferReleaseSuiteDouble; //! Second borrowed Suite double retained by reference; keep it alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFirstSuite REF= FirstSuite;
+FSecondSuite REF= SecondSuite;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{7033ee0b-2715-4efb-bcf2-752e70da7d46}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registers both controlled Suites in stable order.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed setup builder.
+    {attribute 'analysis' := '-167'}
+    Builder : RunControlConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FIdleObservation.State := E_State.Idle;
+FIdleObservation.Result := E_Result.NotEvaluated;
+FIdleObservation.Ready := TRUE;
+FIdleObservation.Complete := FALSE;
+FFirstSuite.Initialize(Name := CONCAT(Name, '.First'),
+    Slot := 0);
+FSecondSuite.Initialize(Name := CONCAT(Name, '.Second'),
+    Slot := 0);
+Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FSuites);
+Builder.Register(TestSuite := FFirstSuite);
+Builder.Register(TestSuite := FSecondSuite);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestSuite" Id="{f93b61df-6386-4d7a-be9f-1b60bb83e96e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the concrete registered Suite at its actual array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestSuite : I_TestSuite //! Typed Suite interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestSuite := 0;
+IF (Index < LOWER_BOUND(FSuites, 1)) OR (Index > UPPER_BOUND(FSuites, 1)) THEN
+    RETURN;
+END_IF;
+GetTestSuite := FSuites[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestSuites" Id="{dce11cbc-db44-4919-be13-3d337104f783}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls both controlled children once; does not perform reservation work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestSuites]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFirstSuite(ObservationInput := FIdleObservation);
+FSecondSuite(ObservationInput := FIdleObservation);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

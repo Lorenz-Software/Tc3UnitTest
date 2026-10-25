@@ -1,0 +1,350 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventDeleteWrappedFull" Id="{c8d3beee-a4f8-48e0-84a9-6f28f4218c31}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies prefix deletion from full storage before and after a physical ring wrap.</summary>
+<description>
+Six primary events plus the capacity diagnostic fill seven usable slots. Deleting through
+sequence 4 permits three further primary events and a new capacity diagnostic. The next
+watermark is 9, beyond the physical upper index 8: it removes sequences 5 through 9
+across the ring boundary while retaining sequences 10 and 11.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventDeleteWrappedFull EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FInitialFull : AssertTrue;
+    FInitialFullMatches : BOOL;
+    FFullPrefix : AssertTrue;
+    FFullPrefixMatches : BOOL;
+    FWrappedFull : AssertTrue;
+    FWrappedFullMatches : BOOL;
+    FWrappedPrefix : AssertTrue;
+    FWrappedPrefixMatches : BOOL;
+    FDrained : AssertTrue;
+    FDrainedMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 8;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500003-0050-4050-8050-000000000010}" />
+    <Method Name="AggregateResults" Id="{00500003-0050-4050-8050-000000000013}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInitialFull);
+Aggregator.AddProvider(Provider := FFullPrefix);
+Aggregator.AddProvider(Provider := FWrappedFull);
+Aggregator.AddProvider(Provider := FWrappedPrefix);
+Aggregator.AddProvider(Provider := FDrained);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500003-0050-4050-8050-000000000012}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FInitialFull.IsInitialized
+    AND FFullPrefix.IsInitialized
+    AND FWrappedFull.IsInitialized
+    AND FWrappedPrefix.IsInitialized
+    AND FDrained.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500003-0050-4050-8050-000000000011}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FInitialFull.Initialize(Parent := THIS^,
+    AssertionName := 'InitialFull');
+FFullPrefix.Initialize(Parent := THIS^,
+    AssertionName := 'FullPrefix');
+FWrappedFull.Initialize(Parent := THIS^,
+    AssertionName := 'WrappedFull');
+FWrappedPrefix.Initialize(Parent := THIS^,
+    AssertionName := 'WrappedPrefix');
+FDrained.Initialize(Parent := THIS^,
+    AssertionName := 'Drained');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DeleteWrappedPrefix" Id="{00500003-0050-4050-8050-00000000001c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Uses sequence 9 rather than a physical index, preserves the suffix and then drains it.</summary>
+*)
+{endregion}
+METHOD PRIVATE DeleteWrappedPrefix
+VAR
+    Request : UDINT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Request := 9;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FWrappedPrefixMatches := (Request = 0) AND NOT FFifo.BufferFull AND NOT FFifo.BufferEmpty
+    AND (FFifo.ElementCount = 2) AND (FFifo.IndexOut = 2) AND (FFifo.IndexIn = 4)
+    AND (FBufferStatus.DeletedSequenceId = 9) AND (FBufferStatus.SequenceId = 11)
+    AND (FBufferStatus.LostEventCount = 0)
+    AND (FEvents[1].SequenceId = 0) AND (FEvents[1].Timestamp = 0)
+    AND (FEvents[1].Name = '') AND (FEvents[1].Message = '')
+    AND (FEvents[2].SequenceId = 10) AND (FEvents[2].Name = 'LocalWrappedDelete')
+    AND (FEvents[2].Message = '10')
+    AND (FEvents[3].SequenceId = 11) AND (FEvents[3].Name = 'EventBuffer');
+FOR Index := 5 TO 8 DO
+    FWrappedPrefixMatches := FWrappedPrefixMatches AND (FEvents[Index].SequenceId = 0)
+        AND (FEvents[Index].Timestamp = 0) AND (FEvents[Index].Name = '') AND (FEvents[Index].Message = '');
+END_FOR;
+
+Request := 11;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FDrainedMatches := (Request = 0) AND FFifo.BufferEmpty AND NOT FFifo.BufferFull
+    AND (FFifo.ElementCount = 0) AND (FFifo.IndexOut = 4) AND (FFifo.IndexIn = 4)
+    AND (FSubject.FreeEntryCount = 7)
+    AND (FBufferStatus.SequenceId = 11) AND (FBufferStatus.DeletedSequenceId = 11)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO BufferLength DO
+    FDrainedMatches := FDrainedMatches AND (FEvents[Index].SequenceId = 0);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500003-0050-4050-8050-000000000019}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Creates a full ring, advances its head, fills across wrap and deletes the selected prefix.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+FillAndDeletePrefix();
+FillWrappedRange();
+DeleteWrappedPrefix();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FillAndDeletePrefix" Id="{00500003-0050-4050-8050-00000000001a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fills seven usable positions and releases exactly the first four events.</summary>
+*)
+{endregion}
+METHOD PRIVATE FillAndDeletePrefix
+VAR
+    Index : UINT;
+    Request : UDINT;
+    WriteResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialFullMatches := TRUE;
+FOR Index := 1 TO 6 DO
+    WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalWrappedDelete',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UINT_TO_STRING(Index)));
+    FInitialFullMatches := FInitialFullMatches AND (WriteResult = UINT_TO_INT(Index));
+END_FOR;
+FInitialFullMatches := FInitialFullMatches AND FFifo.BufferFull
+    AND (FFifo.ElementCount = 7) AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = 8)
+    AND (FBufferStatus.SequenceId = 7) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0) AND (FEvents[7].SequenceId = 7)
+    AND (FEvents[7].Name = 'EventBuffer');
+
+Request := 4;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FFullPrefixMatches := (Request = 0) AND NOT FFifo.BufferFull
+    AND (FFifo.ElementCount = 3) AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 8)
+    AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.SequenceId = 7)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO 4 DO
+    FFullPrefixMatches := FFullPrefixMatches AND (FEvents[Index].SequenceId = 0)
+        AND (FEvents[Index].Timestamp = 0) AND (FEvents[Index].Name = '') AND (FEvents[Index].Message = '');
+END_FOR;
+FOR Index := 5 TO 7 DO
+    FFullPrefixMatches := FFullPrefixMatches AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index));
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FillWrappedRange" Id="{00500003-0050-4050-8050-00000000001b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fills positions 8, 1 and 2; the capacity diagnostic occupies position 3.</summary>
+*)
+{endregion}
+METHOD PRIVATE FillWrappedRange
+VAR
+    Sequence : UDINT;
+    WriteResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FWrappedFullMatches := TRUE;
+FOR Sequence := 8 TO 10 DO
+    WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalWrappedDelete',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UDINT_TO_STRING(Sequence)));
+    FWrappedFullMatches := FWrappedFullMatches AND (WriteResult > TO_INT(E_FifoResult.NoTransfer));
+END_FOR;
+FWrappedFullMatches := FWrappedFullMatches AND FFifo.BufferFull
+    AND (FFifo.ElementCount = 7) AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 4)
+    AND (FBufferStatus.SequenceId = 11) AND (FBufferStatus.DeletedSequenceId = 4)
+    AND (FBufferStatus.LostEventCount = 0)
+    AND (FEvents[8].SequenceId = 8) AND (FEvents[1].SequenceId = 9)
+    AND (FEvents[2].SequenceId = 10) AND (FEvents[3].SequenceId = 11)
+    AND (FEvents[3].Name = 'EventBuffer') AND (FEvents[3].Severity = E_EventSeverity.Error);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500003-0050-4050-8050-000000000015}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500003-0050-4050-8050-000000000018}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FInitialFull(Enable := Evaluate,
+    State := State,
+    IN := FInitialFullMatches);
+FFullPrefix(Enable := Evaluate,
+    State := State,
+    IN := FFullPrefixMatches);
+FWrappedFull(Enable := Evaluate,
+    State := State,
+    IN := FWrappedFullMatches);
+FWrappedPrefix(Enable := Evaluate,
+    State := State,
+    IN := FWrappedPrefixMatches);
+FDrained(Enable := Evaluate,
+    State := State,
+    IN := FDrainedMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500003-0050-4050-8050-000000000016}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500003-0050-4050-8050-000000000014}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FInitialFull.Reset();
+FInitialFullMatches := FALSE;
+FFullPrefix.Reset();
+FFullPrefixMatches := FALSE;
+FWrappedFull.Reset();
+FWrappedFullMatches := FALSE;
+FWrappedPrefix.Reset();
+FWrappedPrefixMatches := FALSE;
+FDrained.Reset();
+FDrainedMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500003-0050-4050-8050-000000000017}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

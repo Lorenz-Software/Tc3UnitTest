@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEarlierThan_TOD" Id="{c868a5dc-0751-40c1-8931-4f133e2ad13c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is strictly earlier than Maximum.</summary>
+<description>
+
+A value at or beyond 24 hours reports Error before comparison or baseline capture.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEarlierThan_TOD EXTENDS AssertionBase
+VAR_INPUT
+    IN : TOD; //! Actual value checked or observed by this Assertion.
+    Maximum : TOD; //! Exclusive upper bound; the actual value or count must be smaller.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{cf8de34d-4576-411c-b7a1-340e7e078417}" />
+    <Method Name="Assert" Id="{8bdd36b0-9727-4002-96ee-90cc7a4ade8a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_TOD(Value := IN) THEN
+    Error(Message := 'Assertion error: IN is outside the valid TOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_TOD(Value := Maximum) THEN
+    Error(Message := 'Assertion error: Maximum is outside the valid TOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN >= Maximum THEN
+    MaximumText := TOD_TO_STRING(Maximum);
+    ActualText := TOD_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not earlier than limit. Maximum = ',
+        MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

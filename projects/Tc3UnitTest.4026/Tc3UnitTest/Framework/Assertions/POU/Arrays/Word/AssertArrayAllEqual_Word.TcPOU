@@ -1,0 +1,132 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayAllEqual_Word" Id="{e8324d7a-89c3-4f08-b7fd-1d349f08100f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks every selected IN element against Expected; reports the first
+mismatch.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Comparison applies Mask to both values; bits outside it are ignored. The default mask
+selects all bits.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayAllEqual_Word EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of compared elements, from 1 through 255.
+    Expected : WORD; //! Reference value for comparison with IN.
+    Mask : WORD := WORD#16#FFFF; //! Bits included in the comparison; bits outside the mask are ignored.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Read-only compared data; keep stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9927a69d-d5b2-4af5-96dc-36bef94e4086}" />
+    <Method Name="Assert" Id="{e83cf944-c56b-43d8-8339-5b0a263af681}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration before comparing the selected range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ValuesEqual : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    HexDigitCount : USINT := 4;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    ValuesEqual := FALSE;
+    ValuesEqual := (IN[InIndex] AND Mask) = (Expected AND Mask);
+    IF NOT ValuesEqual THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF NOT ValuesEqual THEN
+    ExpectedText := CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Expected),
+        DigitCount := HexDigitCount);
+    ActualText := CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(IN[InIndex]),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: array value is not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual[');
+    Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+    Message := CONCAT(Message, '] = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, ', Range = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ']');
+    Message := CONCAT(Message, ', Mask = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Mask),
+        DigitCount := HexDigitCount));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

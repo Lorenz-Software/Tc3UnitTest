@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateTestCaseOrchestratorStateTransitionEvent" Id="{25c74e36-e8c6-4d34-867e-7bba6c4ff1f3}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Test Case Orchestrator transition event without publishing it.</summary>
+<description>
+Name is the parent name; the appended .Orchestrator name uses the fixed event capacity.
+
+
+This retained technical constructor is not called by the current owner-driven Orchestrator, which emits Framework error diagnostics rather than normal task/slot transitions. Its technical scope/name never supplies Full Owner completion evidence.
+</description>
+*)
+{endregion}
+FUNCTION CreateTestCaseOrchestratorStateTransitionEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Parent's hierarchical name; the event name appends '.Orchestrator'.
+    StateOld : E_State; //! Owner state before the reported or rejected transition.
+    StateNew : E_State; //! Requested destination state recorded in the event; this function does not perform the transition.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateTestCaseOrchestratorStateTransitionEvent.SequenceId := 0;
+CreateTestCaseOrchestratorStateTransitionEvent.Timestamp := 0;
+CreateTestCaseOrchestratorStateTransitionEvent.OwnerScope := E_OwnerScope.TestCaseOrchestrator;
+CreateTestCaseOrchestratorStateTransitionEvent.EventType := E_EventType.StateTransition;
+CreateTestCaseOrchestratorStateTransitionEvent.Severity := E_EventSeverity.Info;
+CreateTestCaseOrchestratorStateTransitionEvent.Name := CONCAT(STR1 := Name,
+    STR2 := '.Orchestrator');
+CreateTestCaseOrchestratorStateTransitionEvent.ResourceName := '';
+CreateTestCaseOrchestratorStateTransitionEvent.State := StateNew;
+CreateTestCaseOrchestratorStateTransitionEvent.Result := E_Result.NotEvaluated;
+CreateTestCaseOrchestratorStateTransitionEvent.Message := CONCAT(STR1 := 'State transition ',
+    STR2 := INT_TO_STRING(TO_INT(StateOld)));
+CreateTestCaseOrchestratorStateTransitionEvent.Message := CONCAT(STR1 := CreateTestCaseOrchestratorStateTransitionEvent.Message,
+    STR2 := ' -> ');
+CreateTestCaseOrchestratorStateTransitionEvent.Message := CONCAT(STR1 := CreateTestCaseOrchestratorStateTransitionEvent.Message,
+    STR2 := INT_TO_STRING(TO_INT(StateNew)));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

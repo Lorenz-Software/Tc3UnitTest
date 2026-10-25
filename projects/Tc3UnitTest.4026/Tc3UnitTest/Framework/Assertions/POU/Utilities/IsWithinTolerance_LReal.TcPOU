@@ -1,0 +1,49 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="IsWithinTolerance_LReal" Id="{de07197d-0503-4ceb-98c9-4580540b8ba4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Tests absolute tolerance without overflowing the typed difference. Requires finite inputs and a finite, non-negative tolerance; the caller validates them.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL IsWithinTolerance_LReal : BOOL //! TRUE when the absolute difference is within Tolerance; caller must supply finite valid inputs.
+VAR_INPUT
+    IN : LREAL; //! Actual value checked or observed by this Assertion.
+    Expected : LREAL; //! Reference value for comparison with IN.
+    Tolerance : LREAL; //! Maximum absolute difference accepted as equal; must be finite and non-negative.
+END_VAR
+VAR
+    ActualMagnitude : LREAL;
+    ExpectedMagnitude : LREAL;
+    LargeMagnitude : LREAL;
+    SmallMagnitude : LREAL;
+    RemainingMagnitude : LREAL;
+    Difference : LREAL;
+END_VAR
+VAR CONSTANT
+    MaxFinite : LREAL := LREAL#1.7976931348623157E308;
+    HalfMaxFinite : LREAL := MaxFinite / LREAL#2.0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IsWithinTolerance_LReal := FALSE;
+
+IF ((IN < 0.0) AND (Expected > 0.0)) OR ((IN > 0.0) AND (Expected < 0.0)) THEN
+    ActualMagnitude := ABS(IN);
+    ExpectedMagnitude := ABS(Expected);
+    LargeMagnitude := MAX(ActualMagnitude, ExpectedMagnitude);
+    SmallMagnitude := MIN(ActualMagnitude, ExpectedMagnitude);
+
+    IF LargeMagnitude >= HalfMaxFinite THEN
+        // Exact subtraction: MaxFinite and LargeMagnitude are within a factor of two.
+        RemainingMagnitude := MaxFinite - LargeMagnitude;
+        IF SmallMagnitude > RemainingMagnitude THEN
+            RETURN;
+        END_IF;
+    END_IF;
+END_IF;
+
+Difference := ABS(IN - Expected);
+IsWithinTolerance_LReal := Difference <= Tolerance;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

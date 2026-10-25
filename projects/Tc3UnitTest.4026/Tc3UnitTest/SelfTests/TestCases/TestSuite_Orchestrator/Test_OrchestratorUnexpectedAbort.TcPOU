@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorUnexpectedAbort" Id="{2ed33f5d-ba8a-4a55-a897-549696878f03}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Treats a subordinate Abort during execution as a helper Error rather than normal completion.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorUnexpectedAbort EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{22dedf13-06b4-4d10-8383-09b42429bce5}" />
+    <Method Name="ConfigureScenario" Id="{32f3cbdb-128b-4b01-801a-d72e5e5d1d81}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 6;
+
+{region "01 - Idle readiness before child processing"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start first child"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "03 - Child reports unexpected Abort"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Result := E_Result.Abort;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "04 - Observe unexpected Abort while child finishes"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Result := E_Result.Abort;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedDiagnosticCount := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "05 - Release without starting the successor"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Result := E_Result.Abort;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedDiagnosticCount := 1;
+FSteps[5].ExpectedReleasedEntries[1] := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "06 - Held Error prevents a later Start"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Result := E_Result.Abort;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].ExpectedSlot := 1;
+FSteps[6].ExpectedDiagnosticCount := 1;
+FSteps[6].ExpectedResult := E_Result.Error;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextEndsWith_WString" Id="{13641c79-5284-42af-a1a6-d6ea5f922957}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exact suffix comparison without copies; an empty suffix matches. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextEndsWith_WString : BOOL //! TRUE when Value ends with Suffix; an empty Suffix matches.
+VAR_IN_OUT CONSTANT
+    Value : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Suffix : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only suffix compared by code unit; an empty value matches in this helper.
+END_VAR
+VAR
+    CharacterIndex : DINT;
+    ValueLength : DINT;
+    SuffixLength : DINT;
+    SuffixStartIndex : DINT;
+END_VAR
+VAR CONSTANT
+    Terminator : WORD := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextEndsWith_WString := FALSE;
+
+FOR ValueLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Value[ValueLength] = Terminator THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+FOR SuffixLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Suffix[SuffixLength] = Terminator THEN
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF SuffixLength > ValueLength THEN
+    RETURN;
+END_IF;
+
+SuffixStartIndex := ValueLength - SuffixLength;
+FOR CharacterIndex := 0 TO SuffixLength - 1 DO
+    IF Value[SuffixStartIndex + CharacterIndex] <> Suffix[CharacterIndex] THEN
+        RETURN;
+    END_IF;
+END_FOR;
+
+TextEndsWith_WString := TRUE;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

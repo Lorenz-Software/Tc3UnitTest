@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_RunControl" Id="{da624c3d-f407-4da3-bfdc-c101fd2b858f}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Run Control request and status view; the execution owner calls the concrete FB cyclically.</summary>
+<description>
+Request methods record same-task intent; they do not execute the lifecycle synchronously. Repeated requests coalesce and regular processing applies Reset over Abort over Start. Status is a stored value snapshot. Name and Result are inherited from I_ResultProvider. The concrete owner must still be called cyclically, including after completion.
+</description>
+*)
+{endregion}
+INTERFACE I_RunControl EXTENDS I_ResultProvider]]></Declaration>
+    <Method Name="RequestAbort" Id="{31ac04f8-4a29-444c-9ae6-375550190ddc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records an abort request for regular lifecycle processing.</summary>
+*)
+{endregion}
+METHOD RequestAbort]]></Declaration>
+    </Method>
+    <Method Name="RequestReset" Id="{933c2d85-a2c5-4aa2-b523-f50804b414f7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a reset request for regular lifecycle processing.</summary>
+*)
+{endregion}
+METHOD RequestReset]]></Declaration>
+    </Method>
+    <Method Name="RequestStart" Id="{0e4bdb41-5fee-4d72-a83c-4fe8092b7b76}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a start request for regular lifecycle processing.</summary>
+*)
+{endregion}
+METHOD RequestStart]]></Declaration>
+    </Method>
+    <Property Name="Status" Id="{380f3aef-f890-43e9-b0cc-1aad8b1538bc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current owner status snapshot; reading does not execute lifecycle processing.</summary>
+*)
+{endregion}
+PROPERTY Status : ST_RunControlStatus //! Current owner status snapshot; reading does not execute lifecycle processing.]]></Declaration>
+      <Get Name="Get" Id="{beff11d8-6078-4cc7-b4e4-22a804dde9f1}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

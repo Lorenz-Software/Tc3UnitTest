@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertionParentIdentity" Id="{d80bd656-9f6b-4065-bc47-a98ab5309d3f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies controlled parent identity for Assertion initialization tests.</summary>
+<description>
+Only Name is consumed by the subject. SetIdentity deliberately admits malformed names
+to exercise the subject boundary. This local mock is never scheduled as a Test Case.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertionParentIdentity EXTENDS TestCaseMock]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{7c4afd2f-6b20-4a4b-8263-a776d9905dba}" />
+    <Method Name="SetIdentity" Id="{c6037e91-be61-43eb-a0ad-67cb71204722}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Sets the parent name before the subject reads it; no lifecycle work.</summary>
+*)
+{endregion}
+METHOD PUBLIC SetIdentity
+VAR_INPUT
+    Value : STRING(GVL_Constants.NameLength); //! Identity-only parent name retained for isolated Assertion initialization.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FName := Value;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

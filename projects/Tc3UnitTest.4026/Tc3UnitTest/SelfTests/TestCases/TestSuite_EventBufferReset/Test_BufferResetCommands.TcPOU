@@ -1,0 +1,431 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_BufferResetCommands" Id="{1d82b466-a3fc-4dac-bac2-02d4c262ce86}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks reset/delete priority, release ordering and destructive reset after a controlled Suite release failure.</summary>
+<description>
+Two scenarios use successful releases, then a rejected first Suite release followed by a successful second.
+A real Event Buffer probe records release/reset ordering and nonzero delete submissions.
+The controlled Orchestrator keeps lifecycle Idle and cannot conceal command work with its own releases.
+The failed Suite contribution intentionally remains; only the hard-reset buffer aggregate is guaranteed clear.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_BufferResetCommands EXTENDS TestCaseBase
+VAR
+    FSubject : BufferCommandProbe;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FRoot : BufferResetRunControlProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FFirstSuite : BufferReleaseSuiteDouble;
+    FSecondSuite : BufferReleaseSuiteDouble;
+    FControl : ST_RunControl;
+    FPhase : USINT;
+    FRejectFirstRelease : BOOL;
+    FSetup : AssertTrue;
+    FSetupMatches : BOOL;
+    FDeleteOnly : AssertTrue;
+    FDeleteOnlyMatches : BOOL;
+    FResetPriority : AssertTrue;
+    FResetPriorityMatches : BOOL;
+    FReleaseOrder : AssertTrue;
+    FReleaseOrderMatches : BOOL;
+    FReleaseFailure : AssertTrue;
+    FReleaseFailureMatches : BOOL;
+    FHardReset : AssertTrue;
+    FHardResetMatches : BOOL;
+    FCommandsCleared : AssertTrue;
+    FCommandsClearedMatches : BOOL;
+    FNoReplay : AssertTrue;
+    FNoReplayMatches : BOOL;
+    FLifecyclePreserved : AssertTrue;
+    FLifecyclePreservedMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 65;
+    Contribution : UINT := 3;
+    SetupPhase : USINT := 0;
+    AwaitIdlePhase : USINT := 1;
+    DeletePhase : USINT := 2;
+    PreparePhase : USINT := 3;
+    ResetPhase : USINT := 4;
+    VerifyPhase : USINT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{34dcddc4-c31c-4876-aa84-309440511de7}" />
+    <Method Name="AggregateResults" Id="{c66ff9e1-7b89-4845-a41c-6dd1ecb3be74}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FSetup);
+Aggregator.AddProvider(Provider := FDeleteOnly);
+Aggregator.AddProvider(Provider := FResetPriority);
+Aggregator.AddProvider(Provider := FReleaseOrder);
+Aggregator.AddProvider(Provider := FReleaseFailure);
+Aggregator.AddProvider(Provider := FHardReset);
+Aggregator.AddProvider(Provider := FCommandsCleared);
+Aggregator.AddProvider(Provider := FNoReplay);
+Aggregator.AddProvider(Provider := FLifecyclePreserved);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{6d4f9c3b-e474-47cd-bd1b-e8b360fbc02a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetup.IsInitialized
+    AND FDeleteOnly.IsInitialized
+    AND FResetPriority.IsInitialized
+    AND FReleaseOrder.IsInitialized
+    AND FReleaseFailure.IsInitialized
+    AND FHardReset.IsInitialized
+    AND FCommandsCleared.IsInitialized
+    AND FNoReplay.IsInitialized
+    AND FLifecyclePreserved.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{2442c08e-307a-4ff3-8ebf-2ede395a884f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FSetup.Initialize(Parent := THIS^,
+    AssertionName := 'Setup');
+FDeleteOnly.Initialize(Parent := THIS^,
+    AssertionName := 'DeleteOnly');
+FResetPriority.Initialize(Parent := THIS^,
+    AssertionName := 'ResetPriority');
+FReleaseOrder.Initialize(Parent := THIS^,
+    AssertionName := 'ReleaseOrder');
+FReleaseFailure.Initialize(Parent := THIS^,
+    AssertionName := 'ReleaseFailure');
+FHardReset.Initialize(Parent := THIS^,
+    AssertionName := 'HardReset');
+FCommandsCleared.Initialize(Parent := THIS^,
+    AssertionName := 'CommandsCleared');
+FNoReplay.Initialize(Parent := THIS^,
+    AssertionName := 'NoReplay');
+FLifecyclePreserved.Initialize(Parent := THIS^,
+    AssertionName := 'LifecyclePreserved');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PrepareReset" Id="{5b788cf7-e11e-41b7-8df0-91ddaa345c66}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Creates a populated epoch and real contributions before starting order observation.</summary>
+*)
+{endregion}
+METHOD PRIVATE PrepareReset
+VAR
+    SeedEvent : ST_Event;
+    Published : INT;
+    FirstReserved : BOOL;
+    SecondReserved : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SeedEvent := CreateFrameworkEvent(Name := 'ResetCommands',
+    ResourceName := 'CommandFixture',
+    State := E_State.Idle,
+    Severity := E_EventSeverity.Info,
+    Message := 'Pending deletion must be superseded by hard reset.');
+Published := FSubject.PublishEvent(Event := SeedEvent);
+FirstReserved := FFirstSuite.PrepareRelease(RejectRelease := FRejectFirstRelease,
+    EntryCount := Contribution,
+    Buffer := FSubject);
+SecondReserved := FSecondSuite.PrepareRelease(RejectRelease := FALSE,
+    EntryCount := Contribution,
+    Buffer := FSubject);
+FSetupMatches := FSetupMatches AND (Published > 0) AND FirstReserved AND SecondReserved
+    AND (FSubject.ReservedEntryCount = 2 * Contribution) AND NOT FFifo.BufferEmpty;
+FFirstSuite.BeginCycle();
+FSecondSuite.BeginCycle();
+FSubject.BeginObservation();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{dfe7f304-a8ca-4faf-896d-d75f8762416f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{205e24ce-885d-4e76-89d5-c05c3706d654}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FSetup(Enable := Evaluate,
+    State := State,
+    IN := FSetupMatches);
+FDeleteOnly(Enable := Evaluate,
+    State := State,
+    IN := FDeleteOnlyMatches);
+FResetPriority(Enable := Evaluate,
+    State := State,
+    IN := FResetPriorityMatches);
+FReleaseOrder(Enable := Evaluate,
+    State := State,
+    IN := FReleaseOrderMatches);
+FReleaseFailure(Enable := Evaluate,
+    State := State,
+    IN := FReleaseFailureMatches);
+FHardReset(Enable := Evaluate,
+    State := State,
+    IN := FHardResetMatches);
+FCommandsCleared(Enable := Evaluate,
+    State := State,
+    IN := FCommandsClearedMatches);
+FNoReplay(Enable := Evaluate,
+    State := State,
+    IN := FNoReplayMatches);
+FLifecyclePreserved(Enable := Evaluate,
+    State := State,
+    IN := FLifecyclePreservedMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{863d3d62-90d6-4de4-9091-14c359029c8a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{ce69b02c-bae9-4503-ab17-5ef6938cb450}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FPhase := SetupPhase;
+FRejectFirstRelease := FALSE;
+FSetup.Reset();
+FSetupMatches := TRUE;
+FDeleteOnly.Reset();
+FDeleteOnlyMatches := TRUE;
+FResetPriority.Reset();
+FResetPriorityMatches := TRUE;
+FReleaseOrder.Reset();
+FReleaseOrderMatches := TRUE;
+FReleaseFailure.Reset();
+FReleaseFailureMatches := TRUE;
+FHardReset.Reset();
+FHardResetMatches := TRUE;
+FCommandsCleared.Reset();
+FCommandsClearedMatches := TRUE;
+FNoReplay.Reset();
+FNoReplayMatches := TRUE;
+FLifecyclePreserved.Reset();
+FLifecyclePreservedMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{f0f99f2d-4165-4a04-8474-614fbd6f5ae2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    StateMachine();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{1519800c-6500-4da8-ad97-39ca6f3455e9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one owner call per cycle and records command observations immediately after it.</summary>
+*)
+{endregion}
+METHOD PRIVATE StateMachine
+VAR
+    EmptyControl : ST_RunControl;
+    SeedEvent : ST_Event;
+    Published : INT;
+    FirstCalls : ST_OrchestrationCalls;
+    SecondCalls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FPhase OF
+    SetupPhase:
+        FControl := EmptyControl;
+        IF NOT FSubject.Initialize(Buffer := FEvents,
+            FifoControl := FFifo,
+            Status := FBufferStatus) THEN
+            Error(Message := 'Command-test buffer initialization failed.');
+            RETURN;
+        END_IF;
+        FHelper.BeginScenario();
+        FRoot.Bind(Publisher := FSubject,
+            Helper := FHelper);
+        FRoot.BindChildren(FirstSuite := FFirstSuite,
+            SecondSuite := FSecondSuite);
+        IF NOT FRoot.Initialize(Name := 'ResetCommands',
+            EventBuffer := FSubject) THEN
+            Error(Message := 'Command-test root initialization failed.');
+            RETURN;
+        END_IF;
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        FPhase := AwaitIdlePhase;
+
+    AwaitIdlePhase:
+        FRoot(ControlData := FControl);
+        IF FRoot.HasError THEN
+            Error(Message := 'Command-test root did not establish Idle.');
+            RETURN;
+        END_IF;
+        IF FRoot.IsReady THEN
+            FSubject.BeginObservation();
+            FControl.BufferCmd.DeleteSequenceId := FBufferStatus.SequenceId;
+            FSetupMatches := FSetupMatches AND (FControl.BufferCmd.DeleteSequenceId > 0);
+            FPhase := DeletePhase;
+        END_IF;
+
+    DeletePhase:
+        FRoot(ControlData := FControl);
+        FDeleteOnlyMatches := (FSubject.DeleteCount = 1) AND (FSubject.ResetCount = 0)
+            AND FFifo.BufferEmpty AND (FControl.BufferCmd.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = FBufferStatus.SequenceId);
+        FPhase := PreparePhase;
+
+    PreparePhase:
+        FRoot(ControlData := FControl);
+        PrepareReset();
+        FPhase := ResetPhase;
+
+    ResetPhase:
+        FControl.BufferCmd.Reset := TRUE;
+        FControl.BufferCmd.DeleteSequenceId := FBufferStatus.SequenceId;
+        FRoot(ControlData := FControl);
+        FResetPriorityMatches := FResetPriorityMatches AND (FSubject.DeleteCount = 0)
+            AND (FSubject.ResetCount = 1);
+        FReleaseOrderMatches := FReleaseOrderMatches
+            AND (FFirstSuite.ReleaseCount = 1) AND (FSecondSuite.ReleaseCount = 1)
+            AND (FFirstSuite.ReleaseOrder = 1) AND (FSecondSuite.ReleaseOrder = 2)
+            AND (FSubject.ResetOrder = 3);
+        FReleaseFailureMatches := FReleaseFailureMatches AND (FSecondSuite.ReservedEntryCount = 0);
+        IF FRejectFirstRelease THEN
+            FReleaseFailureMatches := FReleaseFailureMatches
+                AND (FFirstSuite.ReservedEntryCount = Contribution);
+        ELSE
+            FReleaseFailureMatches := FReleaseFailureMatches
+                AND (FFirstSuite.ReservedEntryCount = 0);
+        END_IF;
+        FHardResetMatches := FHardResetMatches AND FFifo.BufferEmpty
+            AND (FFifo.ElementCount = 0) AND (FBufferStatus.SequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 0) AND (FBufferStatus.LostEventCount = 0)
+            AND (FSubject.ReservedEntryCount = 0);
+        FCommandsClearedMatches := FCommandsClearedMatches AND NOT FControl.BufferCmd.Reset
+            AND (FControl.BufferCmd.DeleteSequenceId = 0);
+        FirstCalls := FFirstSuite.Calls;
+        SecondCalls := FSecondSuite.Calls;
+        FLifecyclePreservedMatches := FLifecyclePreservedMatches AND FRoot.IsIdle AND FRoot.IsReady
+            AND (FFirstSuite.State = E_State.Idle) AND (FSecondSuite.State = E_State.Idle)
+            AND (FirstCalls.ResetCount = 0) AND (FirstCalls.StartCount = 0)
+            AND (FirstCalls.AbortCount = 0) AND (SecondCalls.ResetCount = 0)
+            AND (SecondCalls.StartCount = 0) AND (SecondCalls.AbortCount = 0);
+        FPhase := VerifyPhase;
+
+    VerifyPhase:
+        SeedEvent := CreateFrameworkEvent(Name := 'ResetCommands',
+            ResourceName := 'CommandFixture',
+            State := E_State.Idle,
+            Severity := E_EventSeverity.Info,
+            Message := 'New epoch must survive the next owner call.');
+        Published := FSubject.PublishEvent(Event := SeedEvent);
+        FRoot(ControlData := FControl);
+        FNoReplayMatches := FNoReplayMatches AND (Published > 0)
+            AND (FSubject.ResetCount = 1) AND (FSubject.DeleteCount = 0)
+            AND (FFirstSuite.ReleaseCount = 1) AND (FSecondSuite.ReleaseCount = 1)
+            AND (FBufferStatus.SequenceId = 1) AND (FFifo.ElementCount = 1);
+        IF FRejectFirstRelease THEN
+            FPerformed := TRUE;
+        ELSE
+            FRejectFirstRelease := TRUE;
+            FPhase := PreparePhase;
+        END_IF;
+
+    ELSE
+        Error(Message := 'Unknown buffer command-test phase.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

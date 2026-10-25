@@ -1,0 +1,638 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlCompletion" Id="{b09ba6ca-abe7-4fcb-8c32-18b5e28fa210}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks root completion timing, frozen event payloads and live child observations.</summary>
+<description>
+
+Ownership and steps
+
+Each instance selects one fixed scenario. A real RunControlBase uses a controlled helper
+and two Suite observations, with a private Event Buffer. RunStep arranges one subject call;
+checking Assertions consume the observations before the next step is accepted.
+
+Clock observation
+
+ZeroDelay and DefaultDelay use the unchanged production clock. The independent stopwatch
+starts in the entry cycle of Completing. Completed must occur on a later call, never before
+the configured interval. InvalidTime overrides only the agreed validity observation after
+final events exist; it does not change task time, elapsed values or transition logic.
+
+Publication versus status
+
+The entry Result and Aggregation are checked and retained. Subsequent calls verify every
+event field and prohibit republication. LateResetChildren leaves a child resetting when
+the root times out; its later completion changes live counters without rewriting the log.
+Every case holds Completed for further calls and then verifies ordinary Reset recovery.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlCompletion EXTENDS TestCaseBase
+VAR_INPUT
+    Scenario : E_RunControlCompletionScenario := E_RunControlCompletionScenario.DefaultDelay; //! Completion scenario selected by the containing Suite and held fixed during this instance.
+END_VAR
+VAR
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FControl : ST_RunControl;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FFirstChild : ST_OrchestrationObservation;
+    FSecondChild : ST_OrchestrationObservation;
+    FDelayClock : Stopwatch;
+    FDelay : TIME;
+    FExpectedResult : E_Result;
+    FPublishedResult : ST_Event;
+    FPublishedAggregation : ST_Event;
+    FFinalRuntime : TIME;
+    FStep : INT;
+    FNextStep : INT;
+    FStepChecked : BOOL;
+    FCallCount : UINT;
+    FEntryCall : UINT;
+    FHoldCalls : UINT;
+    FStatePath : AssertTrue;
+    FStatePathMatches : BOOL := TRUE;
+    FTiming : AssertTrue;
+    FTimingMatches : BOOL := TRUE;
+    FFinalEvents : AssertTrue;
+    FFinalEventsMatches : BOOL := TRUE;
+    FPublishedPayload : AssertTrue;
+    FPublishedPayloadMatches : BOOL := TRUE;
+    FLiveStatus : AssertTrue;
+    FLiveStatusMatches : BOOL := TRUE;
+    FDiagnostics : AssertTrue;
+    FDiagnosticsMatches : BOOL := TRUE;
+    FChildCalls : AssertTrue;
+    FChildCallsMatches : BOOL := TRUE;
+    FRecovery : AssertTrue;
+    FRecoveryMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    DefaultDelay : TIME := T#100ms;
+    ResetDeadline : TIME := T#20ms;
+    CompletedHoldCalls : UINT := 3;
+    Setup : INT := 0;
+    ResetResponse : INT := 1;
+    StartExecution : INT := 2;
+    ReachRunning : INT := 3;
+    CompleteChildren : INT := 4;
+    EnterCompleting : INT := 5;
+    WaitCompletion : INT := 6;
+    HoldCompleted : INT := 7;
+    RecoveryReset : INT := 8;
+    RecoveryReady : INT := 9;
+    Done : INT := 10;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{997c29ea-3375-497a-855c-13b49948563e}" />
+    <Method Name="AggregateResults" Id="{394a4c81-2260-41a7-8675-0af4a1bca3eb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FStatePath);
+Aggregator.AddProvider(Provider := FTiming);
+Aggregator.AddProvider(Provider := FFinalEvents);
+Aggregator.AddProvider(Provider := FPublishedPayload);
+Aggregator.AddProvider(Provider := FLiveStatus);
+Aggregator.AddProvider(Provider := FDiagnostics);
+Aggregator.AddProvider(Provider := FChildCalls);
+Aggregator.AddProvider(Provider := FRecovery);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckEvents" Id="{d30d1d25-39b7-4650-b209-41ef1881d4e1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one final pair, immutable payloads, terminal ordering and exactly one fallback diagnostic.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckEvents
+VAR
+    Index : UINT;
+    ResultCount : UINT;
+    AggregationCount : UINT;
+    CompletedCount : UINT;
+    DiagnosticCount : UINT;
+    ExpectedDiagnostics : UINT;
+    CompletedSequence : UDINT;
+    DiagnosticSequence : UDINT;
+    ExpectedMessage : STRING(GVL_Constants.MessageLength);
+    ExpectedSeverity : E_EventSeverity;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFinalEventsMatches := TRUE;
+FPublishedPayloadMatches := TRUE;
+FDiagnosticsMatches := TRUE;
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    IF FEvents[Index].Name <> FSubject.Name THEN
+        FFinalEventsMatches := FALSE;
+        CONTINUE;
+    END_IF;
+    CASE FEvents[Index].EventType OF
+        E_EventType.Result:
+            ResultCount := ResultCount + 1;
+            IF FPublishedResult.SequenceId = 0 THEN
+                FPublishedResult := FEvents[Index];
+            END_IF;
+            FPublishedPayloadMatches := FPublishedPayloadMatches
+                AND IsEventUnchanged(Event := FEvents[Index],
+                    Published := FPublishedResult);
+        E_EventType.Aggregation:
+            AggregationCount := AggregationCount + 1;
+            IF FPublishedAggregation.SequenceId = 0 THEN
+                FPublishedAggregation := FEvents[Index];
+            END_IF;
+            FPublishedPayloadMatches := FPublishedPayloadMatches
+                AND IsEventUnchanged(Event := FEvents[Index],
+                    Published := FPublishedAggregation);
+        E_EventType.StateTransition:
+            IF FEvents[Index].State = E_State.Completed THEN
+                CompletedCount := CompletedCount + 1;
+                CompletedSequence := FEvents[Index].SequenceId;
+            END_IF;
+        E_EventType.Framework:
+            DiagnosticCount := DiagnosticCount + 1;
+            DiagnosticSequence := FEvents[Index].SequenceId;
+            FDiagnosticsMatches := FDiagnosticsMatches
+                AND (FEvents[Index].Severity = E_EventSeverity.Error);
+            IF Scenario = E_RunControlCompletionScenario.InvalidTime THEN
+                FDiagnosticsMatches := FDiagnosticsMatches AND (FEvents[Index].State = E_State.Completing);
+            ELSIF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+                FDiagnosticsMatches := FDiagnosticsMatches AND (FEvents[Index].State = E_State.Reset);
+            ELSE
+                FDiagnosticsMatches := FALSE;
+            END_IF;
+    END_CASE;
+END_FOR;
+ExpectedMessage := 'Run completed.';
+ExpectedSeverity := E_EventSeverity.Info;
+IF FExpectedResult = E_Result.Error THEN
+    ExpectedMessage := 'Run completed with error.';
+    ExpectedSeverity := E_EventSeverity.Error;
+END_IF;
+FPublishedPayloadMatches := FPublishedPayloadMatches
+    AND (FPublishedResult.Message = ExpectedMessage)
+    AND (FPublishedResult.OwnerScope = E_OwnerScope.RunControl)
+    AND (FPublishedResult.ResourceName = 'Fixture')
+    AND (FPublishedResult.Result = FExpectedResult)
+    AND (FPublishedResult.State = E_State.Completing)
+    AND (FPublishedResult.Severity = ExpectedSeverity)
+    AND (FPublishedAggregation.OwnerScope = E_OwnerScope.RunControl)
+    AND (FPublishedAggregation.ResourceName = '')
+    AND (FPublishedAggregation.Result = FExpectedResult)
+    AND (FPublishedAggregation.State = E_State.Completing)
+    AND (FPublishedAggregation.Severity = ExpectedSeverity);
+IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+    ExpectedMessage := '{"total":2,"inactive":0,"idle":0,"running":0,"completed":0,"passed":0,"failed":0,"error":0,"runtime":';
+ELSE
+    ExpectedMessage := '{"total":2,"inactive":0,"idle":0,"running":0,"completed":2,"passed":2,"failed":0,"error":0,"runtime":';
+END_IF;
+ExpectedMessage := CONCAT(ExpectedMessage, UDINT_TO_STRING(TIME_TO_UDINT(FFinalRuntime)));
+ExpectedMessage := CONCAT(ExpectedMessage, ',"lostEvents":0}');
+FPublishedPayloadMatches := FPublishedPayloadMatches AND (FPublishedAggregation.Message = ExpectedMessage);
+FFinalEventsMatches := FFinalEventsMatches AND (ResultCount = 1) AND (AggregationCount = 1)
+    AND (FPublishedResult.SequenceId < FPublishedAggregation.SequenceId)
+    AND (CompletedCount = BOOL_TO_UINT(FSubject.IsComplete))
+    AND (FCaptureStatus.LostEventCount = 0);
+IF FSubject.IsComplete THEN
+    FFinalEventsMatches := FFinalEventsMatches AND (FPublishedAggregation.SequenceId < CompletedSequence);
+END_IF;
+IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+    ExpectedDiagnostics := 1;
+ELSIF (Scenario = E_RunControlCompletionScenario.InvalidTime) AND (FStep >= WaitCompletion) THEN
+    ExpectedDiagnostics := 1;
+    FDiagnosticsMatches := FDiagnosticsMatches
+        AND (FPublishedAggregation.SequenceId < DiagnosticSequence)
+        AND (DiagnosticSequence < CompletedSequence);
+END_IF;
+FDiagnosticsMatches := FDiagnosticsMatches AND (DiagnosticCount = ExpectedDiagnostics);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{1d5f759f-c512-42c7-9a07-f37b6123e22b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FStatePath.Initialize(Parent := THIS^,
+    AssertionName := 'StatePath');
+FTiming.Initialize(Parent := THIS^,
+    AssertionName := 'Timing');
+FFinalEvents.Initialize(Parent := THIS^,
+    AssertionName := 'FinalEvents');
+FPublishedPayload.Initialize(Parent := THIS^,
+    AssertionName := 'PublishedPayload');
+FLiveStatus.Initialize(Parent := THIS^,
+    AssertionName := 'LiveStatus');
+FDiagnostics.Initialize(Parent := THIS^,
+    AssertionName := 'Diagnostics');
+FChildCalls.Initialize(Parent := THIS^,
+    AssertionName := 'ChildCalls');
+FRecovery.Initialize(Parent := THIS^,
+    AssertionName := 'Recovery');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsEventUnchanged" Id="{fa5c4273-a9dc-4dba-bb28-c455815fc2cc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares captured event fields explicitly, without relying on structure padding.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsEventUnchanged : BOOL //! TRUE when all defined event fields match the retained snapshot; structure padding is ignored.
+VAR_IN_OUT CONSTANT
+    Event : ST_Event; //! Borrowed read-only event to compare field by field.
+    Published : ST_Event; //! Borrowed read-only publication snapshot used as the expected value.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsEventUnchanged := (Event.SequenceId = Published.SequenceId)
+    AND (Event.Timestamp = Published.Timestamp)
+    AND (Event.OwnerScope = Published.OwnerScope)
+    AND (Event.EventType = Published.EventType)
+    AND (Event.Severity = Published.Severity)
+    AND (Event.Name = Published.Name)
+    AND (Event.ResourceName = Published.ResourceName)
+    AND (Event.State = Published.State)
+    AND (Event.Result = Published.Result)
+    AND (Event.Message = Published.Message);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{a89c6ea7-6964-45d2-b924-77407a3b80f9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{1ee56260-ebc8-4144-a3fd-d0e936ea252c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks each subject call before allowing the script to advance; failures remain latched.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStatePath(Enable := Enable,
+    State := State,
+    IN := FStatePathMatches);
+FTiming(Enable := Enable,
+    State := State,
+    IN := FTimingMatches);
+FFinalEvents(Enable := Enable,
+    State := State,
+    IN := FFinalEventsMatches);
+FPublishedPayload(Enable := Enable,
+    State := State,
+    IN := FPublishedPayloadMatches);
+FLiveStatus(Enable := Enable,
+    State := State,
+    IN := FLiveStatusMatches);
+FDiagnostics(Enable := Enable,
+    State := State,
+    IN := FDiagnosticsMatches);
+FChildCalls(Enable := Enable,
+    State := State,
+    IN := FChildCallsMatches);
+FRecovery(Enable := Enable,
+    State := State,
+    IN := FRecoveryMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{5db56e24-ecd2-456d-b5f9-7addddef54d8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{d245e146-2228-4c6c-85cc-968105fa8859}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FNextStep := Setup;
+FStepChecked := FALSE;
+FCallCount := 0;
+FEntryCall := 0;
+FHoldCalls := 0;
+FPublishedResult.SequenceId := 0;
+FPublishedAggregation.SequenceId := 0;
+FDelayClock.Reset();
+FStatePathMatches := TRUE;
+FTimingMatches := TRUE;
+FFinalEventsMatches := TRUE;
+FPublishedPayloadMatches := TRUE;
+FLiveStatusMatches := TRUE;
+FDiagnosticsMatches := TRUE;
+FChildCallsMatches := TRUE;
+FRecoveryMatches := TRUE;
+FStatePath.Reset();
+FTiming.Reset();
+FFinalEvents.Reset();
+FPublishedPayload.Reset();
+FLiveStatus.Reset();
+FDiagnostics.Reset();
+FChildCalls.Reset();
+FRecovery.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{1c63fc38-9087-43d0-92f2-d7d112fb19e8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    FStep := FNextStep;
+    FStepChecked := FALSE;
+END_IF;
+IF FStep = Done THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{42ceb977-b256-49cb-af4f-5b97aaec6e0f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Arranges one call and compares timing, state, publication and cyclic observations.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_RunConfig;
+    Snapshot : ST_RunControlStatus;
+    ExpectedState : E_State;
+    ExpectedResult : E_Result;
+    ExpectedTask : E_OrchestratorTask;
+    ExpectedCompleted : UINT;
+    ExpectedPassed : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDelayClock.Update();
+FNextStep := FStep + 1;
+ExpectedResult := E_Result.NotEvaluated;
+ExpectedTask := E_OrchestratorTask.Idle;
+
+CASE FStep OF
+    Setup:
+        FDelay := DefaultDelay;
+        FExpectedResult := E_Result.Passed;
+        FTimingMatches := Config.CompletionDelay = DefaultDelay;
+        IF Scenario = E_RunControlCompletionScenario.ZeroDelay THEN
+            Config.CompletionDelay := T#0ms;
+            FDelay := T#0ms;
+        END_IF;
+        IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+            Config.ResetTimeout := ResetDeadline;
+            FExpectedResult := E_Result.Error;
+        END_IF;
+        IF NOT FCapture.Initialize(Buffer := FEvents,
+            FifoControl := FCaptureFifo,
+            Status := FCaptureStatus) THEN
+            Error(Message := 'Completion capture could not be initialized.');
+            RETURN;
+        END_IF;
+        FHelper.BeginScenario();
+        FSubject.Bind(Publisher := FCapture,
+            Helper := FHelper,
+            Config := Config);
+        IF NOT FSubject.Initialize(Name := 'CompletionSubject',
+            EventBuffer := FCapture) THEN
+            Error(Message := 'Completion subject could not be initialized.');
+            RETURN;
+        END_IF;
+        FFirstChild.State := E_State.Reset;
+        FFirstChild.Ready := FALSE;
+        FFirstChild.Complete := FALSE;
+        FFirstChild.Result := E_Result.NotEvaluated;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    ResetResponse:
+        IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+            // The root deadline expires while children are still resetting.
+            ExpectedState := E_State.Reset;
+            ExpectedTask := E_OrchestratorTask.Reset;
+            FNextStep := ResetResponse;
+        ELSE
+            FHelper.SetObservation(Ready := TRUE,
+                ResetFinished := TRUE);
+            FFirstChild.State := E_State.Idle;
+            FFirstChild.Ready := TRUE;
+            FSecondChild := FFirstChild;
+            ExpectedState := E_State.Idle;
+        END_IF;
+
+    StartExecution:
+        FSubject.RequestStart();
+        FFirstChild.State := E_State.Running;
+        FFirstChild.Ready := FALSE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Starting;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    ReachRunning:
+        FHelper.SetObservation(Ready := FALSE);
+        ExpectedState := E_State.Running;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    CompleteChildren:
+        FFirstChild.State := E_State.Completed;
+        FFirstChild.Result := E_Result.Passed;
+        FFirstChild.Complete := TRUE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Running;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    EnterCompleting:
+        FHelper.SetObservation(Ready := FALSE,
+            ExecutionFinished := TRUE);
+        ExpectedState := E_State.Completing;
+        ExpectedResult := FExpectedResult;
+        ExpectedTask := E_OrchestratorTask.Execution;
+
+    WaitCompletion:
+        IF Scenario = E_RunControlCompletionScenario.InvalidTime THEN
+            FSubject.SetInvalidCompletionTime(Invalid := TRUE);
+        END_IF;
+        IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+            FFirstChild.State := E_State.Completed;
+            FFirstChild.Result := E_Result.Error;
+            FFirstChild.Complete := TRUE;
+            // Only this child finishes during the delay; the second finishes after Completed.
+        END_IF;
+        ExpectedState := E_State.Completing;
+        ExpectedResult := FExpectedResult;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+            ExpectedTask := E_OrchestratorTask.Idle;
+        END_IF;
+        IF (Scenario = E_RunControlCompletionScenario.InvalidTime)
+            OR (FDelayClock.ElapsedLTime >= TIME_TO_LTIME(FDelay)) THEN
+            ExpectedState := E_State.Completed;
+            ExpectedTask := E_OrchestratorTask.Idle;
+        ELSE
+            FNextStep := WaitCompletion;
+        END_IF;
+
+    HoldCompleted:
+        IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+            FSecondChild.State := E_State.Completed;
+            FSecondChild.Result := E_Result.Passed;
+            FSecondChild.Complete := TRUE;
+        END_IF;
+        ExpectedState := E_State.Completed;
+        ExpectedResult := FExpectedResult;
+        FHoldCalls := FHoldCalls + 1;
+        IF FHoldCalls < CompletedHoldCalls THEN
+            FNextStep := HoldCompleted;
+        END_IF;
+
+    RecoveryReset:
+        FSubject.SetInvalidCompletionTime(Invalid := FALSE);
+        FHelper.SetObservation(Ready := FALSE);
+        FSubject.RequestReset();
+        FFirstChild.State := E_State.Reset;
+        FFirstChild.Result := E_Result.NotEvaluated;
+        FFirstChild.Complete := FALSE;
+        FFirstChild.Ready := FALSE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+
+    RecoveryReady:
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        FFirstChild.State := E_State.Idle;
+        FFirstChild.Ready := TRUE;
+        FSecondChild := FFirstChild;
+        ExpectedState := E_State.Idle;
+ELSE
+    Error(Message := 'Unexpected completion test step.');
+    RETURN;
+END_CASE;
+
+FSubject.SetChildObservations(FirstChild := FFirstChild,
+    SecondChild := FSecondChild);
+FSubject(ControlData := FControl);
+FCallCount := FCallCount + 1;
+Snapshot := FSubject.Status;
+
+IF (FStep = ResetResponse) AND (Scenario = E_RunControlCompletionScenario.LateResetChildren)
+    AND (FSubject.State = E_State.Completing) THEN
+    ExpectedState := E_State.Completing;
+    ExpectedResult := E_Result.Error;
+    ExpectedTask := E_OrchestratorTask.Idle;
+    FNextStep := WaitCompletion;
+END_IF;
+IF (ExpectedState = E_State.Completing) AND (FEntryCall = 0) THEN
+    FEntryCall := FCallCount;
+    FDelayClock.Start();
+    FFinalRuntime := Snapshot.Runtime;
+END_IF;
+
+FStatePathMatches := (FSubject.State = ExpectedState)
+    AND (Snapshot.Execution.State = ExpectedState)
+    AND (FControl.Status.Execution.State = ExpectedState)
+    AND (FSubject.Result = ExpectedResult)
+    AND (FControl.Status.Execution.Result = ExpectedResult)
+    AND (FHelper.CurrentTask = ExpectedTask);
+FChildCallsMatches := (FSubject.ChildCallCount = FCallCount)
+    AND FSubject.ChildBodyCallsMatch
+    AND (FHelper.ExecuteCount = FCallCount);
+
+IF (FStep = WaitCompletion) OR (FStep = HoldCompleted) THEN
+    FTimingMatches := FDelayClock.IsValid AND (FCallCount > FEntryCall)
+        AND (Snapshot.Runtime = FFinalRuntime);
+    IF Scenario <> E_RunControlCompletionScenario.InvalidTime THEN
+        FTimingMatches := FTimingMatches
+            AND ((FSubject.State = E_State.Completed)
+                = (FDelayClock.ElapsedLTime >= TIME_TO_LTIME(FDelay)));
+    END_IF;
+    FLiveStatusMatches := Snapshot.SuiteCountTotal = 2;
+    IF Scenario = E_RunControlCompletionScenario.LateResetChildren THEN
+        ExpectedCompleted := 1;
+        ExpectedPassed := 0;
+        IF FStep = HoldCompleted THEN
+            ExpectedCompleted := 2;
+            ExpectedPassed := 1;
+        END_IF;
+        FLiveStatusMatches := FLiveStatusMatches
+            AND (Snapshot.SuiteCountCompleted = ExpectedCompleted)
+            AND (Snapshot.SuiteCountPassed = ExpectedPassed)
+            AND (Snapshot.SuiteCountError = 1)
+            AND (FControl.Status.SuiteCountCompleted = ExpectedCompleted)
+            AND (FControl.Status.SuiteCountPassed = ExpectedPassed);
+    ELSE
+        FLiveStatusMatches := FLiveStatusMatches
+            AND (Snapshot.SuiteCountCompleted = 2) AND (Snapshot.SuiteCountPassed = 2);
+    END_IF;
+END_IF;
+IF (FEntryCall > 0) AND (FStep < RecoveryReset) THEN
+    CheckEvents();
+END_IF;
+IF FStep = RecoveryReady THEN
+    FRecoveryMatches := FSubject.IsReady AND (FSubject.Result = E_Result.NotEvaluated)
+        AND NOT FSubject.HasResetTimeout AND NOT FSubject.HasTimeout AND NOT FSubject.HasAbortTimeout
+        AND (FSubject.ConfigureCount = 1) AND (FHelper.InitializeCount = 1);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

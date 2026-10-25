@@ -1,0 +1,135 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLengthUntilValueGreaterEqual_Word" Id="{03aa4478-56f4-4069-b00e-0f5aa2b043cc}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that the number of elements before the first token is at least
+Expected.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Comparison applies Mask to both values; bits outside it are ignored. The default mask
+selects all bits.
+
+The token itself is excluded. A token at StartIndex gives zero. A missing token always
+reports Failed, including NotEqual.
+
+The value token matches under Mask; bits outside Mask are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLengthUntilValueGreaterEqual_Word EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+    Expected : USINT; //! Reference number of elements before the first token; the token itself is excluded.
+    Token : WORD; //! Value searched for in the selected range; Mask selects the compared bits.
+    Mask : WORD := WORD#16#FFFF; //! Bits included in the comparison; bits outside the mask are ignored.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Keep the searched data stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{58d9ffec-aeea-4643-ba67-bc9a473e3959}" />
+    <Method Name="Assert" Id="{76667cbd-076a-400f-813f-be4e65521327}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate the search range before locating and comparing the first token position.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    TokenIndex : DINT;
+    MeasuredLength : DINT;
+    TokenFound : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+VAR CONSTANT
+    HexDigitCount : USINT := 4;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: invalid search range. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+TokenFound := FindValueToken_Word(StartIndex := StartIndex,
+    Length := Length,
+    Token := Token,
+    Mask := Mask,
+    IN := IN,
+    Index => TokenIndex);
+
+IF NOT TokenFound THEN
+    Message := CONCAT('Assertion failed: token not found. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+MeasuredLength := LINT_TO_DINT(DINT_TO_LINT(TokenIndex) - DINT_TO_LINT(StartIndex));
+
+IF MeasuredLength < USINT_TO_DINT(Expected) THEN
+    Message := CONCAT('Assertion failed: length until token violates GreaterEqual. Expected = ',
+        USINT_TO_STRING(Expected));
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, DINT_TO_STRING(MeasuredLength));
+    Message := CONCAT(Message, ', Token = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Token),
+        DigitCount := HexDigitCount));
+    Message := CONCAT(Message, ', Mask = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Mask),
+        DigitCount := HexDigitCount));
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

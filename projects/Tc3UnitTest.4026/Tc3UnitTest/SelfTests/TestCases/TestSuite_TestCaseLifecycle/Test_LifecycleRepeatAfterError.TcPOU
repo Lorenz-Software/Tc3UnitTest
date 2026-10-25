@@ -1,0 +1,444 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_LifecycleRepeatAfterError" Id="{bef157c9-3f38-46ac-9ba6-651d2f9043c5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks stable Error completion, one-shot finalization and a fresh successful run after Reset.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_LifecycleRepeatAfterError EXTENDS TestCaseLifecycleTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{e0001921-0483-4920-b299-e4ceee436079}" />
+    <Method Name="ConfigureScenario" Id="{1a9f6e3a-dba6-408a-aba6-96db29c21b14}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines two independent run outcomes and cumulative event expectations across Reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectPreparationCount := 0;
+FSubjectTestCount := 1;
+FStepCount := 16;
+
+{region "01 - Reset establishes the initial Idle state"}
+FSteps[1].ExpectedState := E_State.Idle;
+FSteps[1].ExpectedResult := E_Result.NotEvaluated;
+FSteps[1].ExpectedReady := TRUE;
+FSteps[1].ExpectedPassedCount := 0;
+FSteps[1].ExpectedFailedCount := 0;
+FSteps[1].RequestReset := TRUE;
+FSteps[1].ExpectRuntimeCleared := TRUE;
+FSteps[1].CheckFinalization := TRUE;
+FSteps[1].ExpectedFinalizationCount := 0;
+FSteps[1].ExpectedCompletionCount := 0;
+FSteps[1].ExpectedFinalResult := E_Result.Error;
+FSteps[1].ExpectedHookCount := 6;
+FSteps[1].ExpectedHooks[1].Hook := E_LifecycleHook.Reset;
+FSteps[1].ExpectedHooks[1].State := E_State.Reset;
+FSteps[1].ExpectedHooks[1].Enabled := TRUE;
+FSteps[1].ExpectedHooks[2].Hook := E_LifecycleHook.Abort;
+FSteps[1].ExpectedHooks[2].State := E_State.Idle;
+FSteps[1].ExpectedHooks[2].Enabled := FALSE;
+FSteps[1].ExpectedHooks[3].Hook := E_LifecycleHook.Preparations;
+FSteps[1].ExpectedHooks[3].State := E_State.Idle;
+FSteps[1].ExpectedHooks[3].Enabled := FALSE;
+FSteps[1].ExpectedHooks[4].Hook := E_LifecycleHook.Tests;
+FSteps[1].ExpectedHooks[4].State := E_State.Idle;
+FSteps[1].ExpectedHooks[4].Enabled := FALSE;
+FSteps[1].ExpectedHooks[5].Hook := E_LifecycleHook.Assertions;
+FSteps[1].ExpectedHooks[5].State := E_State.Idle;
+FSteps[1].ExpectedHooks[5].Enabled := FALSE;
+FSteps[1].ExpectedHooks[6].Hook := E_LifecycleHook.Aggregate;
+FSteps[1].ExpectedHooks[6].State := E_State.Idle;
+FSteps[1].ExpectedHooks[6].Enabled := TRUE;
+{endregion}
+
+{region "02 - Start the first execution"}
+FSteps[2].ExpectedState := E_State.Starting;
+FSteps[2].ExpectedResult := E_Result.NotEvaluated;
+FSteps[2].ExpectedReady := FALSE;
+FSteps[2].ExpectedPassedCount := 0;
+FSteps[2].ExpectedFailedCount := 0;
+FSteps[2].RequestStart := TRUE;
+FSteps[2].CheckFinalization := TRUE;
+FSteps[2].ExpectedFinalizationCount := 0;
+FSteps[2].ExpectedCompletionCount := 0;
+FSteps[2].ExpectedFinalResult := E_Result.Error;
+FSteps[2].ExpectedHookCount := 5;
+FSteps[2].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[2].ExpectedHooks[1].State := E_State.Starting;
+FSteps[2].ExpectedHooks[1].Enabled := FALSE;
+FSteps[2].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[2].ExpectedHooks[2].State := E_State.Starting;
+FSteps[2].ExpectedHooks[2].Enabled := FALSE;
+FSteps[2].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[2].ExpectedHooks[3].State := E_State.Starting;
+FSteps[2].ExpectedHooks[3].Enabled := FALSE;
+FSteps[2].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[2].ExpectedHooks[4].State := E_State.Starting;
+FSteps[2].ExpectedHooks[4].Enabled := FALSE;
+FSteps[2].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[2].ExpectedHooks[5].State := E_State.Starting;
+FSteps[2].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "03 - Evaluate both child Assertions"}
+FSteps[3].ExpectedState := E_State.Running;
+FSteps[3].ExpectedResult := E_Result.NotEvaluated;
+FSteps[3].ExpectedReady := FALSE;
+FSteps[3].ExpectedPassedCount := 2;
+FSteps[3].ExpectedFailedCount := 0;
+FSteps[3].AssertionCondition := TRUE;
+FSteps[3].CheckFinalization := TRUE;
+FSteps[3].ExpectedFinalizationCount := 0;
+FSteps[3].ExpectedCompletionCount := 0;
+FSteps[3].ExpectedFinalResult := E_Result.Error;
+FSteps[3].ExpectedHookCount := 5;
+FSteps[3].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[3].ExpectedHooks[1].State := E_State.Running;
+FSteps[3].ExpectedHooks[1].Enabled := FALSE;
+FSteps[3].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[3].ExpectedHooks[2].State := E_State.Running;
+FSteps[3].ExpectedHooks[2].Enabled := FALSE;
+FSteps[3].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[3].ExpectedHooks[3].State := E_State.Running;
+FSteps[3].ExpectedHooks[3].Enabled := TRUE;
+FSteps[3].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[3].ExpectedHooks[4].State := E_State.Running;
+FSteps[3].ExpectedHooks[4].Enabled := TRUE;
+FSteps[3].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[3].ExpectedHooks[5].State := E_State.Running;
+FSteps[3].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "04 - Escalate execution to Error"}
+FSteps[4].ExpectedState := E_State.AbortingFromError;
+FSteps[4].ExpectedResult := E_Result.Error;
+FSteps[4].ExpectedReady := FALSE;
+FSteps[4].ExpectedPassedCount := 2;
+FSteps[4].ExpectedFailedCount := 0;
+FSteps[4].TestError := TRUE;
+FSteps[4].CheckFinalization := TRUE;
+FSteps[4].ExpectedFinalizationCount := 0;
+FSteps[4].ExpectedCompletionCount := 0;
+FSteps[4].ExpectedFinalResult := E_Result.Error;
+FSteps[4].ExpectedHookCount := 5;
+FSteps[4].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[4].ExpectedHooks[1].State := E_State.Running;
+FSteps[4].ExpectedHooks[1].Enabled := FALSE;
+FSteps[4].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[4].ExpectedHooks[2].State := E_State.Running;
+FSteps[4].ExpectedHooks[2].Enabled := FALSE;
+FSteps[4].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[4].ExpectedHooks[3].State := E_State.Running;
+FSteps[4].ExpectedHooks[3].Enabled := TRUE;
+FSteps[4].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[4].ExpectedHooks[4].State := E_State.AbortingFromError;
+FSteps[4].ExpectedHooks[4].Enabled := FALSE;
+FSteps[4].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[4].ExpectedHooks[5].State := E_State.AbortingFromError;
+FSteps[4].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "05 - Complete controlled Error cleanup"}
+FSteps[5].ExpectedState := E_State.Completing;
+FSteps[5].ExpectedResult := E_Result.Error;
+FSteps[5].ExpectedReady := FALSE;
+FSteps[5].ExpectedPassedCount := 2;
+FSteps[5].ExpectedFailedCount := 0;
+FSteps[5].CheckFinalization := TRUE;
+FSteps[5].ExpectedFinalizationCount := 1;
+FSteps[5].ExpectedCompletionCount := 0;
+FSteps[5].ExpectedFinalResult := E_Result.Error;
+FSteps[5].ExpectedHookCount := 5;
+FSteps[5].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[5].ExpectedHooks[1].State := E_State.AbortingFromError;
+FSteps[5].ExpectedHooks[1].Enabled := TRUE;
+FSteps[5].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[5].ExpectedHooks[2].State := E_State.Completing;
+FSteps[5].ExpectedHooks[2].Enabled := FALSE;
+FSteps[5].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[5].ExpectedHooks[3].State := E_State.Completing;
+FSteps[5].ExpectedHooks[3].Enabled := FALSE;
+FSteps[5].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[5].ExpectedHooks[4].State := E_State.Completing;
+FSteps[5].ExpectedHooks[4].Enabled := FALSE;
+FSteps[5].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[5].ExpectedHooks[5].State := E_State.Completing;
+FSteps[5].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "06 - Observe the final Completed transition"}
+FSteps[6].ExpectedState := E_State.Completed;
+FSteps[6].ExpectedResult := E_Result.Error;
+FSteps[6].ExpectedReady := FALSE;
+FSteps[6].ExpectedPassedCount := 2;
+FSteps[6].ExpectedFailedCount := 0;
+FSteps[6].CheckFinalization := TRUE;
+FSteps[6].ExpectedFinalizationCount := 1;
+FSteps[6].ExpectedCompletionCount := 1;
+FSteps[6].ExpectedFinalResult := E_Result.Error;
+FSteps[6].ExpectRuntimeHeld := TRUE;
+FSteps[6].ExpectedHookCount := 1;
+FSteps[6].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[6].ExpectedHooks[1].State := E_State.Completed;
+FSteps[6].ExpectedHooks[1].Enabled := TRUE;
+{endregion}
+
+{region "07 - Ignore processing inputs while Completed"}
+FSteps[7].ExpectedState := E_State.Completed;
+FSteps[7].ExpectedResult := E_Result.Error;
+FSteps[7].ExpectedReady := FALSE;
+FSteps[7].ExpectedPassedCount := 2;
+FSteps[7].ExpectedFailedCount := 0;
+FSteps[7].CheckFinalization := TRUE;
+FSteps[7].ExpectedFinalizationCount := 1;
+FSteps[7].ExpectedCompletionCount := 1;
+FSteps[7].ExpectedFinalResult := E_Result.Error;
+FSteps[7].ExpectRuntimeHeld := TRUE;
+FSteps[7].ExpectQuietCall := TRUE;
+FSteps[7].Ready := FALSE;
+FSteps[7].ResetError := TRUE;
+FSteps[7].AbortError := TRUE;
+FSteps[7].TestError := TRUE;
+FSteps[7].PreparationError := TRUE;
+FSteps[7].AdvancePreparation := TRUE;
+FSteps[7].FinishPreparations := TRUE;
+FSteps[7].AdvanceTest := TRUE;
+FSteps[7].FinishTests := TRUE;
+FSteps[7].AssertionCondition := FALSE;
+FSteps[7].ExpectedHookCount := 1;
+FSteps[7].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[7].ExpectedHooks[1].State := E_State.Completed;
+FSteps[7].ExpectedHooks[1].Enabled := TRUE;
+{endregion}
+
+{region "08 - Consume Start and Abort without restarting"}
+FSteps[8].ExpectedState := E_State.Completed;
+FSteps[8].ExpectedResult := E_Result.Error;
+FSteps[8].ExpectedReady := FALSE;
+FSteps[8].ExpectedPassedCount := 2;
+FSteps[8].ExpectedFailedCount := 0;
+FSteps[8].CheckFinalization := TRUE;
+FSteps[8].ExpectedFinalizationCount := 1;
+FSteps[8].ExpectedCompletionCount := 1;
+FSteps[8].ExpectedFinalResult := E_Result.Error;
+FSteps[8].ExpectRuntimeHeld := TRUE;
+FSteps[8].RequestStart := TRUE;
+FSteps[8].RequestAbort := TRUE;
+FSteps[8].ExpectedHookCount := 1;
+FSteps[8].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[8].ExpectedHooks[1].State := E_State.Completed;
+FSteps[8].ExpectedHooks[1].Enabled := TRUE;
+{endregion}
+
+{region "09 - Remain quiet after rejected terminal requests"}
+FSteps[9].ExpectedState := E_State.Completed;
+FSteps[9].ExpectedResult := E_Result.Error;
+FSteps[9].ExpectedReady := FALSE;
+FSteps[9].ExpectedPassedCount := 2;
+FSteps[9].ExpectedFailedCount := 0;
+FSteps[9].CheckFinalization := TRUE;
+FSteps[9].ExpectedFinalizationCount := 1;
+FSteps[9].ExpectedCompletionCount := 1;
+FSteps[9].ExpectedFinalResult := E_Result.Error;
+FSteps[9].ExpectRuntimeHeld := TRUE;
+FSteps[9].ExpectQuietCall := TRUE;
+FSteps[9].ExpectedHookCount := 1;
+FSteps[9].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[9].ExpectedHooks[1].State := E_State.Completed;
+FSteps[9].ExpectedHooks[1].Enabled := TRUE;
+{endregion}
+
+{region "10 - Reset clears the first result and competing requests"}
+FSteps[10].ExpectedState := E_State.Idle;
+FSteps[10].ExpectedResult := E_Result.NotEvaluated;
+FSteps[10].ExpectedReady := TRUE;
+FSteps[10].ExpectedPassedCount := 0;
+FSteps[10].ExpectedFailedCount := 0;
+FSteps[10].CheckFinalization := TRUE;
+FSteps[10].ExpectedFinalizationCount := 1;
+FSteps[10].ExpectedCompletionCount := 1;
+FSteps[10].ExpectedFinalResult := E_Result.Error;
+FSteps[10].RequestReset := TRUE;
+FSteps[10].RequestStart := TRUE;
+FSteps[10].RequestAbort := TRUE;
+FSteps[10].ExpectRuntimeCleared := TRUE;
+FSteps[10].ExpectedHookCount := 6;
+FSteps[10].ExpectedHooks[1].Hook := E_LifecycleHook.Reset;
+FSteps[10].ExpectedHooks[1].State := E_State.Reset;
+FSteps[10].ExpectedHooks[1].Enabled := TRUE;
+FSteps[10].ExpectedHooks[2].Hook := E_LifecycleHook.Abort;
+FSteps[10].ExpectedHooks[2].State := E_State.Idle;
+FSteps[10].ExpectedHooks[2].Enabled := FALSE;
+FSteps[10].ExpectedHooks[3].Hook := E_LifecycleHook.Preparations;
+FSteps[10].ExpectedHooks[3].State := E_State.Idle;
+FSteps[10].ExpectedHooks[3].Enabled := FALSE;
+FSteps[10].ExpectedHooks[4].Hook := E_LifecycleHook.Tests;
+FSteps[10].ExpectedHooks[4].State := E_State.Idle;
+FSteps[10].ExpectedHooks[4].Enabled := FALSE;
+FSteps[10].ExpectedHooks[5].Hook := E_LifecycleHook.Assertions;
+FSteps[10].ExpectedHooks[5].State := E_State.Idle;
+FSteps[10].ExpectedHooks[5].Enabled := FALSE;
+FSteps[10].ExpectedHooks[6].Hook := E_LifecycleHook.Aggregate;
+FSteps[10].ExpectedHooks[6].State := E_State.Idle;
+FSteps[10].ExpectedHooks[6].Enabled := TRUE;
+{endregion}
+
+{region "11 - Do not retain a Start from the Reset call"}
+FSteps[11].ExpectedState := E_State.Idle;
+FSteps[11].ExpectedResult := E_Result.NotEvaluated;
+FSteps[11].ExpectedReady := TRUE;
+FSteps[11].ExpectedPassedCount := 0;
+FSteps[11].ExpectedFailedCount := 0;
+FSteps[11].CheckFinalization := TRUE;
+FSteps[11].ExpectedFinalizationCount := 1;
+FSteps[11].ExpectedCompletionCount := 1;
+FSteps[11].ExpectedFinalResult := E_Result.Error;
+FSteps[11].ExpectRuntimeCleared := TRUE;
+FSteps[11].ExpectQuietCall := TRUE;
+FSteps[11].ExpectedHookCount := 5;
+FSteps[11].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[11].ExpectedHooks[1].State := E_State.Idle;
+FSteps[11].ExpectedHooks[1].Enabled := FALSE;
+FSteps[11].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[11].ExpectedHooks[2].State := E_State.Idle;
+FSteps[11].ExpectedHooks[2].Enabled := FALSE;
+FSteps[11].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[11].ExpectedHooks[3].State := E_State.Idle;
+FSteps[11].ExpectedHooks[3].Enabled := FALSE;
+FSteps[11].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[11].ExpectedHooks[4].State := E_State.Idle;
+FSteps[11].ExpectedHooks[4].Enabled := FALSE;
+FSteps[11].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[11].ExpectedHooks[5].State := E_State.Idle;
+FSteps[11].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "12 - Start a fresh second execution"}
+FSteps[12].ExpectedState := E_State.Starting;
+FSteps[12].ExpectedResult := E_Result.NotEvaluated;
+FSteps[12].ExpectedReady := FALSE;
+FSteps[12].ExpectedPassedCount := 0;
+FSteps[12].ExpectedFailedCount := 0;
+FSteps[12].CheckFinalization := TRUE;
+FSteps[12].ExpectedFinalizationCount := 1;
+FSteps[12].ExpectedCompletionCount := 1;
+FSteps[12].ExpectedFinalResult := E_Result.Error;
+FSteps[12].RequestStart := TRUE;
+FSteps[12].ExpectedHookCount := 5;
+FSteps[12].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[12].ExpectedHooks[1].State := E_State.Starting;
+FSteps[12].ExpectedHooks[1].Enabled := FALSE;
+FSteps[12].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[12].ExpectedHooks[2].State := E_State.Starting;
+FSteps[12].ExpectedHooks[2].Enabled := FALSE;
+FSteps[12].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[12].ExpectedHooks[3].State := E_State.Starting;
+FSteps[12].ExpectedHooks[3].Enabled := FALSE;
+FSteps[12].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[12].ExpectedHooks[4].State := E_State.Starting;
+FSteps[12].ExpectedHooks[4].Enabled := FALSE;
+FSteps[12].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[12].ExpectedHooks[5].State := E_State.Starting;
+FSteps[12].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "13 - Both Assertions pass after Reset"}
+FSteps[13].ExpectedState := E_State.Running;
+FSteps[13].ExpectedResult := E_Result.NotEvaluated;
+FSteps[13].ExpectedReady := FALSE;
+FSteps[13].ExpectedPassedCount := 2;
+FSteps[13].ExpectedFailedCount := 0;
+FSteps[13].CheckFinalization := TRUE;
+FSteps[13].ExpectedFinalizationCount := 1;
+FSteps[13].ExpectedCompletionCount := 1;
+FSteps[13].ExpectedFinalResult := E_Result.Error;
+FSteps[13].ExpectedHookCount := 5;
+FSteps[13].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[13].ExpectedHooks[1].State := E_State.Running;
+FSteps[13].ExpectedHooks[1].Enabled := FALSE;
+FSteps[13].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[13].ExpectedHooks[2].State := E_State.Running;
+FSteps[13].ExpectedHooks[2].Enabled := FALSE;
+FSteps[13].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[13].ExpectedHooks[3].State := E_State.Running;
+FSteps[13].ExpectedHooks[3].Enabled := TRUE;
+FSteps[13].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[13].ExpectedHooks[4].State := E_State.Running;
+FSteps[13].ExpectedHooks[4].Enabled := TRUE;
+FSteps[13].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[13].ExpectedHooks[5].State := E_State.Running;
+FSteps[13].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "14 - Publish a new successful finalization"}
+FSteps[14].ExpectedState := E_State.Completing;
+FSteps[14].ExpectedResult := E_Result.Passed;
+FSteps[14].ExpectedReady := FALSE;
+FSteps[14].ExpectedPassedCount := 2;
+FSteps[14].ExpectedFailedCount := 0;
+FSteps[14].FinishTests := TRUE;
+FSteps[14].CheckFinalization := TRUE;
+FSteps[14].ExpectedFinalizationCount := 2;
+FSteps[14].ExpectedCompletionCount := 1;
+FSteps[14].ExpectedFinalResult := E_Result.Passed;
+FSteps[14].ExpectedHookCount := 5;
+FSteps[14].ExpectedHooks[1].Hook := E_LifecycleHook.Abort;
+FSteps[14].ExpectedHooks[1].State := E_State.Running;
+FSteps[14].ExpectedHooks[1].Enabled := FALSE;
+FSteps[14].ExpectedHooks[2].Hook := E_LifecycleHook.Preparations;
+FSteps[14].ExpectedHooks[2].State := E_State.Running;
+FSteps[14].ExpectedHooks[2].Enabled := FALSE;
+FSteps[14].ExpectedHooks[3].Hook := E_LifecycleHook.Tests;
+FSteps[14].ExpectedHooks[3].State := E_State.Running;
+FSteps[14].ExpectedHooks[3].Enabled := TRUE;
+FSteps[14].ExpectedHooks[4].Hook := E_LifecycleHook.Assertions;
+FSteps[14].ExpectedHooks[4].State := E_State.Completing;
+FSteps[14].ExpectedHooks[4].Enabled := FALSE;
+FSteps[14].ExpectedHooks[5].Hook := E_LifecycleHook.Aggregate;
+FSteps[14].ExpectedHooks[5].State := E_State.Completing;
+FSteps[14].ExpectedHooks[5].Enabled := TRUE;
+{endregion}
+
+{region "15 - Complete the second execution"}
+FSteps[15].ExpectedState := E_State.Completed;
+FSteps[15].ExpectedResult := E_Result.Passed;
+FSteps[15].ExpectedReady := FALSE;
+FSteps[15].ExpectedPassedCount := 2;
+FSteps[15].ExpectedFailedCount := 0;
+FSteps[15].ExpectRuntimeHeld := TRUE;
+FSteps[15].CheckFinalization := TRUE;
+FSteps[15].ExpectedFinalizationCount := 2;
+FSteps[15].ExpectedCompletionCount := 2;
+FSteps[15].ExpectedFinalResult := E_Result.Passed;
+FSteps[15].ExpectedHookCount := 1;
+FSteps[15].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[15].ExpectedHooks[1].State := E_State.Completed;
+FSteps[15].ExpectedHooks[1].Enabled := TRUE;
+{endregion}
+
+{region "16 - Do not repeat second-run finalization"}
+FSteps[16].ExpectedState := E_State.Completed;
+FSteps[16].ExpectedResult := E_Result.Passed;
+FSteps[16].ExpectedReady := FALSE;
+FSteps[16].ExpectedPassedCount := 2;
+FSteps[16].ExpectedFailedCount := 0;
+FSteps[16].ExpectQuietCall := TRUE;
+FSteps[16].ExpectRuntimeHeld := TRUE;
+FSteps[16].CheckFinalization := TRUE;
+FSteps[16].ExpectedFinalizationCount := 2;
+FSteps[16].ExpectedCompletionCount := 2;
+FSteps[16].ExpectedFinalResult := E_Result.Passed;
+FSteps[16].ExpectedHookCount := 1;
+FSteps[16].ExpectedHooks[1].Hook := E_LifecycleHook.Aggregate;
+FSteps[16].ExpectedHooks[1].State := E_State.Completed;
+FSteps[16].ExpectedHooks[1].Enabled := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

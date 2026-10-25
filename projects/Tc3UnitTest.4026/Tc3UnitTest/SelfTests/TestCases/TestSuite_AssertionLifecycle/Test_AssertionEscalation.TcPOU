@@ -1,0 +1,376 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionEscalation" Id="{55f162ac-e6fe-41c9-9a8e-57d2a127f1a6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks monotonic Assertion results and transition-only event publication.</summary>
+<description>
+A controlled concrete Assert dispatches each selected protected finding method even
+when the result is already Failed or Error. No subject guard can mask a broken base
+suppression rule. The first epoch checks all attempted downgrades; two reset epochs
+check direct NotEvaluated-to-Failed and NotEvaluated-to-Error. Each step checks the
+held result and exact event count. The final check inspects all four finding payloads.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionEscalation EXTENDS TestCaseBase
+VAR
+    FSubject : AssertionLifecycleSubject;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : UINT;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FFinding : E_Result;
+    FExpectedResult : E_Result;
+    FExpectedEvents : UDINT;
+    FMessage : STRING(GVL_Constants.MessageLength);
+END_VAR
+VAR
+    FResultPriority : AssertTrue;
+    FResultPriorityMatches : BOOL;
+    FFindingCount : AssertTrue;
+    FFindingCountMatches : BOOL;
+    FFindingPayload : AssertTrue;
+    FFindingPayloadMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 16;
+    InitializeSubject : UINT := 0;
+    InitialReset : UINT := 1;
+    PassInitially : UINT := 2;
+    RepeatPass : UINT := 3;
+    FailAfterPass : UINT := 4;
+    RepeatFail : UINT := 5;
+    PassAfterFail : UINT := 6;
+    ErrorAfterFail : UINT := 7;
+    RepeatError : UINT := 8;
+    FailAfterError : UINT := 9;
+    PassAfterError : UINT := 10;
+    ResetForDirectFail : UINT := 11;
+    DirectFail : UINT := 12;
+    ResetForDirectError : UINT := 13;
+    DirectError : UINT := 14;
+    RepeatDirectError : UINT := 15;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{0b155898-ea46-466a-9472-af35991324b6}" />
+    <Method Name="AggregateResults" Id="{5f25c3e6-2e01-43dd-a6b9-f36b4ea9d56c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FResultPriority);
+Aggregator.AddProvider(Provider := FFindingCount);
+Aggregator.AddProvider(Provider := FFindingPayload);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindingPayloads" Id="{df5a9e51-1bd2-48d3-82fd-c0db82815bdc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the four retained findings against fixed expected context and classifications.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindingPayloads
+VAR
+    Index : UINT;
+    ExpectedResult : E_Result;
+    ExpectedSeverity : E_EventSeverity;
+    ExpectedMessage : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFindingPayloadMatches := TRUE;
+FOR Index := 1 TO 4 DO
+    CASE Index OF
+        1, 3:
+            ExpectedResult := E_Result.Failed;
+            ExpectedSeverity := E_EventSeverity.Info;
+            ExpectedMessage := 'Controlled Failed.';
+        2, 4:
+            ExpectedResult := E_Result.Error;
+            ExpectedSeverity := E_EventSeverity.Error;
+            ExpectedMessage := 'Controlled Error.';
+    ELSE
+        FFindingPayloadMatches := FALSE;
+        RETURN;
+    END_CASE;
+    FFindingPayloadMatches := FFindingPayloadMatches
+        AND (FEvents[Index].SequenceId = Index)
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+        AND (FEvents[Index].EventType = E_EventType.Result)
+        AND (FEvents[Index].Severity = ExpectedSeverity)
+        AND (FEvents[Index].Name = CONCAT(Name, '.Subject'))
+        AND (FEvents[Index].ResourceName = 'ObservedResource')
+        AND (FEvents[Index].State = E_State.Running)
+        AND (FEvents[Index].Result = ExpectedResult)
+        AND (FEvents[Index].Message = ExpectedMessage);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{30608942-c2b6-4774-b3cd-56d08336f22a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FResultPriority.Initialize(Parent := THIS^,
+    AssertionName := 'ResultPriority');
+FFindingCount.Initialize(Parent := THIS^,
+    AssertionName := 'FindingCount');
+FFindingPayload.Initialize(Parent := THIS^,
+    AssertionName := 'FindingPayload');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSubject.BindPublisher(Publisher := FCapture);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeEscalationSubject" Id="{52d51f59-58f4-4f22-b5b5-16028ae4ab48}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Starts a fresh subject run without clearing evidence between its reset epochs.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeEscalationSubject]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    Error(Message := 'Assertion escalation capture setup failed.');
+    RETURN;
+END_IF;
+IF NOT FSubject.Initialize(Parent := THIS^,
+    AssertionName := 'Subject',
+    ResourceName := 'ObservedResource') THEN
+    Error(Message := 'Assertion escalation subject initialization failed.');
+    RETURN;
+END_IF;
+FStep := InitialReset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{b82acaa3-0bc7-4cad-a1c2-40b12f5ea28f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{d3585c8e-df27-4820-850a-f5af453036fe}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FResultPriority(Enable := Evaluate,
+    State := State,
+    IN := FResultPriorityMatches);
+FFindingCount(Enable := Evaluate,
+    State := State,
+    IN := FFindingCountMatches);
+FFindingPayload(Enable := Evaluate,
+    State := State,
+    IN := FFindingPayloadMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{c87ded00-b8b9-43e3-9fb7-5a6e16c5dcde}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{115be4c8-be1a-4353-b761-570bb042fb27}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := InitializeSubject;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FResultPriority.Reset();
+FResultPriorityMatches := TRUE;
+FFindingCount.Reset();
+FFindingCountMatches := TRUE;
+FFindingPayload.Reset();
+FFindingPayloadMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{790910dc-f0e5-44ad-992a-ca494437e939}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = RepeatDirectError THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+IF FStep = InitializeSubject THEN
+    InitializeEscalationSubject();
+    RETURN;
+END_IF;
+SelectFinding();
+IF FFinding = E_Result.Error THEN
+    FMessage := 'Controlled Error.';
+ELSE
+    FMessage := 'Controlled Failed.';
+END_IF;
+FSubject(Enable := TRUE,
+    State := E_State.Running,
+    Finding := FFinding,
+    FindingMessage := FMessage);
+FResultPriorityMatches := FSubject.Result = FExpectedResult;
+FFindingCountMatches := FCaptureStatus.SequenceId = FExpectedEvents;
+FCaptureIntegrityMatches := FCaptureStatus.LostEventCount = 0;
+IF FStep = RepeatDirectError THEN
+    CheckFindingPayloads();
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectFinding" Id="{9d06ba46-0bba-4140-8cf8-a8178d5fbe23}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects explicit finding attempts, held-result expectations and exact event totals.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectFinding]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    InitialReset:
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.NotEvaluated;
+        FExpectedEvents := 0;
+    PassInitially:
+        FFinding := E_Result.Passed;
+        FExpectedResult := E_Result.Passed;
+        FExpectedEvents := 0;
+    RepeatPass:
+        FFinding := E_Result.Passed;
+        FExpectedResult := E_Result.Passed;
+        FExpectedEvents := 0;
+    FailAfterPass:
+        FFinding := E_Result.Failed;
+        FExpectedResult := E_Result.Failed;
+        FExpectedEvents := 1;
+    RepeatFail:
+        FFinding := E_Result.Failed;
+        FExpectedResult := E_Result.Failed;
+        FExpectedEvents := 1;
+    PassAfterFail:
+        FFinding := E_Result.Passed;
+        FExpectedResult := E_Result.Failed;
+        FExpectedEvents := 1;
+    ErrorAfterFail:
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 2;
+    RepeatError:
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 2;
+    FailAfterError:
+        FFinding := E_Result.Failed;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 2;
+    PassAfterError:
+        FFinding := E_Result.Passed;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 2;
+    ResetForDirectFail:
+        FSubject.Reset();
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.NotEvaluated;
+        FExpectedEvents := 2;
+    DirectFail:
+        FFinding := E_Result.Failed;
+        FExpectedResult := E_Result.Failed;
+        FExpectedEvents := 3;
+    ResetForDirectError:
+        FSubject.Reset();
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.NotEvaluated;
+        FExpectedEvents := 3;
+    DirectError:
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 4;
+    RepeatDirectError:
+        FFinding := E_Result.Error;
+        FExpectedResult := E_Result.Error;
+        FExpectedEvents := 4;
+ELSE
+    Error(Message := 'Unknown Assertion escalation step.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,143 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorResetContinuesAfterError" Id="{4e7f0823-4b18-4c06-837b-1a8c23912022}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reset ignores unprocessed stale results, retains processed child errors and still attempts every child.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorResetContinuesAfterError EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{eef831e5-4de1-4880-8af2-f66de1644b02}" />
+    <Method Name="ConfigureScenario" Id="{209b55dd-6a5c-4574-a03c-a322d381fcef}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 8;
+
+{region "01 - Establish previous terminal results through child calls"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].Children[1].State := E_State.Completed;
+FSteps[1].Children[1].Result := E_Result.Passed;
+FSteps[1].Children[1].Ready := FALSE;
+FSteps[1].Children[1].Complete := TRUE;
+FSteps[1].Children[2].State := E_State.Completed;
+FSteps[1].Children[2].Result := E_Result.Error;
+FSteps[1].Children[2].Ready := FALSE;
+FSteps[1].Children[2].Complete := TRUE;
+FSteps[1].Children[3].State := E_State.Completed;
+FSteps[1].Children[3].Result := E_Result.Passed;
+FSteps[1].Children[3].Ready := FALSE;
+FSteps[1].Children[3].Complete := TRUE;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Reset first; ignore old Error in not-yet-reset second child"}
+FSteps[2].Task := E_OrchestratorTask.Reset;
+FSteps[2].Children[1].State := E_State.Completed;
+FSteps[2].Children[1].Result := E_Result.Error;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[1].Complete := TRUE;
+FSteps[2].Children[2].State := E_State.Completed;
+FSteps[2].Children[2].Result := E_Result.Error;
+FSteps[2].Children[2].Ready := FALSE;
+FSteps[2].Children[2].Complete := TRUE;
+FSteps[2].Children[3].State := E_State.Completed;
+FSteps[2].Children[3].Result := E_Result.Passed;
+FSteps[2].Children[3].Ready := FALSE;
+FSteps[2].Children[3].Complete := TRUE;
+FSteps[2].ExpectedResetChild := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "03 - First Reset failed; still dispatch second"}
+FSteps[3].Task := E_OrchestratorTask.Reset;
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Result := E_Result.Error;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[2].State := E_State.Reset;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].Children[3].State := E_State.Completed;
+FSteps[3].Children[3].Result := E_Result.Passed;
+FSteps[3].Children[3].Ready := FALSE;
+FSteps[3].Children[3].Complete := TRUE;
+FSteps[3].ExpectedResetChild := 2;
+FSteps[3].ExpectedDiagnosticCount := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "04 - Keep failure while dispatching third"}
+FSteps[4].Task := E_OrchestratorTask.Reset;
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Result := E_Result.Error;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[3].State := E_State.Reset;
+FSteps[4].Children[3].Ready := FALSE;
+FSteps[4].ExpectedResetChild := 3;
+FSteps[4].ExpectedDiagnosticCount := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].ExpectedReservations[2] := 1;
+FSteps[4].ExpectedReservations[3] := 1;
+FSteps[4].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "05 - Release successful second Reset"}
+FSteps[5].Task := E_OrchestratorTask.Reset;
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Result := E_Result.Error;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].ExpectedDiagnosticCount := 1;
+FSteps[5].ExpectedReservations[1] := 1;
+FSteps[5].ExpectedReservations[3] := 1;
+FSteps[5].ExpectedReleasedEntries[2] := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "06 - Failed terminal child counts as finished, not ready"}
+FSteps[6].Task := E_OrchestratorTask.Reset;
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Result := E_Result.Error;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].ExpectedDiagnosticCount := 1;
+FSteps[6].ExpectedReservations[1] := 1;
+FSteps[6].ExpectedReleasedEntries[3] := 1;
+FSteps[6].ExpectedResetFinished := TRUE;
+FSteps[6].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "07 - Idle reconciles failed terminal child reservation"}
+FSteps[7].Task := E_OrchestratorTask.Idle;
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Result := E_Result.Error;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].ExpectedDiagnosticCount := 1;
+FSteps[7].ExpectedReleasedEntries[1] := 1;
+FSteps[7].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "08 - No additional diagnostic or dispatch in Idle"}
+FSteps[8].Task := E_OrchestratorTask.Idle;
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Result := E_Result.Error;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].ExpectedDiagnosticCount := 1;
+FSteps[8].ExpectedResult := E_Result.Error;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

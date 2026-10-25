@@ -1,0 +1,103 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotInRange_Real" Id="{8c6ece8b-f605-4a9d-b47e-3388bab0d10e}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether the REAL value is outside the inclusive range.</summary>
+<description>
+
+Minimum &gt; Maximum reports Error during active evaluation; equal bounds are
+valid.
+
+All checked operands and bounds must be finite; NaN or either infinity reports Error
+during active evaluation.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotInRange_Real EXTENDS AssertionBase
+VAR_INPUT
+    IN : REAL; //! Actual value checked or observed by this Assertion.
+    Minimum : REAL; //! Inclusive lower bound of the comparison; for a range, must not exceed Maximum.
+    Maximum : REAL; //! Inclusive upper bound of the comparison; for a range, must not be below Minimum.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b207c6d7-6cbb-4107-8c53-c975f341e0e2}" />
+    <Method Name="Assert" Id="{e6448307-27b2-4754-b17f-523b811b4fa0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check whether the REAL value is outside the inclusive range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := IN) THEN
+    Error(Message := 'Assertion error: IN must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := Minimum) THEN
+    Error(Message := 'Assertion error: Minimum must be finite.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.RealIsFinite(x := Maximum) THEN
+    Error(Message := 'Assertion error: Maximum must be finite.');
+    RETURN;
+END_IF;
+
+IF Minimum > Maximum THEN
+    MinimumText := CreateAssertionTextValue_Real(Value := Minimum);
+    MaximumText := CreateAssertionTextValue_Real(Value := Maximum);
+    Message := CONCAT('Assertion error: minimum exceeds maximum. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (IN >= Minimum) AND (IN <= Maximum) THEN
+    MinimumText := CreateAssertionTextValue_Real(Value := Minimum);
+    MaximumText := CreateAssertionTextValue_Real(Value := Maximum);
+    ActualText := CreateAssertionTextValue_Real(Value := IN);
+    Message := CONCAT('Assertion failed: value is inside forbidden range. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNotEqual_LTOD" Id="{c1690c10-ccc5-49b9-b258-96fd87b265e1}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks inequality with the forbidden LTOD value.</summary>
+<description>
+
+A value at or beyond 24 hours reports Error before comparison or baseline capture.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNotEqual_LTOD EXTENDS AssertionBase
+VAR_INPUT
+    IN : LTOD; //! Actual value checked or observed by this Assertion.
+    Expected : LTOD; //! Value that must differ from IN under this Assertion's comparison rules.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{7ca9e644-a987-4b78-bcd5-712b519f991f}" />
+    <Method Name="Assert" Id="{90928016-7674-417c-b50c-7472e7e5b01f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_LTOD(Value := IN) THEN
+    Error(Message := 'Assertion error: IN is outside the valid LTOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF NOT IsTimeOfDayValid_LTOD(Value := Expected) THEN
+    Error(Message := 'Assertion error: Expected is outside the valid LTOD range (less than 24 hours).');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN = Expected THEN
+    ExpectedText := LTOD_TO_STRING(Expected);
+    ActualText := LTOD_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: values are equal but should differ. NotExpected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

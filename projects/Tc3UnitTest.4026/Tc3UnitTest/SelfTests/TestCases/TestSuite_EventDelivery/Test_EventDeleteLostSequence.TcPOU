@@ -1,0 +1,338 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventDeleteLostSequence" Id="{6ff43698-25b5-4e8c-99ae-755328f4699e}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies deletion progress stops at retained events when the requested sequence was lost.</summary>
+<description>
+Four primary events plus the capacity diagnostic fill five usable slots. Publications 6
+and 7 fail, creating a real sequence gap. Request 6 exhausts the retained prefix at 5 and
+appends diagnostic 8. Request 7 must leave that newer head intact and append diagnostic 9.
+No sequence, FIFO index or private subject field is modified to arrange these cases.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventDeleteLostSequence EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FLostTargets : AssertTrue;
+    FLostTargetsMatches : BOOL;
+    FActualProgress : AssertTrue;
+    FActualProgressMatches : BOOL;
+    FExhaustionDiagnostic : AssertTrue;
+    FExhaustionDiagnosticMatches : BOOL;
+    FNewerHeadPreserved : AssertTrue;
+    FNewerHeadPreservedMatches : BOOL;
+    FGapDiagnostic : AssertTrue;
+    FGapDiagnosticMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500003-0050-4050-8050-00000000001e}" />
+    <Method Name="AggregateResults" Id="{00500003-0050-4050-8050-000000000021}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FLostTargets);
+Aggregator.AddProvider(Provider := FActualProgress);
+Aggregator.AddProvider(Provider := FExhaustionDiagnostic);
+Aggregator.AddProvider(Provider := FNewerHeadPreserved);
+Aggregator.AddProvider(Provider := FGapDiagnostic);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500003-0050-4050-8050-000000000020}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FLostTargets.IsInitialized
+    AND FActualProgress.IsInitialized
+    AND FExhaustionDiagnostic.IsInitialized
+    AND FNewerHeadPreserved.IsInitialized
+    AND FGapDiagnostic.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500003-0050-4050-8050-00000000001f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FLostTargets.Initialize(Parent := THIS^,
+    AssertionName := 'LostTargets');
+FActualProgress.Initialize(Parent := THIS^,
+    AssertionName := 'ActualProgress');
+FExhaustionDiagnostic.Initialize(Parent := THIS^,
+    AssertionName := 'ExhaustionDiagnostic');
+FNewerHeadPreserved.Initialize(Parent := THIS^,
+    AssertionName := 'NewerHeadPreserved');
+FGapDiagnostic.Initialize(Parent := THIS^,
+    AssertionName := 'GapDiagnostic');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CreateLostTargets" Id="{00500003-0050-4050-8050-000000000028}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fills the buffer and verifies that sequences 6 and 7 were assigned but not retained.</summary>
+*)
+{endregion}
+METHOD PRIVATE CreateLostTargets
+VAR
+    Index : UINT;
+    WriteResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FLostTargetsMatches := TRUE;
+FOR Index := 1 TO 4 DO
+    WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalGap',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UINT_TO_STRING(Index)));
+    FLostTargetsMatches := FLostTargetsMatches AND (WriteResult = UINT_TO_INT(Index));
+END_FOR;
+FOR Index := 6 TO 7 DO
+    WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'Lost',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UINT_TO_STRING(Index)));
+    FLostTargetsMatches := FLostTargetsMatches AND (WriteResult = TO_INT(E_FifoResult.NoTransfer));
+END_FOR;
+FLostTargetsMatches := FLostTargetsMatches AND FFifo.BufferFull
+    AND (FFifo.ElementCount = 5) AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = 6)
+    AND (FBufferStatus.SequenceId = 7) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 2);
+FOR Index := 1 TO 5 DO
+    FLostTargetsMatches := FLostTargetsMatches AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index));
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DeleteBeforeNewerHead" Id="{00500003-0050-4050-8050-00000000002a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>A lost target below the current head must not delete that newer event or advance the watermark.</summary>
+*)
+{endregion}
+METHOD PRIVATE DeleteBeforeNewerHead
+VAR
+    Request : UDINT;
+    HeadBeforeRequest : ST_Event;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[HeadBeforeRequest := FEvents[6];
+Request := 7;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FNewerHeadPreservedMatches := (Request = 0) AND (FBufferStatus.DeletedSequenceId = 5)
+    AND (FBufferStatus.LostEventCount = 2)
+    AND (FFifo.IndexOut = 6) AND (FFifo.IndexIn = 2) AND (FFifo.ElementCount = 2)
+    AND (FEvents[6].SequenceId = 8)
+    AND (FEvents[6].SequenceId = HeadBeforeRequest.SequenceId)
+    AND (FEvents[6].Timestamp = HeadBeforeRequest.Timestamp)
+    AND (FEvents[6].OwnerScope = HeadBeforeRequest.OwnerScope)
+    AND (FEvents[6].EventType = HeadBeforeRequest.EventType)
+    AND (FEvents[6].Severity = HeadBeforeRequest.Severity)
+    AND (FEvents[6].Name = HeadBeforeRequest.Name)
+    AND (FEvents[6].ResourceName = HeadBeforeRequest.ResourceName)
+    AND (FEvents[6].State = HeadBeforeRequest.State)
+    AND (FEvents[6].Result = HeadBeforeRequest.Result)
+    AND (FEvents[6].Message = HeadBeforeRequest.Message);
+FGapDiagnosticMatches := (FBufferStatus.SequenceId = 9)
+    AND (FEvents[1].SequenceId = 9) AND (FEvents[1].OwnerScope = E_OwnerScope.Framework)
+    AND (FEvents[1].EventType = E_EventType.Framework)
+    AND (FEvents[1].Severity = E_EventSeverity.Warning) AND (FEvents[1].Name = 'EventBuffer');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="DeleteBeyondRetainedTail" Id="{00500003-0050-4050-8050-000000000029}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Deletion exhausts at sequence 5; the newly appended diagnostic is not part of that prefix.</summary>
+*)
+{endregion}
+METHOD PRIVATE DeleteBeyondRetainedTail
+VAR
+    Request : UDINT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Request := 6;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FActualProgressMatches := (Request = 0) AND (FBufferStatus.DeletedSequenceId = 5)
+    AND (FBufferStatus.LostEventCount = 2);
+FOR Index := 1 TO 5 DO
+    FActualProgressMatches := FActualProgressMatches AND (FEvents[Index].SequenceId = 0)
+        AND (FEvents[Index].Timestamp = 0) AND (FEvents[Index].Name = '') AND (FEvents[Index].Message = '');
+END_FOR;
+FExhaustionDiagnosticMatches := (FBufferStatus.SequenceId = 8)
+    AND NOT FFifo.BufferEmpty AND (FFifo.ElementCount = 1)
+    AND (FFifo.IndexOut = 6) AND (FFifo.IndexIn = 1)
+    AND (FEvents[6].SequenceId = 8) AND (FEvents[6].OwnerScope = E_OwnerScope.Framework)
+    AND (FEvents[6].EventType = E_EventType.Framework)
+    AND (FEvents[6].Severity = E_EventSeverity.Warning) AND (FEvents[6].Name = 'EventBuffer');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500003-0050-4050-8050-000000000027}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Creates two lost targets through overflow, then exercises exhaustion and a newer FIFO head.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+CreateLostTargets();
+DeleteBeyondRetainedTail();
+DeleteBeforeNewerHead();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500003-0050-4050-8050-000000000023}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500003-0050-4050-8050-000000000026}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FLostTargets(Enable := Evaluate,
+    State := State,
+    IN := FLostTargetsMatches);
+FActualProgress(Enable := Evaluate,
+    State := State,
+    IN := FActualProgressMatches);
+FExhaustionDiagnostic(Enable := Evaluate,
+    State := State,
+    IN := FExhaustionDiagnosticMatches);
+FNewerHeadPreserved(Enable := Evaluate,
+    State := State,
+    IN := FNewerHeadPreservedMatches);
+FGapDiagnostic(Enable := Evaluate,
+    State := State,
+    IN := FGapDiagnosticMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500003-0050-4050-8050-000000000024}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500003-0050-4050-8050-000000000022}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FLostTargets.Reset();
+FLostTargetsMatches := FALSE;
+FActualProgress.Reset();
+FActualProgressMatches := FALSE;
+FExhaustionDiagnostic.Reset();
+FExhaustionDiagnosticMatches := FALSE;
+FNewerHeadPreserved.Reset();
+FNewerHeadPreservedMatches := FALSE;
+FGapDiagnostic.Reset();
+FGapDiagnosticMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500003-0050-4050-8050-000000000025}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

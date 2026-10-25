@@ -1,0 +1,143 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayContainsArray_LInt" Id="{043488b7-cc95-4146-aeaa-e5a7c84b2899}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Searches the selected IN range for the complete contiguous Expected pattern.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+The complete Expected pattern must be nonempty and fit the selected IN range; an
+oversized pattern reports Error, not a missing-match result.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayContainsArray_LInt EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of searched elements, from 1 through 255.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF LINT; //! Read-only search data; keep stable during the call.
+    Expected : ARRAY[*] OF LINT; //! Read-only expected sequence starting at its own lower bound; must fit the selected actual range.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3537da1b-0e28-4986-b176-85d27bc48438}" />
+    <Method Name="Assert" Id="{d3a1996f-c0af-4ea4-9790-71739bafd2fa}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration before searching the selected range.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ExpectedLowerIndex : DINT;
+    ExpectedUpperIndex : DINT;
+    ExpectedLength : LINT;
+    ExpectedIndex : DINT;
+    CandidateOffset : LINT;
+    PatternFound : BOOL;
+    PatternMatches : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+
+ExpectedLowerIndex := LOWER_BOUND(Expected, 1);
+ExpectedUpperIndex := UPPER_BOUND(Expected, 1);
+ExpectedLength := DINT_TO_LINT(ExpectedUpperIndex) - DINT_TO_LINT(ExpectedLowerIndex) + 1;
+
+IF (Length = 0)
+    OR (ExpectedLength <= 0) OR (ExpectedLength > USINT_TO_LINT(Length))
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range or pattern is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, ', ExpectedLength = ');
+    Message := CONCAT(Message, LINT_TO_STRING(ExpectedLength));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+PatternFound := FALSE;
+FOR CandidateOffset := 0 TO USINT_TO_LINT(Length) - ExpectedLength DO
+    PatternMatches := TRUE;
+    FOR Offset := 0 TO ExpectedLength - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset + Offset);
+        ExpectedIndex := LINT_TO_DINT(DINT_TO_LINT(ExpectedLowerIndex) + Offset);
+        IF IN[InIndex] <> Expected[ExpectedIndex] THEN
+            PatternMatches := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+
+    IF PatternMatches THEN
+        PatternFound := TRUE;
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF NOT PatternFound THEN
+    Message := CONCAT('Assertion failed: array range does not contain Expected pattern. ExpectedRange = [',
+        DINT_TO_STRING(ExpectedLowerIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, DINT_TO_STRING(ExpectedUpperIndex));
+    Message := CONCAT(Message, '], ActualRange = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ']');
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

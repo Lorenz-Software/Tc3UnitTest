@@ -1,0 +1,94 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="SuiteLifecycleChildDouble" Id="{55f9439a-91d1-4fdd-bc60-cdbf61ddb7f6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adds the typed Test Case status to the existing scripted child boundary; requests remain observation-only.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK SuiteLifecycleChildDouble EXTENDS OrchestrationChildDouble IMPLEMENTS I_TestCase
+VAR
+    FReleaseSucceeds : BOOL := TRUE;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ObservationInput := ObservationInput);]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2e342161-ed4d-4818-bfe9-e76be1dee73b}" />
+    <Method Name="FreeReservedEvents" Id="{e6fad80e-2636-47b2-8499-fdf6850c3290}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a scripted rejection without release; successful calls use the original double's release behavior.</summary>
+*)
+{endregion}
+METHOD PUBLIC FreeReservedEvents : BOOL //! FALSE for scripted rejection; otherwise the original double release result.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FReleaseSucceeds THEN
+    FCalls.FreeCount := FCalls.FreeCount + 1;
+    FreeReservedEvents := FALSE;
+    RETURN;
+END_IF;
+FreeReservedEvents := SUPER^.FreeReservedEvents();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetReleaseResponse" Id="{545af9e2-2b7d-4700-9dc5-79cf0e63c176}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controls release success without altering the marker or call observations.</summary>
+*)
+{endregion}
+METHOD PUBLIC SetReleaseResponse
+VAR_INPUT
+    Succeeds : BOOL := TRUE; //! FALSE scripts release rejection without clearing the local marker; TRUE delegates normal release.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReleaseSucceeds := Succeeds;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Status" Id="{e5855250-4da5-4886-ad9f-666819c45928}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Projects the scripted child observation into the typed Suite-facing status; no lifecycle is copied.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Status : ST_TestCaseStatus //! Projects the scripted child observation into the typed Suite-facing status; no lifecycle is copied.]]></Declaration>
+      <Get Name="Get" Id="{2fb7c917-b480-4711-9ffa-806306d90282}">
+        <Declaration><![CDATA[VAR
+    Snapshot : ST_TestCaseStatus;
+    View : ST_OrchestrationObservation;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[View := Observation;
+Snapshot.Execution.State := View.State;
+Snapshot.Execution.Result := View.Result;
+Snapshot.Execution.Ready := View.Ready;
+Snapshot.Execution.Completed := View.Complete;
+Snapshot.Execution.Error := View.Result = E_Result.Error;
+CASE View.State OF
+    E_State.Uninitialized:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.NotReady;
+        Snapshot.Execution.Uninitialized := TRUE;
+    E_State.Reset:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Reset;
+    E_State.Idle:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Idle;
+    E_State.Starting:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Starting;
+    E_State.Running:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Running;
+        Snapshot.Execution.Running := TRUE;
+    E_State.Completing:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Completing;
+    E_State.Completed:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Completed;
+    E_State.Aborting, E_State.AbortingFromError:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Aborting;
+ELSE
+    Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Error;
+END_CASE;
+Status := Snapshot;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

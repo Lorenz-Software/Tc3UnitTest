@@ -1,0 +1,153 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="ActiveResetBufferProbe" Id="{57617d90-5ee8-4089-a297-0c7387eb986b}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records the synchronous hard-reset boundary before the owner resumes lifecycle processing.</summary>
+<description>
+Arm captures the real active hierarchy. Reset delegates storage handling unchanged to EventBuffer,
+then records cleared metadata and unchanged lifecycle states. Subsequent owner processing may
+legitimately publish errors and request Abort; those actions are outside this observation boundary.
+Initialization resets are ignored until Arm. The test keeps all referenced objects alive.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ActiveResetBufferProbe EXTENDS EventBuffer
+VAR
+    FArmed : BOOL;
+    FRoot : REFERENCE TO RunControlIntegrationSubject;
+    FSuite : I_TestSuite;
+    FChild : I_TestCase;
+    FRootState : E_State;
+    FSuiteState : E_State;
+    FChildState : E_State;
+    FLifecycleUnchanged : BOOL;
+    FEpochCleared : BOOL;
+    FOwnersReleased : BOOL;
+    FObserved : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="Arm" Id="{53249752-8135-42dc-9742-1322a4bf156d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Captures the active hierarchy immediately before the external Buffer Reset.</summary>
+*)
+{endregion}
+METHOD PUBLIC Arm
+VAR_INPUT
+    Suite : I_TestSuite; //! Borrowed Suite observed across the Reset boundary; keep it alive while armed.
+    Child : I_TestCase; //! Borrowed child observed across the Reset boundary; keep it alive while armed.
+END_VAR
+VAR_IN_OUT
+    // SA0167: Borrowed real owner, retained only for state observations.
+    {attribute 'analysis' := '-167'}
+    Root : RunControlIntegrationSubject; //! Borrowed real Run-Control owner retained for state observations; keep it alive while armed.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRoot REF= Root;
+FSuite := Suite;
+FChild := Child;
+FRootState := Root.State;
+FSuiteState := Suite.State;
+FChildState := Child.State;
+FLifecycleUnchanged := FALSE;
+FEpochCleared := FALSE;
+FOwnersReleased := FALSE;
+FObserved := FALSE;
+FArmed := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EpochCleared" Id="{b8f77470-98cb-4a68-acc0-00dd1077f038}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded EpochCleared for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EpochCleared : BOOL //! Recorded EpochCleared for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{3eb32e22-b70e-41c4-a24d-d730f6600017}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EpochCleared := FEpochCleared;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LifecycleUnchanged" Id="{e3496b4e-71be-485a-98ef-61f3b7c95b63}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded LifecycleUnchanged for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC LifecycleUnchanged : BOOL //! Recorded LifecycleUnchanged for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{47b28b21-793b-4de7-a6ef-9aec1dede8c7}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LifecycleUnchanged := FLifecycleUnchanged;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Observed" Id="{8ef1372b-25f3-47c0-b3e5-61d3f665a357}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded Observed for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Observed : BOOL //! Recorded Observed for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{2718cc10-8bc3-48df-89df-ed4ec4ee8951}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Observed := FObserved;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="OwnersReleased" Id="{53915caf-6d12-4d4b-a1ad-d67fdfa4ec68}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded OwnersReleased for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC OwnersReleased : BOOL //! Recorded OwnersReleased for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{61908e44-8d46-49c9-9c8f-0c6b215269e1}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[OwnersReleased := FOwnersReleased;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Reset" Id="{db5a92f9-c5f6-4b65-aa78-bb04663784ad}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Delegates real reset and snapshots its immediate effects, not later owner processing.</summary>
+*)
+{endregion}
+METHOD PUBLIC Reset
+VAR
+    Epoch : ST_EventBufferStatus;
+    CurrentFifoStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FArmed THEN
+    FOwnersReleased := (FSuite.ReservedEntryCount = 0) AND (FChild.ReservedEntryCount = 0)
+        AND (ReservedEntryCount = 0);
+END_IF;
+SUPER^.Reset();
+IF FArmed THEN
+    Epoch := Status;
+    CurrentFifoStatus := FifoStatus;
+    FEpochCleared := CurrentFifoStatus.BufferEmpty AND (CurrentFifoStatus.ElementCount = 0)
+        AND (Epoch.SequenceId = 0) AND (Epoch.DeletedSequenceId = 0)
+        AND (Epoch.LostEventCount = 0) AND (ReservedEntryCount = 0);
+    FLifecycleUnchanged := (FRoot.State = FRootState) AND (FSuite.State = FSuiteState)
+        AND (FChild.State = FChildState);
+    FObserved := TRUE;
+    FArmed := FALSE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

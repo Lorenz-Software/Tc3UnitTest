@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_SuiteLifecycleScenario" Id="{f75312ad-3323-41b9-9f70-058734336d1f}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Distinct owner failure/Abort stimuli; each instance keeps its selected scenario for the complete run.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_SuiteLifecycleScenario :
+(
+    ResetError, //! Script helper Error during owner Reset.
+    ResetTimeout, //! Hold child Reset completion beyond the configured deadline.
+    ChildError, //! Script a child technical Error during execution.
+    UnexpectedChildAbort, //! Script an unexpected child abort during execution.
+    ExecutionError, //! Script helper Error during execution.
+    ExecutionTimeout, //! Hold execution completion beyond the configured deadline.
+    Abort, //! Request normal owner Abort.
+    AbortError, //! Script helper Error during Abort.
+    AbortTimeout //! Hold Abort completion beyond the configured deadline.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

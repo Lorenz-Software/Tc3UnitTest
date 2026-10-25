@@ -1,0 +1,487 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_LateResetReservationRelease" Id="{9879b991-68a4-4eab-9450-cba2cb3f0818}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks hierarchical early release after a real Suite Reset timeout while children still reset.</summary>
+<description>
+
+Controlled concrete Reset work
+
+The Suite and Orchestrator are real. Both real children remain in their concrete Reset hook
+until the scenario releases it; their normal five-second deadlines remain active.
+The Suite uses a 100 ms Reset timeout. No timer/state field is manipulated and no duration is benchmarked.
+
+Accepted failure-path gap
+
+After the Suite reaches Completed/Error, the test performs parent-owned hierarchical release.
+Three further calls must retain resetting children with zero reservations and no new dispatch.
+The hooks are then released: children publish late Idle transitions while the Suite's final result
+and finalization remain unchanged. This deliberately checks the accepted temporary coverage gap,
+not a general guarantee for arbitrarily many events after faulty early release.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_LateResetReservationRelease EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FSubjectParent : I_RunControl;
+    FSuite : ReservationSuiteProbe;
+    FFirstChild : I_TestCase;
+    FSecondChild : I_TestCase;
+    FStep : INT;
+    FHoldCalls : UINT;
+    FReleaseSequence : UDINT;
+    FResetAdmission : AssertTrue;
+    FResetAdmissionMatches : BOOL;
+    FOwnerFinalization : AssertTrue;
+    FOwnerFinalizationMatches : BOOL;
+    FEarlyRelease : AssertTrue;
+    FEarlyReleaseMatches : BOOL;
+    FRepeatedRelease : AssertTrue;
+    FRepeatedReleaseMatches : BOOL;
+    FLateCompletion : AssertTrue;
+    FLateCompletionMatches : BOOL;
+    FStableOwner : AssertTrue;
+    FStableOwnerMatches : BOOL;
+    FAccounting : AssertTrue;
+    FAccountingMatches : BOOL;
+    FEventEvidence : AssertTrue;
+    FEventEvidenceMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 97;
+    HoldCalls : UINT := 3;
+    Setup : INT := 0;
+    WaitForOwnerCompletion : INT := 1;
+    ObserveReleasedChildren : INT := 2;
+    WaitForChildCompletion : INT := 3;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f599f75a-6b80-4d99-890d-b98649d31707}" />
+    <Method Name="AggregateResults" Id="{47ce11ef-b545-4bc5-9b76-d4998e0b9004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FResetAdmission);
+Aggregator.AddProvider(Provider := FOwnerFinalization);
+Aggregator.AddProvider(Provider := FEarlyRelease);
+Aggregator.AddProvider(Provider := FRepeatedRelease);
+Aggregator.AddProvider(Provider := FLateCompletion);
+Aggregator.AddProvider(Provider := FStableOwner);
+Aggregator.AddProvider(Provider := FAccounting);
+Aggregator.AddProvider(Provider := FEventEvidence);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{60fbc10e-21a7-431e-b412-307ddfaa27d6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies root identity only; the outer root does not execute the isolated Suite.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckAccounting" Id="{df7600ee-6439-4505-974a-7bc3b4696d29}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares real local contributions with the buffer aggregate and checks continuous child calls.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckAccounting]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAccountingMatches := FAccountingMatches
+    AND (FSubject.ReservedEntryCount = FSuite.ReservedEntryCount
+        + FFirstChild.ReservedEntryCount + FSecondChild.ReservedEntryCount)
+    AND FSuite.ChildCallsMatch
+    AND NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND (FBufferStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFinalEvents" Id="{3dd4a765-d3b7-4ebe-a81e-52d2d4336215}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one parent finalization and child Idle events after release, without promising late-event reservation coverage.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFinalEvents
+VAR
+    Index : UINT;
+    SuiteResults : UINT;
+    SuiteAggregations : UINT;
+    SuiteCompletions : UINT;
+    FirstLateIdle : UINT;
+    SecondLateIdle : UINT;
+    PayloadMatches : BOOL := TRUE;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := 1 TO BufferLength DO
+    IF FEvents[Index].SequenceId = 0 THEN
+        CONTINUE;
+    END_IF;
+    IF FEvents[Index].EventType = E_EventType.StateTransition THEN
+        PayloadMatches := PayloadMatches
+            AND (FEvents[Index].State <> E_State.Aborting)
+            AND (FEvents[Index].State <> E_State.AbortingFromError);
+    END_IF;
+    IF FEvents[Index].Name = FSuite.Name THEN
+        CASE FEvents[Index].EventType OF
+            E_EventType.Result:
+                SuiteResults := SuiteResults + 1;
+                PayloadMatches := PayloadMatches AND (FEvents[Index].Result = E_Result.Error);
+            E_EventType.Aggregation:
+                SuiteAggregations := SuiteAggregations + 1;
+            E_EventType.StateTransition:
+                IF FEvents[Index].State = E_State.Completed THEN
+                    SuiteCompletions := SuiteCompletions + 1;
+                    PayloadMatches := PayloadMatches AND (FEvents[Index].SequenceId <= FReleaseSequence);
+                END_IF;
+        END_CASE;
+    ELSIF (FEvents[Index].SequenceId > FReleaseSequence)
+        AND (FEvents[Index].EventType = E_EventType.StateTransition)
+        AND (FEvents[Index].State = E_State.Idle) THEN
+        IF FEvents[Index].Name = FFirstChild.Name THEN
+            FirstLateIdle := FirstLateIdle + 1;
+        ELSIF FEvents[Index].Name = FSecondChild.Name THEN
+            SecondLateIdle := SecondLateIdle + 1;
+        END_IF;
+    END_IF;
+END_FOR;
+FEventEvidenceMatches := PayloadMatches
+    AND (SuiteResults = 1) AND (SuiteAggregations = 1) AND (SuiteCompletions = 1)
+    AND (FirstLateIdle = 1) AND (SecondLateIdle = 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{6d09cb9e-b609-4326-85bd-9ca895e2c9f6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() OR (FSubjectParent = 0) THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FResetAdmission.IsInitialized
+    AND FOwnerFinalization.IsInitialized
+    AND FEarlyRelease.IsInitialized
+    AND FRepeatedRelease.IsInitialized
+    AND FLateCompletion.IsInitialized
+    AND FStableOwner.IsInitialized
+    AND FAccounting.IsInitialized
+    AND FEventEvidence.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{34c7ff6a-3b54-4f22-8d83-0e6227f06ab0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FResetAdmission.Initialize(Parent := THIS^,
+    AssertionName := 'ResetAdmission');
+FOwnerFinalization.Initialize(Parent := THIS^,
+    AssertionName := 'OwnerFinalization');
+FEarlyRelease.Initialize(Parent := THIS^,
+    AssertionName := 'EarlyRelease');
+FRepeatedRelease.Initialize(Parent := THIS^,
+    AssertionName := 'RepeatedRelease');
+FLateCompletion.Initialize(Parent := THIS^,
+    AssertionName := 'LateCompletion');
+FStableOwner.Initialize(Parent := THIS^,
+    AssertionName := 'StableOwner');
+FAccounting.Initialize(Parent := THIS^,
+    AssertionName := 'Accounting');
+FEventEvidence.Initialize(Parent := THIS^,
+    AssertionName := 'EventEvidence');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeArrangement" Id="{904eb58f-f5e0-45c4-aa66-f7043e9bb40b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the real hierarchy and requests Reset with a shorter Suite deadline than its children.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeArrangement
+VAR
+    Config : ST_TestSuiteConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Late Reset capture initialization failed.');
+    RETURN;
+END_IF;
+FSuite.BindPublisher(Publisher := FSubject,
+    AllowResetCompletion := FALSE);
+Config.ResetTimeout := T#100ms;
+IF NOT FSuite.Initialize(Parent := FSubjectParent,
+    SuiteName := 'LateResetRelease',
+    Config := Config) THEN
+    Error(Message := 'Late Reset Suite initialization failed.');
+    RETURN;
+END_IF;
+FFirstChild := FSuite.GetTestCase(Index := FSuite.ChildArrayLowerBound);
+FSecondChild := FSuite.GetTestCase(Index := FSuite.ChildArrayLowerBound + 1);
+IF FSuite.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+    Error(Message := 'Late Reset Suite reservation failed.');
+    RETURN;
+END_IF;
+FSuite.RequestReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{17588393-5ef9-4fe6-a833-b7f755bc0278}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{83997b7e-2ea9-4829-9d1c-85baf19c21b5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FResetAdmission(Enable := Evaluate,
+    State := State,
+    IN := FResetAdmissionMatches);
+FOwnerFinalization(Enable := Evaluate,
+    State := State,
+    IN := FOwnerFinalizationMatches);
+FEarlyRelease(Enable := Evaluate,
+    State := State,
+    IN := FEarlyReleaseMatches);
+FRepeatedRelease(Enable := Evaluate,
+    State := State,
+    IN := FRepeatedReleaseMatches);
+FLateCompletion(Enable := Evaluate,
+    State := State,
+    IN := FLateCompletionMatches);
+FStableOwner(Enable := Evaluate,
+    State := State,
+    IN := FStableOwnerMatches);
+FAccounting(Enable := Evaluate,
+    State := State,
+    IN := FAccountingMatches);
+FEventEvidence(Enable := Evaluate,
+    State := State,
+    IN := FEventEvidenceMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{962f462b-10a0-4c71-a84e-0587b09c281b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{9f50c10b-be44-4c43-8224-b6fe168fdae2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears observations; next execution initializes fresh isolated storage and hierarchy.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FHoldCalls := 0;
+FReleaseSequence := 0;
+FPerformed := FALSE;
+FChecked := FALSE;
+FResetAdmission.Reset();
+FResetAdmissionMatches := TRUE;
+FOwnerFinalization.Reset();
+FOwnerFinalizationMatches := TRUE;
+FEarlyRelease.Reset();
+FEarlyReleaseMatches := TRUE;
+FRepeatedRelease.Reset();
+FRepeatedReleaseMatches := TRUE;
+FLateCompletion.Reset();
+FLateCompletionMatches := TRUE;
+FStableOwner.Reset();
+FStableOwnerMatches := TRUE;
+FAccounting.Reset();
+FAccountingMatches := TRUE;
+FEventEvidence.Reset();
+FEventEvidenceMatches := TRUE;
+FEventEvidenceMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{ad4cc77f-934c-4a25-875f-9f72fb29417e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the isolated hierarchy at most once per active cycle; outer timeout bounds non-completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+IF NOT FPerformed THEN
+    RunScenario();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReleaseSubtree" Id="{704d017b-e480-4632-a8ea-172c2f99732e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases the completed parent and still-resetting children without changing their states.</summary>
+*)
+{endregion}
+METHOD PRIVATE ReleaseSubtree
+VAR
+    Released : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReleaseSequence := FBufferStatus.SequenceId;
+Released := FSuite.FreeReservedEvents();
+FEarlyReleaseMatches := Released
+    AND (FSuite.State = E_State.Completed)
+    AND (FFirstChild.State = E_State.Reset) AND (FSecondChild.State = E_State.Reset)
+    AND (FSuite.ReservedEntryCount = 0)
+    AND (FFirstChild.ReservedEntryCount = 0) AND (FSecondChild.ReservedEntryCount = 0)
+    AND (FSubject.ReservedEntryCount = 0)
+    AND (FBufferStatus.SequenceId = FReleaseSequence);
+Released := FSuite.FreeReservedEvents();
+FRepeatedReleaseMatches := Released AND (FSubject.ReservedEntryCount = 0)
+    AND (FBufferStatus.SequenceId = FReleaseSequence);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunScenario" Id="{5e8a9217-86c3-4d8f-b6d8-3cbe4baf3833}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one explicit failure-path checkpoint per task call.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        InitializeArrangement();
+        FStep := WaitForOwnerCompletion;
+
+    WaitForOwnerCompletion:
+        FSuite();
+        CheckAccounting();
+        IF FSuite.IsComplete THEN
+            FOwnerFinalizationMatches := (FSuite.Result = E_Result.Error)
+                AND FSuite.HasResetTimeout
+                AND (FFirstChild.State = E_State.Reset)
+                AND (FSecondChild.State = E_State.Reset)
+                AND FSuite.ResetRequestsMatch;
+            FResetAdmissionMatches := (FSuite.ReservedEntryCount = GVL_Constants.TestSuiteResetEventCount)
+                AND (FFirstChild.ReservedEntryCount = GVL_Constants.TestCaseResetEventCount)
+                AND (FSecondChild.ReservedEntryCount = GVL_Constants.TestCaseResetEventCount);
+            ReleaseSubtree();
+            FStep := ObserveReleasedChildren;
+        END_IF;
+
+    ObserveReleasedChildren:
+        FSuite();
+        CheckAccounting();
+        FStableOwnerMatches := FStableOwnerMatches AND FSuite.IsComplete
+            AND (FSuite.Result = E_Result.Error) AND FSuite.ResetRequestsMatch;
+        FEarlyReleaseMatches := FEarlyReleaseMatches
+            AND (FFirstChild.State = E_State.Reset) AND (FSecondChild.State = E_State.Reset)
+            AND (FSubject.ReservedEntryCount = 0)
+            AND (FBufferStatus.SequenceId = FReleaseSequence);
+        FHoldCalls := FHoldCalls + 1;
+        IF FHoldCalls = HoldCalls THEN
+            FSuite.AllowChildResetCompletion();
+            FStep := WaitForChildCompletion;
+        END_IF;
+
+    WaitForChildCompletion:
+        FSuite();
+        CheckAccounting();
+        FStableOwnerMatches := FStableOwnerMatches AND FSuite.IsComplete
+            AND (FSuite.Result = E_Result.Error) AND FSuite.ResetRequestsMatch;
+        IF (FFirstChild.State = E_State.Idle) AND FFirstChild.IsReady
+            AND (FSecondChild.State = E_State.Idle) AND FSecondChild.IsReady THEN
+            FLateCompletionMatches := (FSubject.ReservedEntryCount = 0)
+                AND (FBufferStatus.SequenceId > FReleaseSequence)
+                AND FSuite.ChildCallsMatch;
+            CheckFinalEvents();
+            IF NOT FSuite.FreeReservedEvents() THEN
+                Error(Message := 'Final repeated subtree release failed.');
+                RETURN;
+            END_IF;
+            FRepeatedReleaseMatches := FRepeatedReleaseMatches AND (FSubject.ReservedEntryCount = 0);
+            FPerformed := TRUE;
+        END_IF;
+ELSE
+    Error(Message := 'Unknown late Reset release test step.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

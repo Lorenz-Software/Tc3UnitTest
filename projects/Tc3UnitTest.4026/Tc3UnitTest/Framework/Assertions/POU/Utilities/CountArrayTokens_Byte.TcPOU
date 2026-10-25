@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CountArrayTokens_Byte" Id="{bd268df3-0760-4b53-9cb8-81ace5826f64}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts exact non-overlapping tokens; advances past each complete match. Caller validates stable references, a nonempty in-bounds range and a nonempty token fitting the range.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CountArrayTokens_Byte : UINT //! Number of non-overlapping token occurrences in the selected range.
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF BYTE; //! Read-only actual data; the selected range must remain stable during the call.
+    Token : ARRAY[*] OF BYTE; //! Read-only nonempty token; keep stable during the call and within the selected search length.
+END_VAR
+VAR
+    CandidateOffset : LINT;
+    LastCandidateOffset : LINT;
+    TokenLowerIndex : DINT;
+    TokenLength : LINT;
+    TokenOffset : LINT;
+    InIndex : DINT;
+    TokenIndex : DINT;
+    TokenMatches : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CountArrayTokens_Byte := 0;
+TokenLowerIndex := LOWER_BOUND(Token, 1);
+TokenLength := DINT_TO_LINT(UPPER_BOUND(Token, 1)) - DINT_TO_LINT(TokenLowerIndex) + 1;
+LastCandidateOffset := USINT_TO_LINT(Length) - TokenLength;
+CandidateOffset := 0;
+
+WHILE CandidateOffset <= LastCandidateOffset DO
+    TokenMatches := TRUE;
+    FOR TokenOffset := 0 TO TokenLength - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset + TokenOffset);
+        TokenIndex := LINT_TO_DINT(DINT_TO_LINT(TokenLowerIndex) + TokenOffset);
+        IF IN[InIndex] <> Token[TokenIndex] THEN
+            TokenMatches := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+
+    IF TokenMatches THEN
+        CountArrayTokens_Byte := CountArrayTokens_Byte + 1;
+        CandidateOffset := CandidateOffset + TokenLength;
+    ELSE
+        CandidateOffset := CandidateOffset + 1;
+    END_IF;
+END_WHILE;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestSuiteCollectionConfig" Id="{1460abf0-7897-4b27-a630-d6f207a5fdb0}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Finalized Suite collection bounds, population and orchestration configuration.</summary>
+<description>
+This is configuration metadata, not retained child storage. The occupied prefix starts at FirstIndex and contains Count entries; LastIndex includes unused capacity. Require IsValid before use and keep the actual array, children and slot assignments stable for execution. A new full initialization rebuilds the composition.
+</description>
+*)
+{endregion}
+TYPE ST_TestSuiteCollectionConfig :
+STRUCT
+    FirstIndex : DINT; //! Lower bound of the caller-owned child array; occupied entries start here.
+    LastIndex : DINT; //! Upper bound of the complete child array, including unused capacity.
+    Count : UINT; //! Number of registered children; occupied range is FirstIndex through FirstIndex + Count - 1.
+    IsValid : BOOL; //! TRUE after successful finalization; FALSE configurations must not be used.
+    Mode : E_OrchestrationMode; //! Scheduling strategy selected for this initialized collection.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

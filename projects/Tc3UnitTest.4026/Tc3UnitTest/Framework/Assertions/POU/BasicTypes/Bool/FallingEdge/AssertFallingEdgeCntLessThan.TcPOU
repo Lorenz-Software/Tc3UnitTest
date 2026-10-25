@@ -1,0 +1,81 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertFallingEdgeCntLessThan" Id="{8f76e36f-5414-448f-92e2-f34f70091c52}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the falling-edge count is less than the strict limit.</summary>
+<description>
+
+Observation and accumulated-count handling come from AssertionEdgeCountBase. Evaluate
+checks the held count independently of Enable; reset clears the count and baseline.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertFallingEdgeCntLessThan EXTENDS AssertionEdgeCountBase
+VAR_INPUT
+    Maximum : UINT; //! Exclusive upper bound; the actual value or count must be smaller.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1319c390-29a7-4e49-959b-01e611d7499c}" />
+    <Method Name="Assert" Id="{2b7627ec-2377-41e0-90a1-5edf95e1c546}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observe through the base, then evaluate the count with Error priority.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MaximumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SUPER^.Assert();
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF EdgeCount >= Maximum THEN
+    MaximumText := UINT_TO_STRING(Maximum);
+    ActualText := UINT_TO_STRING(EdgeCount);
+    Message := CONCAT('Assertion failed: falling edge count is not less than limit. Maximum = ',
+        MaximumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsMatchingEdge" Id="{ed7c50f7-610d-41fe-baf4-fd27a0f0aaf8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recognize a falling edge without changing observation state.</summary>
+*)
+{endregion}
+METHOD PROTECTED IsMatchingEdge : BOOL //! TRUE when PreviousValue and CurrentValue form the edge selected by this Assertion.
+VAR_INPUT
+    PreviousValue : BOOL; //! Signal value from the preceding active observation.
+    CurrentValue : BOOL; //! Signal value from the current active observation.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsMatchingEdge := PreviousValue AND NOT CurrentValue;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

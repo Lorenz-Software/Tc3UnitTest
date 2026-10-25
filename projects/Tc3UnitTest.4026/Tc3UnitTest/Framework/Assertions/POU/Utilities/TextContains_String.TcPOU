@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextContains_String" Id="{be18fa78-9bb2-4066-9643-6ad973317472}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Searches for a nonempty fragment by exact code-unit comparison without copies. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextContains_String : BOOL //! TRUE when the nonempty Fragment occurs in Value.
+VAR_IN_OUT CONSTANT
+    Value : STRING(Param_Assertions.AssertionStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Fragment : STRING(Param_Assertions.AssertionStringLength); //! Read-only nonempty text fragment searched for in Value.
+END_VAR
+VAR
+    ValueLength : DINT;
+    FragmentLength : DINT;
+    StartIndex : DINT;
+    CharacterIndex : DINT;
+    MatchesFragment : BOOL;
+END_VAR
+VAR CONSTANT
+    Terminator : BYTE := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextContains_String := FALSE;
+
+FOR ValueLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Value[ValueLength] = Terminator THEN
+    {analysis +175}
+        EXIT;
+    END_IF;
+END_FOR;
+
+FOR FragmentLength := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Fragment[FragmentLength] = Terminator THEN
+    {analysis +175}
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF (FragmentLength = 0) OR (FragmentLength > ValueLength) THEN
+    RETURN;
+END_IF;
+
+FOR StartIndex := 0 TO ValueLength - FragmentLength DO
+    MatchesFragment := TRUE;
+    FOR CharacterIndex := 0 TO FragmentLength - 1 DO
+        // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+        {analysis -175}
+        IF Value[StartIndex + CharacterIndex] <> Fragment[CharacterIndex] THEN
+        {analysis +175}
+            MatchesFragment := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+
+    IF MatchesFragment THEN
+        TextContains_String := TRUE;
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

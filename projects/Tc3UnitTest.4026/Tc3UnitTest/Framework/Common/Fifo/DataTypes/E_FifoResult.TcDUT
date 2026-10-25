@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_FifoResult" Id="{2a05ba9c-3d2f-44ce-8815-575495210de7}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Internal FIFO operation results; positive transfer slots are returned separately from these zero or negative outcomes.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+TYPE INTERNAL E_FifoResult :
+(
+    NoTransfer := 0, //! No event transferred, for example an empty read or full insertion.
+    ConfigError := -1, //! Storage configuration or retained binding is invalid.
+    IndexError := -2, //! Stored ring indices are invalid.
+    DataError := -3, //! Data access would violate the storage requirements.
+    ReleaseCountError := -4 //! Requested release count exceeds the queued event count.
+) INT;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

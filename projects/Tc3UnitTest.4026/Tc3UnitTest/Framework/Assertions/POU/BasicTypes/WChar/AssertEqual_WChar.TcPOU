@@ -1,0 +1,68 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_WChar" Id="{685dd3ce-5da1-4bee-8580-9df73b982b83}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact equality of character codes.</summary>
+<description>
+
+Character codes use WORD; diagnostics show printable ASCII and hexadecimal codes.
+
+Compares the numeric character code without case folding or encoding validation.
+Printable ASCII diagnostics include the character and hexadecimal code; other codes use a
+hexadecimal representation.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_WChar EXTENDS AssertionBase
+VAR_INPUT
+    IN : WORD; //! Actual character code.
+    Expected : WORD; //! Expected character code.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3a8e0d0e-eefb-4448-9def-c02909f0036c}" />
+    <Method Name="Assert" Id="{6eb22903-c357-4c82-8507-108dfaff28ec}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares character codes and reports character-formatted diagnostics.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING;
+    ActualText : STRING;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := CreateAssertionTextValue_WChar(Value := Expected);
+    ActualText := CreateAssertionTextValue_WChar(Value := IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

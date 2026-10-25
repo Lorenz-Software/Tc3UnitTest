@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_OrchestratorTask" Id="{0c929c3e-d26a-4dd6-9c3b-59bcbf1e2f53}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owner-requested orchestration work; independent of the owner lifecycle.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_OrchestratorTask :
+(
+    Idle := 0, //! No new child work is dispatched.
+    Reset := 1, //! Dispatch capacity-admitted child resets and observe their completion.
+    Execution := 2, //! Dispatch capacity-admitted starts by slot and observe completion.
+    Abort := 3 //! Request and observe controlled termination of active children.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorUnusedCapacity" Id="{862839a5-5ded-4ccc-8b4b-7048c19cde23}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that unused array capacity at indices 4 through 6 is never processed.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorUnusedCapacity EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{4562e2ef-b109-4664-aad7-297cb79cd611}" />
+    <Method Name="ConfigureScenario" Id="{dfd7b03a-1bf4-459e-9c4d-1f0def2dd489}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.SpareCapacity;
+FChildCount := 3;
+ConfigureStandardSequence();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

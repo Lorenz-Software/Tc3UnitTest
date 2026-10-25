@@ -1,0 +1,457 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ImpossibleResetBudget" Id="{620c04fd-4d80-4c29-91a2-c4336e910804}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks an individually impossible reset budget against actual usable capacity.</summary>
+<description>
+
+Real subject boundaries
+
+The real Test Case computes reservations; the real Orchestrator decides and publishes its diagnostic.
+A collection double supplies one fixed child view. Only the concurrent Suite allowance is held by
+the fixture, without running a Suite. Request-entry observations are inherited from the thin child adapter.
+The physical array includes one unused FIFO position, leaving capacity one entry below the minimum.
+The buffer is empty at rejection: consumer deletion cannot repair an impossible budget.
+Three later helper calls must retain Error without another diagnostic or unexpected dispatch.
+Expected diagnostics stay in local capture. The surrounding Assertions use the normal selftest publisher.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ImpossibleResetBudget EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FSubjectParent : I_TestSuite;
+    FChild : ReservationChildProbe;
+    FOrchestrator : OrchestratorProbe;
+    FCollection : OrchestrationCollectionDouble;
+    FChildren : ARRAY[1..1] OF I_Orchestratable;
+    FOwnerReserved : UINT;
+    FStep : INT;
+    FObservationCalls : UINT;
+    FPrecondition : AssertTrue;
+    FPreconditionMatches : BOOL;
+    FFailureDetection : AssertTrue;
+    FFailureDetectionMatches : BOOL;
+    FStateAndCounts : AssertTrue;
+    FStateAndCountsMatches : BOOL;
+    FHeldError : AssertTrue;
+    FHeldErrorMatches : BOOL;
+    FSingleDiagnostic : AssertTrue;
+    FSingleDiagnosticMatches : BOOL;
+    FRequestBoundary : AssertTrue;
+    FRequestBoundaryMatches : BOOL;
+    FAccounting : AssertTrue;
+    FAccountingMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := GVL_Constants.TestSuiteResetEventCount + GVL_Constants.TestCaseResetEventCount + Param_EventBuffer.EventBufferResetHeadroom;
+    ObservationCalls : UINT := 3;
+    ExpectedResetRequests : UINT := 0;
+    ExpectedStartRequests : UINT := 0;
+    Setup : INT := 0;
+    TriggerFailure : INT := 2;
+    ObserveFailure : INT := 3;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6c76deb5-3470-4d1a-ad0b-f3af71a69cbe}" />
+    <Method Name="AggregateResults" Id="{fa560c0c-7a00-4cdb-a7c1-18b3b74f4be0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FPrecondition);
+Aggregator.AddProvider(Provider := FFailureDetection);
+Aggregator.AddProvider(Provider := FStateAndCounts);
+Aggregator.AddProvider(Provider := FHeldError);
+Aggregator.AddProvider(Provider := FSingleDiagnostic);
+Aggregator.AddProvider(Provider := FRequestBoundary);
+Aggregator.AddProvider(Provider := FAccounting);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{13028312-01e6-464e-96b9-e157f350f82b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies only the child identity before initialization.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_TestSuite; //! Borrowed identity parent retained for isolated subject initialization; keep the Suite alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubject" Id="{4b166bad-f085-47c3-9e73-a086526eec56}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the real helper and child and retains accounting observations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubject
+VAR_INPUT
+    Task : E_OrchestratorTask; //! Orchestration task assigned for this controlled subject call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOrchestrator(Task := Task);
+FAccountingMatches := FAccountingMatches
+    AND (FSubject.ReservedEntryCount = FOwnerReserved + FChild.ReservedEntryCount);
+FChild();
+FCaptureIntegrityMatches := FCaptureIntegrityMatches
+    AND NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND (FBufferStatus.LostEventCount = 0)
+    AND NOT FCollection.InvalidAccess AND NOT FCollection.TraceOverflow;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckDiagnostic" Id="{f1c13c18-1d99-4752-9592-a72c57a3324d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the single retained Orchestrator Error and exact dispatch counts.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckDiagnostic
+VAR
+    Index : UINT;
+    ErrorCount : UINT;
+    PayloadMatches : BOOL := TRUE;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := 1 TO BufferLength DO
+    IF (FEvents[Index].SequenceId > 0) AND (FEvents[Index].Severity = E_EventSeverity.Error) THEN
+        ErrorCount := ErrorCount + 1;
+        PayloadMatches := PayloadMatches
+            AND (FEvents[Index].OwnerScope = E_OwnerScope.Framework)
+            AND (FEvents[Index].EventType = E_EventType.Framework)
+            AND (FEvents[Index].State = E_State.Error)
+            AND (FEvents[Index].Name = CONCAT(Name, '.Orchestrator'))
+            AND (FEvents[Index].Message <> '');
+    END_IF;
+END_FOR;
+FSingleDiagnosticMatches := (ErrorCount = 1) AND PayloadMatches;
+FRequestBoundaryMatches := FChild.RequestsReserved
+    AND (FChild.ResetRequestCount = ExpectedResetRequests)
+    AND (FChild.StartRequestCount = ExpectedStartRequests);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{992a4bbd-1fd7-43d8-94c0-444114667a94}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() OR (FSubjectParent = 0) THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FPrecondition.IsInitialized
+    AND FFailureDetection.IsInitialized
+    AND FStateAndCounts.IsInitialized
+    AND FHeldError.IsInitialized
+    AND FSingleDiagnostic.IsInitialized
+    AND FRequestBoundary.IsInitialized
+    AND FAccounting.IsInitialized
+    AND FCaptureIntegrity.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{d6052acb-b9c6-4a26-b439-b67fa1afd249}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FPrecondition.Initialize(Parent := THIS^,
+    AssertionName := 'Precondition');
+FFailureDetection.Initialize(Parent := THIS^,
+    AssertionName := 'FailureDetection');
+FStateAndCounts.Initialize(Parent := THIS^,
+    AssertionName := 'StateAndCounts');
+FHeldError.Initialize(Parent := THIS^,
+    AssertionName := 'HeldError');
+FSingleDiagnostic.Initialize(Parent := THIS^,
+    AssertionName := 'SingleDiagnostic');
+FRequestBoundary.Initialize(Parent := THIS^,
+    AssertionName := 'RequestBoundary');
+FAccounting.Initialize(Parent := THIS^,
+    AssertionName := 'Accounting');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeArrangement" Id="{48e6e4b8-7690-40f7-8906-1a81eb52d918}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds a real child and Orchestrator to fixed isolated storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeArrangement
+VAR
+    Config : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Reservation error capture initialization failed.');
+    RETURN;
+END_IF;
+FOwnerReserved := 0;
+FChild.BindPublisher(Publisher := FSubject);
+FChild.ClearRequestTrace();
+FChild.ExecutionSlot := 1;
+IF NOT FChild.Initialize(Parent := FSubjectParent,
+    TestName := 'ResetBudgetChild',
+    Config := Config) THEN
+    Error(Message := 'Reservation error child initialization failed.');
+    RETURN;
+END_IF;
+FChild();
+FChildren[1] := FChild;
+IF NOT FCollection.Initialize(Count := 1,
+    Children := FChildren) THEN
+    Error(Message := 'Reservation error collection initialization failed.');
+    RETURN;
+END_IF;
+FOrchestrator.BindPublisher(Publisher := FSubject);
+IF NOT FOrchestrator.Initialize(Collection := FCollection,
+    Name := Name) THEN
+    Error(Message := 'Reservation error Orchestrator initialization failed.');
+    RETURN;
+END_IF;
+IF NOT FSubject.ReserveSpace(EntryCount := GVL_Constants.TestSuiteResetEventCount,
+    HeadroomEntryCount := Param_EventBuffer.EventBufferResetHeadroom,
+    OwnerReservedEntryCount := FOwnerReserved) THEN
+    Error(Message := 'Reservation error concurrent owner setup failed.');
+    RETURN;
+END_IF;
+FPreconditionMatches := FPreconditionMatches AND FChild.IsInitialized
+    AND FFifo.BufferEmpty AND (FSubject.Capacity = BufferLength - 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{fcc89c52-2534-481d-8d52-49e0d124ce91}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{9dcca41d-df5e-4573-bfa2-d7c8c2e33eca}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FPrecondition(Enable := Evaluate,
+    State := State,
+    IN := FPreconditionMatches);
+FFailureDetection(Enable := Evaluate,
+    State := State,
+    IN := FFailureDetectionMatches);
+FStateAndCounts(Enable := Evaluate,
+    State := State,
+    IN := FStateAndCountsMatches);
+FHeldError(Enable := Evaluate,
+    State := State,
+    IN := FHeldErrorMatches);
+FSingleDiagnostic(Enable := Evaluate,
+    State := State,
+    IN := FSingleDiagnosticMatches);
+FRequestBoundary(Enable := Evaluate,
+    State := State,
+    IN := FRequestBoundaryMatches);
+FAccounting(Enable := Evaluate,
+    State := State,
+    IN := FAccountingMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{17370390-1b9a-4978-ab3e-5399dab6194e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{f377fb1b-d499-40ea-8700-04fab430a824}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears scenario evidence; next execution initializes a fresh local arrangement.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FObservationCalls := 0;
+FPerformed := FALSE;
+FChecked := FALSE;
+FPrecondition.Reset();
+FPreconditionMatches := TRUE;
+FFailureDetection.Reset();
+FFailureDetectionMatches := TRUE;
+FStateAndCounts.Reset();
+FStateAndCountsMatches := TRUE;
+FHeldError.Reset();
+FHeldErrorMatches := TRUE;
+FSingleDiagnostic.Reset();
+FSingleDiagnosticMatches := TRUE;
+FRequestBoundary.Reset();
+FRequestBoundaryMatches := TRUE;
+FAccounting.Reset();
+FAccountingMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+FSingleDiagnosticMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{4f9039a5-c75f-4916-8d4c-236f317875e9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one scenario phase before checking final captured observations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+IF NOT FPerformed THEN
+    RunScenario();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunScenario" Id="{53bb11ab-25af-4e68-8e96-51eee491038e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs one bounded scenario phase per active outer call.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        InitializeArrangement();
+        FStep := TriggerFailure;
+
+    TriggerFailure:
+        TriggerSubjectFailure();
+        FStep := ObserveFailure;
+
+    ObserveFailure:
+        CallSubject(Task := E_OrchestratorTask.Reset);
+        FFailureDetectionMatches := FFailureDetectionMatches
+            AND (FOrchestrator.Result = E_Result.Error);
+        FHeldErrorMatches := FHeldErrorMatches
+            AND (FOrchestrator.Result = E_Result.Error)
+            AND NOT FOrchestrator.IsExecutionFinished;
+        FObservationCalls := FObservationCalls + 1;
+        IF FObservationCalls = ObservationCalls THEN
+            CheckDiagnostic();
+            FAccountingMatches := FAccountingMatches
+                AND (FChild.ReservedEntryCount = 0);
+            IF NOT FSubject.FreeReservedSpace(EntryCount := FOwnerReserved,
+                OwnerReservedEntryCount := FOwnerReserved) THEN
+                Error(Message := 'Reservation error fixture cleanup failed.');
+                RETURN;
+            END_IF;
+            FAccountingMatches := FAccountingMatches AND (FSubject.ReservedEntryCount = 0);
+            FPerformed := TRUE;
+        END_IF;
+ELSE
+    Error(Message := 'Unknown reservation error test step.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="TriggerSubjectFailure" Id="{01391ac8-0f1e-4f6f-af22-767b1237952b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Classifies the impossible budget on an empty buffer, then exercises real Orchestrator handling.</summary>
+*)
+{endregion}
+METHOD PRIVATE TriggerSubjectFailure
+VAR
+    ReservationResult : E_EventReservationResult;
+    PreviousSequence : UDINT;
+    PreviousState : E_State;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[PreviousSequence := FBufferStatus.SequenceId;
+PreviousState := FChild.State;
+ReservationResult := FChild.ReserveResetEvents();
+FFailureDetectionMatches := ReservationResult = E_EventReservationResult.Error;
+FStateAndCountsMatches := (FChild.State = PreviousState)
+    AND (FChild.ReservedEntryCount = 0)
+    AND (FSubject.ReservedEntryCount = FOwnerReserved)
+    AND (FBufferStatus.SequenceId = PreviousSequence)
+    AND FFifo.BufferEmpty;
+CallSubject(Task := E_OrchestratorTask.Reset);
+FFailureDetectionMatches := FFailureDetectionMatches
+    AND (FOrchestrator.Result = E_Result.Error);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

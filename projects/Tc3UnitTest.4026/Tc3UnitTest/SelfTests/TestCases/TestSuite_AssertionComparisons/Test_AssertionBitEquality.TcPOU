@@ -1,0 +1,406 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionBitEquality" Id="{913df269-da4d-46e7-bf3b-866357b33488}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks full-value BYTE and LWORD equality without masks or bit-index operations.</summary>
+<description>
+Each named row has explicit expected results, not a second comparison algorithm.
+One disabled subject call consumes Reset before one enabled comparison call.
+Outer checking Assertions latch every row before inputs advance; intentional
+subject failures remain in a Test-Case-owned Event Buffer, cleared between rows.
+Only the checking Assertions contribute to the outer result.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionBitEquality EXTENDS TestCaseBase
+VAR
+    FEqualByteSubject : AssertEqual_Byte;
+    FNotEqualByteSubject : AssertNotEqual_Byte;
+    FEqualLWordSubject : AssertEqual_LWord;
+    FNotEqualLWordSubject : AssertNotEqual_LWord;
+    FActualByte : BYTE;
+    FExpectedByte : BYTE;
+    FActualLWord : LWORD;
+    FExpectedLWord : LWORD;
+    FExpectedEqualByteResult : E_Result;
+    FExpectedNotEqualByteResult : E_Result;
+    FExpectedEqualLWordResult : E_Result;
+    FExpectedNotEqualLWordResult : E_Result;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR
+    FEqualByteResult : AssertTrue;
+    FEqualByteResultMatches : BOOL;
+    FNotEqualByteResult : AssertTrue;
+    FNotEqualByteResultMatches : BOOL;
+    FEqualLWordResult : AssertTrue;
+    FEqualLWordResultMatches : BOOL;
+    FNotEqualLWordResult : AssertTrue;
+    FNotEqualLWordResultMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    ExpectedFindingCount : UDINT := 2;
+    ZeroEqual : UINT := 1;
+    AllBitsEqual : UINT := 2;
+    AllBitsDifferent : UINT := 3;
+    HighBitDifferent : UINT := 4;
+    PatternDifferent : UINT := 5;
+    LastRow : UINT := PatternDifferent;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{16851470-bc72-4c3b-bd54-1864bfb38b26}" />
+    <Method Name="AggregateResults" Id="{5f72ee77-58a7-4f87-993e-67316aa2a3bb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FEqualByteResult);
+Aggregator.AddProvider(Provider := FNotEqualByteResult);
+Aggregator.AddProvider(Provider := FEqualLWordResult);
+Aggregator.AddProvider(Provider := FNotEqualLWordResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{6e858a13-4044-4772-9bc8-a11ebd348af5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each real comparison once with the selected typed row inputs.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualByteSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActualByte,
+    Expected := FExpectedByte);
+FNotEqualByteSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActualByte,
+    Expected := FExpectedByte);
+FEqualLWordSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActualLWord,
+    Expected := FExpectedLWord);
+FNotEqualLWordSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActualLWord,
+    Expected := FExpectedLWord);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{5beecb5e-c277-4f8a-90c7-c7be65b02156}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Preserves base validation and rejects incomplete subject or checking-Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FEqualByteResult.IsInitialized
+    AND FNotEqualByteResult.IsInitialized
+    AND FEqualLWordResult.IsInitialized
+    AND FNotEqualLWordResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Comparison selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{7441b191-9d3a-4a19-b118-4ae8b2cdea8f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares observed results with the literal row expectations and checks local event loss/count.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualByteResultMatches := FEqualByteSubject.Result = FExpectedEqualByteResult;
+FNotEqualByteResultMatches := FNotEqualByteSubject.Result = FExpectedNotEqualByteResult;
+FEqualLWordResultMatches := FEqualLWordSubject.Result = FExpectedEqualLWordResult;
+FNotEqualLWordResultMatches := FNotEqualLWordSubject.Result = FExpectedNotEqualLWordResult;
+FCaptureIntegrityMatches := (FCaptureStatus.SequenceId = ExpectedFindingCount)
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{45c0e32c-624a-4ca5-8c75-8ee359edae38}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the local capture, checking Assertions and publisher-bound real comparisons.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FEqualByteResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualByteResult');
+FNotEqualByteResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualByteResult');
+FEqualLWordResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualLWordResult');
+FNotEqualLWordResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualLWordResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FEqualByteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualByteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualByteSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotEqualByteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotEqualByteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualByteSubject');
+FSetupValid := FSetupValid AND Initialized;
+FEqualLWordSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualLWordSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualLWordSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotEqualLWordSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotEqualLWordSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualLWordSubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{60aedcc8-93aa-4a91-a520-8d66b4fa0a88}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{09393f1a-5af3-44ad-bfea-50cbccbeae84}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FEqualByteResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualByteResultMatches);
+FNotEqualByteResult(Enable := Evaluate,
+    State := State,
+    IN := FNotEqualByteResultMatches);
+FEqualLWordResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualLWordResultMatches);
+FNotEqualLWordResult(Enable := Evaluate,
+    State := State,
+    IN := FNotEqualLWordResultMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{e2f5a481-1c2b-4039-8651-55073a572b04}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{4d73675a-9c3b-4958-a933-d7adbc7d492c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := ZeroEqual;
+FRowPrepared := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FEqualByteResult.Reset();
+FEqualByteResultMatches := TRUE;
+FNotEqualByteResult.Reset();
+FNotEqualByteResultMatches := TRUE;
+FEqualLWordResult.Reset();
+FEqualLWordResultMatches := TRUE;
+FNotEqualLWordResult.Reset();
+FNotEqualLWordResultMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{787f4fcf-7ec3-45b1-8b8b-13a00b04e454}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRow = LastRow THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FRow := FRow + 1;
+    FRowPrepared := FALSE;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    ResetSubjects();
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := TRUE);
+    CheckResults();
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{7f037ab1-e97f-4572-8169-4626b85b9a40}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests a fresh result epoch for every comparison; CallSubjects consumes it.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualByteSubject.Reset();
+FNotEqualByteSubject.Reset();
+FEqualLWordSubject.Reset();
+FNotEqualLWordSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{d9983f23-31c0-4848-895d-f71f6912820f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal typed inputs and independent expected results for one comparison row.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FRow OF
+    ZeroEqual:
+        FActualByte := BYTE#16#00;
+        FExpectedByte := BYTE#16#00;
+        FActualLWord := LWORD#16#0000000000000000;
+        FExpectedLWord := LWORD#16#0000000000000000;
+        FExpectedEqualByteResult := E_Result.Passed;
+        FExpectedNotEqualByteResult := E_Result.Failed;
+        FExpectedEqualLWordResult := E_Result.Passed;
+        FExpectedNotEqualLWordResult := E_Result.Failed;
+    AllBitsEqual:
+        FActualByte := BYTE#16#FF;
+        FExpectedByte := BYTE#16#FF;
+        FActualLWord := LWORD#16#FFFFFFFFFFFFFFFF;
+        FExpectedLWord := LWORD#16#FFFFFFFFFFFFFFFF;
+        FExpectedEqualByteResult := E_Result.Passed;
+        FExpectedNotEqualByteResult := E_Result.Failed;
+        FExpectedEqualLWordResult := E_Result.Passed;
+        FExpectedNotEqualLWordResult := E_Result.Failed;
+    AllBitsDifferent:
+        FActualByte := BYTE#16#FF;
+        FExpectedByte := BYTE#16#00;
+        FActualLWord := LWORD#16#FFFFFFFFFFFFFFFF;
+        FExpectedLWord := LWORD#16#0000000000000000;
+        FExpectedEqualByteResult := E_Result.Failed;
+        FExpectedNotEqualByteResult := E_Result.Passed;
+        FExpectedEqualLWordResult := E_Result.Failed;
+        FExpectedNotEqualLWordResult := E_Result.Passed;
+    HighBitDifferent:
+        FActualByte := BYTE#16#80;
+        FExpectedByte := BYTE#16#00;
+        FActualLWord := LWORD#16#8000000000000000;
+        FExpectedLWord := LWORD#16#0000000000000000;
+        FExpectedEqualByteResult := E_Result.Failed;
+        FExpectedNotEqualByteResult := E_Result.Passed;
+        FExpectedEqualLWordResult := E_Result.Failed;
+        FExpectedNotEqualLWordResult := E_Result.Passed;
+    PatternDifferent:
+        FActualByte := BYTE#16#A5;
+        FExpectedByte := BYTE#16#5A;
+        FActualLWord := LWORD#16#A50000000000005A;
+        FExpectedLWord := LWORD#16#5A000000000000A5;
+        FExpectedEqualByteResult := E_Result.Failed;
+        FExpectedNotEqualByteResult := E_Result.Passed;
+        FExpectedEqualLWordResult := E_Result.Failed;
+        FExpectedNotEqualLWordResult := E_Result.Passed;
+ELSE
+    Error(Message := 'Unknown comparison test row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

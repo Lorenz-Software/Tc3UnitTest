@@ -1,0 +1,146 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_EventReservation" Id="{433e0472-a72c-40c0-ba23-0a3427b06de0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Groups real event reservation, admission and hierarchical release tests on isolated storage.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_EventReservation EXTENDS TestSuiteBase
+VAR
+    FSubjectParent : I_RunControl;
+    FResetAccounting : Test_ResetReservationAccounting;
+    FExecutionAccounting : Test_ExecutionReservationAccounting;
+    FAdmission : Test_ReservationAdmission;
+    FImpossibleReset : Test_ImpossibleResetBudget;
+    FImpossibleExecution : Test_ImpossibleExecutionBudget;
+    FActiveReservationLoss : Test_ActiveReservationLoss;
+    FHierarchicalRelease : Test_HierarchicalReservationRelease;
+    FLateResetRelease : Test_LateResetReservationRelease;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 8;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9498cc76-9b12-4836-93e9-58a63b51a3b9}" />
+    <Method Name="BindSubjectParent" Id="{0cebe82b-1bfc-4e3b-880a-5036d5693cd7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies the existing root identity to isolated Suite subjects before initialization.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{96e7ae95-6eca-4e03-9570-0a73d1505f34}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the isolated event scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FResetAccounting.Initialize(Parent := THIS^,
+    TestName := 'ResetAccounting',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetAccounting);
+
+FExecutionAccounting.Initialize(Parent := THIS^,
+    TestName := 'ExecutionAccounting',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionAccounting);
+
+FAdmission.BindSubjectParent(Parent := THIS^);
+FAdmission.Initialize(Parent := THIS^,
+    TestName := 'Admission',
+    Config := TestConfig);
+Builder.Register(TestCase := FAdmission);
+
+FImpossibleReset.BindSubjectParent(Parent := THIS^);
+FImpossibleReset.Initialize(Parent := THIS^,
+    TestName := 'ImpossibleReset',
+    Config := TestConfig);
+Builder.Register(TestCase := FImpossibleReset);
+
+FImpossibleExecution.BindSubjectParent(Parent := THIS^);
+FImpossibleExecution.Initialize(Parent := THIS^,
+    TestName := 'ImpossibleExecution',
+    Config := TestConfig);
+Builder.Register(TestCase := FImpossibleExecution);
+
+FActiveReservationLoss.BindSubjectParent(Parent := THIS^);
+FActiveReservationLoss.Initialize(Parent := THIS^,
+    TestName := 'ActiveReservationLoss',
+    Config := TestConfig);
+Builder.Register(TestCase := FActiveReservationLoss);
+
+FHierarchicalRelease.BindSubjectParent(Parent := FSubjectParent);
+FHierarchicalRelease.Initialize(Parent := THIS^,
+    TestName := 'HierarchicalRelease',
+    Config := TestConfig);
+Builder.Register(TestCase := FHierarchicalRelease);
+
+FLateResetRelease.BindSubjectParent(Parent := FSubjectParent);
+FLateResetRelease.Initialize(Parent := THIS^,
+    TestName := 'LateResetRelease',
+    Config := TestConfig);
+Builder.Register(TestCase := FLateResetRelease);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{0bdbc7c7-1224-410d-9b19-6b56587ecf07}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{7359991e-eb04-4133-b0bf-27a520283448}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetAccounting();
+FExecutionAccounting();
+FAdmission();
+FImpossibleReset();
+FImpossibleExecution();
+FActiveReservationLoss();
+FHierarchicalRelease();
+FLateResetRelease();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

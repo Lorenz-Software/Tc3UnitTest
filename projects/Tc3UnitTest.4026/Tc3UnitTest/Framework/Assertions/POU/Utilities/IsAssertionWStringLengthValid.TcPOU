@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="IsAssertionWStringLengthValid" Id="{ca9511c7-09af-46f2-bf9f-220b3f327de4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks for a terminator within the configured content capacity, including empty text. Reads at most capacity + 1 code units and stops at the first terminator.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL IsAssertionWStringLengthValid : BOOL //! TRUE when a terminator occurs within the configured capacity, including empty text.
+VAR_IN_OUT CONSTANT
+    Value : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only text to check for termination within its configured capacity.
+END_VAR
+VAR
+    CharacterIndex : DINT;
+END_VAR
+VAR CONSTANT
+    Terminator : WORD := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IsAssertionWStringLengthValid := FALSE;
+FOR CharacterIndex := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Value[CharacterIndex] = Terminator THEN
+        IsAssertionWStringLengthValid := TRUE;
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

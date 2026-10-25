@@ -1,0 +1,414 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionResetReuse" Id="{fe57d502-a28f-49d6-b69b-7b5f609ce0c2}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks deferred reset priority and reuse for both Assertion bases.</summary>
+<description>
+The subject reset request is inspected before any subsequent FB call. Two requests
+must coalesce into one reset hook. Reset retains identity/settings and suppresses
+findings despite active inputs. Both subjects use ObserveFirstCycle FALSE, so the
+first enabled call after reset must still be excluded. Each subject emits one Failed
+finding before reset and one after reset; repeated failure must not emit another.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionResetReuse EXTENDS TestCaseBase
+VAR
+    FDirect : AssertionLifecycleSubject;
+    FExplicit : AssertionEvaluationSubject;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : UINT;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+END_VAR
+VAR
+    FDeferredReset : AssertTrue;
+    FDeferredResetMatches : BOOL;
+    FResetPriority : AssertTrue;
+    FResetPriorityMatches : BOOL;
+    FHookDispatch : AssertTrue;
+    FHookDispatchMatches : BOOL;
+    FFirstObservation : AssertTrue;
+    FFirstObservationMatches : BOOL;
+    FRetainedResult : AssertTrue;
+    FRetainedResultMatches : BOOL;
+    FConfiguration : AssertTrue;
+    FConfigurationMatches : BOOL;
+    FFindings : AssertTrue;
+    FFindingsMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 16;
+    InitializeSubjects : UINT := 0;
+    InitialReset : UINT := 1;
+    FirstEnable : UINT := 2;
+    ProduceFailure : UINT := 3;
+    DisabledHolding : UINT := 4;
+    RequestTwice : UINT := 5;
+    ConsumeReset : UINT := 6;
+    FirstEnableAfterReset : UINT := 7;
+    FailureAfterReset : UINT := 8;
+    RepeatedFailure : UINT := 9;
+    SampleBeforeReset : UINT := 23;
+    SampleAtReset : UINT := 41;
+    SampleAfterReset : UINT := 67;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{567d0e58-9543-46fe-8237-9de6549ec045}" />
+    <Method Name="AggregateResults" Id="{d83cb4d4-f517-47cf-827a-6da246cafaad}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FDeferredReset);
+Aggregator.AddProvider(Provider := FResetPriority);
+Aggregator.AddProvider(Provider := FHookDispatch);
+Aggregator.AddProvider(Provider := FFirstObservation);
+Aggregator.AddProvider(Provider := FRetainedResult);
+Aggregator.AddProvider(Provider := FConfiguration);
+Aggregator.AddProvider(Provider := FFindings);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{f2ffa7b6-9716-44c3-9653-ef72090e52f4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each subject once with the same controlled failed finding.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+    Evaluate : BOOL; //! Explicit evaluation request forwarded to the evaluation-gated subjects.
+    Sample : UINT; //! Controlled sample forwarded to all subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDirect(Enable := Enable,
+    State := E_State.Running,
+    Sample := Sample,
+    Finding := E_Result.Failed);
+FExplicit(Enable := Enable,
+    Evaluate := Evaluate,
+    State := E_State.Running,
+    Sample := Sample,
+    Finding := E_Result.Failed);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckConfiguration" Id="{4d40e626-2cb6-4d2f-af54-696c9cc5298e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that ordinary Reset preserves identity, initialization and settings.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckConfiguration]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigurationMatches := FDirect.IsInitialized AND FExplicit.IsInitialized
+    AND (FDirect.Name = CONCAT(Name, '.DirectSubject'))
+    AND (FExplicit.Name = CONCAT(Name, '.ExplicitSubject'))
+    AND (FDirect.ResourceName = 'DirectResource')
+    AND (FExplicit.ResourceName = 'ExplicitResource')
+    AND NOT FDirect.ObserveFirstCycle AND NOT FExplicit.ObserveFirstCycle;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{e1806382-7315-4244-80e0-4b31eeaff8e0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FDeferredReset.Initialize(Parent := THIS^,
+    AssertionName := 'DeferredReset');
+FResetPriority.Initialize(Parent := THIS^,
+    AssertionName := 'ResetPriority');
+FHookDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'HookDispatch');
+FFirstObservation.Initialize(Parent := THIS^,
+    AssertionName := 'FirstObservation');
+FRetainedResult.Initialize(Parent := THIS^,
+    AssertionName := 'RetainedResult');
+FConfiguration.Initialize(Parent := THIS^,
+    AssertionName := 'Configuration');
+FFindings.Initialize(Parent := THIS^,
+    AssertionName := 'Findings');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FDirect.BindPublisher(Publisher := FCapture);
+FExplicit.BindPublisher(Publisher := FCapture);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeResetSubjects" Id="{f920ff72-6e7d-4987-95d6-239b23098779}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Establishes fresh configured subjects for each outer test run.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeResetSubjects
+VAR
+    DirectInitialized : BOOL;
+    ExplicitInitialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    Error(Message := 'Assertion reset capture setup failed.');
+    RETURN;
+END_IF;
+FDirect.ClearTrace();
+FExplicit.ClearTrace();
+DirectInitialized := FDirect.Initialize(Parent := THIS^,
+    AssertionName := 'DirectSubject',
+    ResourceName := 'DirectResource',
+    ObserveFirstCycle := FALSE);
+ExplicitInitialized := FExplicit.Initialize(Parent := THIS^,
+    AssertionName := 'ExplicitSubject',
+    ResourceName := 'ExplicitResource',
+    ObserveFirstCycle := FALSE);
+IF NOT DirectInitialized OR NOT ExplicitInitialized THEN
+    Error(Message := 'Assertion reset subjects could not be initialized.');
+    RETURN;
+END_IF;
+FStep := InitialReset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{1cd2bb89-9bd1-4099-9428-4d061a9899a1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{a19219b2-c049-4746-82be-0872976ca7f2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FDeferredReset(Enable := Evaluate,
+    State := State,
+    IN := FDeferredResetMatches);
+FResetPriority(Enable := Evaluate,
+    State := State,
+    IN := FResetPriorityMatches);
+FHookDispatch(Enable := Evaluate,
+    State := State,
+    IN := FHookDispatchMatches);
+FFirstObservation(Enable := Evaluate,
+    State := State,
+    IN := FFirstObservationMatches);
+FRetainedResult(Enable := Evaluate,
+    State := State,
+    IN := FRetainedResultMatches);
+FConfiguration(Enable := Evaluate,
+    State := State,
+    IN := FConfigurationMatches);
+FFindings(Enable := Evaluate,
+    State := State,
+    IN := FFindingsMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{6137491a-a82d-4f25-aabf-2c3282569dcf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{b7b854e0-a46f-48f1-a8ef-2cc1777efd8f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := InitializeSubjects;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FDeferredReset.Reset();
+FDeferredResetMatches := TRUE;
+FResetPriority.Reset();
+FResetPriorityMatches := TRUE;
+FHookDispatch.Reset();
+FHookDispatchMatches := TRUE;
+FFirstObservation.Reset();
+FFirstObservationMatches := TRUE;
+FRetainedResult.Reset();
+FRetainedResultMatches := TRUE;
+FConfiguration.Reset();
+FConfigurationMatches := TRUE;
+FFindings.Reset();
+FFindingsMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{6245202b-afe6-4fa5-b313-c9881848dff7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = RepeatedFailure THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+IF FStep = InitializeSubjects THEN
+    InitializeResetSubjects();
+    RETURN;
+END_IF;
+RunStep();
+CheckConfiguration();
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{5bb87435-069e-42a9-9f14-b2352ad2d711}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs one reset/reuse operation and records independent expected observations.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    InitialReset:
+        CallSubjects(Enable := TRUE,
+            Evaluate := TRUE,
+            Sample := SampleAtReset);
+        FResetPriorityMatches := (FDirect.Result = E_Result.NotEvaluated)
+            AND (FExplicit.Result = E_Result.NotEvaluated)
+            AND NOT FDirect.ObservationActive AND NOT FExplicit.ObservationActive
+            AND NOT FDirect.EvaluationActive AND NOT FExplicit.EvaluationActive;
+        FHookDispatchMatches := (FDirect.ResetCallCount = 1) AND (FExplicit.ResetCallCount = 1)
+            AND (FDirect.AssertCallCount = 0) AND (FExplicit.AssertCallCount = 0);
+        FFindingsMatches := FCaptureStatus.SequenceId = 0;
+    FirstEnable, FirstEnableAfterReset:
+        CallSubjects(Enable := TRUE,
+            Evaluate := FALSE,
+            Sample := SampleBeforeReset);
+        FFirstObservationMatches := NOT FDirect.ObservationActive AND NOT FExplicit.ObservationActive
+            AND NOT FDirect.EvaluationActive AND NOT FExplicit.EvaluationActive
+            AND (FDirect.ObservedSample = 0) AND (FExplicit.ObservedSample = 0)
+            AND (FDirect.Result = E_Result.NotEvaluated) AND (FExplicit.Result = E_Result.NotEvaluated);
+    ProduceFailure:
+        CallSubjects(Enable := TRUE,
+            Evaluate := TRUE,
+            Sample := SampleBeforeReset);
+        FRetainedResultMatches := (FDirect.Result = E_Result.Failed)
+            AND (FExplicit.Result = E_Result.Failed);
+        FFindingsMatches := FCaptureStatus.SequenceId = 2;
+    DisabledHolding:
+        CallSubjects(Enable := FALSE,
+            Evaluate := FALSE,
+            Sample := SampleAtReset);
+        FRetainedResultMatches := (FDirect.Result = E_Result.Failed)
+            AND (FExplicit.Result = E_Result.Failed)
+            AND (FDirect.ObservedSample = SampleBeforeReset)
+            AND (FExplicit.ObservedSample = SampleBeforeReset);
+        FFindingsMatches := FCaptureStatus.SequenceId = 2;
+    RequestTwice:
+        FDirect.Reset();
+        FDirect.Reset();
+        FExplicit.Reset();
+        FExplicit.Reset();
+        FDeferredResetMatches := (FDirect.Result = E_Result.Failed)
+            AND (FExplicit.Result = E_Result.Failed)
+            AND (FDirect.ObservedSample = SampleBeforeReset)
+            AND (FExplicit.ObservedSample = SampleBeforeReset)
+            AND (FDirect.ResetCallCount = 1) AND (FExplicit.ResetCallCount = 1);
+        FFindingsMatches := FCaptureStatus.SequenceId = 2;
+    ConsumeReset:
+        CallSubjects(Enable := TRUE,
+            Evaluate := TRUE,
+            Sample := SampleAtReset);
+        FResetPriorityMatches := (FDirect.Result = E_Result.NotEvaluated)
+            AND (FExplicit.Result = E_Result.NotEvaluated)
+            AND NOT FDirect.ObservationActive AND NOT FExplicit.ObservationActive
+            AND NOT FDirect.EvaluationActive AND NOT FExplicit.EvaluationActive;
+        FHookDispatchMatches := (FDirect.ResetCallCount = 2) AND (FExplicit.ResetCallCount = 2)
+            AND (FDirect.AssertCallCount = 3) AND (FExplicit.AssertCallCount = 3)
+            AND (FDirect.ResetSample = SampleAtReset) AND (FExplicit.ResetSample = SampleAtReset)
+            AND (FDirect.ObservedSample = 0) AND (FExplicit.ObservedSample = 0);
+        FFindingsMatches := FCaptureStatus.SequenceId = 2;
+    FailureAfterReset, RepeatedFailure:
+        CallSubjects(Enable := TRUE,
+            Evaluate := TRUE,
+            Sample := SampleAfterReset);
+        FRetainedResultMatches := (FDirect.Result = E_Result.Failed)
+            AND (FExplicit.Result = E_Result.Failed)
+            AND (FDirect.ObservedSample = SampleAfterReset)
+            AND (FExplicit.ObservedSample = SampleAfterReset);
+        FFindingsMatches := FCaptureStatus.SequenceId = 4;
+ELSE
+    Error(Message := 'Unknown Assertion reset step.');
+END_CASE;
+FCaptureIntegrityMatches := FCaptureStatus.LostEventCount = 0;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

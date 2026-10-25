@@ -1,0 +1,262 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_CommandQualification" Id="{4653a244-9dde-40c4-bba8-7d26f3686632}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks two-sample qualification and PLC-owned clearing for one external lifecycle command.</summary>
+<description>
+Use one instance per Start, Abort and Reset. Every enabled cycle samples the real adapter once.
+The script first withdraws two separate one-sample pulses, then leaves TRUE untouched for two
+calls. Acceptance must forward exactly one request and clear that field. A following call
+without a write must not repeat it. A new TRUE then needs two new samples before request two.
+Each sample checks the selected count/bit and both unrelated commands. This is deterministic
+call-boundary evidence, not a simulation of asynchronous ADS writes or a command handshake.
+ProcessReset initializes the local subject and clears the recorder for repeatable runs.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_CommandQualification EXTENDS TestCaseBase
+VAR_INPUT
+    Command : E_AdapterCommand := E_AdapterCommand.Start; //! External command field exercised by this instance; held fixed by the containing Suite.
+END_VAR
+VAR
+    FSubject : RunControlCommandAdapter;
+    FOwner : RunControlRequestRecorder;
+    FControl : ST_RunControl;
+    FStep : UINT;
+    FSampleChecked : BOOL;
+    FRequestCount : AssertTrue;
+    FRequestCountMatches : BOOL;
+    FCommandValue : AssertTrue;
+    FCommandValueMatches : BOOL;
+    FOtherCommands : AssertTrue;
+    FOtherCommandsMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    Baseline : UINT := 0;
+    SinglePulse : UINT := 1;
+    Withdrawal : UINT := 2;
+    SeparatedPulse : UINT := 3;
+    SecondWithdrawal : UINT := 4;
+    RetainedFirstSample : UINT := 5;
+    RetainedSecondSample : UINT := 6;
+    FreshFirstSample : UINT := 8;
+    FreshSecondSample : UINT := 9;
+    AfterFreshClearing : UINT := 10;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{49490200-0000-4000-8000-000000000001}" />
+    <Method Name="AggregateResults" Id="{49490200-0000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects request-count, field-value and isolation checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FRequestCount);
+Aggregator.AddProvider(Provider := FCommandValue);
+Aggregator.AddProvider(Provider := FOtherCommands);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckSample" Id="{49490200-0000-4000-8000-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the explicit script oracle against recorded calls and the post-call command fields.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckSample
+VAR
+    ExpectedCount : UINT;
+    ExpectedCommand : BOOL;
+    ActualCount : UINT;
+    ActualCommand : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FStep >= FreshSecondSample THEN
+    ExpectedCount := 2;
+ELSIF FStep >= RetainedSecondSample THEN
+    ExpectedCount := 1;
+END_IF;
+ExpectedCommand := (FStep = SinglePulse) OR (FStep = SeparatedPulse)
+    OR (FStep = RetainedFirstSample) OR (FStep = FreshFirstSample);
+CASE Command OF
+    E_AdapterCommand.Start:
+        ActualCount := FOwner.StartCount;
+        ActualCommand := FControl.Cmd.Start;
+        FOtherCommandsMatches := (FOwner.AbortCount = 0) AND (FOwner.ResetCount = 0)
+            AND NOT FControl.Cmd.Abort AND NOT FControl.Cmd.Reset;
+    E_AdapterCommand.Abort:
+        ActualCount := FOwner.AbortCount;
+        ActualCommand := FControl.Cmd.Abort;
+        FOtherCommandsMatches := (FOwner.StartCount = 0) AND (FOwner.ResetCount = 0)
+            AND NOT FControl.Cmd.Start AND NOT FControl.Cmd.Reset;
+    E_AdapterCommand.Reset:
+        ActualCount := FOwner.ResetCount;
+        ActualCommand := FControl.Cmd.Reset;
+        FOtherCommandsMatches := (FOwner.StartCount = 0) AND (FOwner.AbortCount = 0)
+            AND NOT FControl.Cmd.Start AND NOT FControl.Cmd.Abort;
+END_CASE;
+FRequestCountMatches := ActualCount = ExpectedCount;
+FCommandValueMatches := ActualCommand = ExpectedCommand;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{49490200-0000-4000-8000-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the three checking Assertions for the selected command.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FRequestCount.Initialize(Parent := THIS^,
+    AssertionName := 'RequestCount');
+FCommandValue.Initialize(Parent := THIS^,
+    AssertionName := 'CommandValue');
+FOtherCommands.Initialize(Parent := THIS^,
+    AssertionName := 'OtherCommands');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{49490200-0000-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous resource needs abort handling.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{49490200-0000-4000-8000-000000000010}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks every sample before advancing; failures remain latched across the script.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRequestCount(Enable := Enable,
+    State := State,
+    IN := FRequestCountMatches);
+FCommandValue(Enable := Enable,
+    State := State,
+    IN := FCommandValueMatches);
+FOtherCommands(Enable := Enable,
+    State := State,
+    IN := FOtherCommandsMatches);
+IF Enable THEN
+    FSampleChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{49490200-0000-4000-8000-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation work is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{49490200-0000-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears subject history, recorded requests and the bounded sample script.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubject.Initialize(ControlData := FControl);
+FOwner.Clear();
+FStep := Baseline;
+FSampleChecked := FALSE;
+FRequestCount.Reset();
+FRequestCountMatches := FALSE;
+FCommandValue.Reset();
+FCommandValueMatches := FALSE;
+FOtherCommands.Reset();
+FOtherCommandsMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{49490200-0000-4000-8000-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies one scheduled write and one real adapter call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FSampleChecked THEN
+    IF FStep = AfterFreshClearing THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+    FSampleChecked := FALSE;
+END_IF;
+CASE FStep OF
+    SinglePulse, SeparatedPulse, RetainedFirstSample, FreshFirstSample:
+        SetCommand(Value := TRUE);
+    Withdrawal, SecondWithdrawal:
+        SetCommand(Value := FALSE);
+ELSE
+    // No external write: retain the actual field, including the adapter's clearing.
+END_CASE;
+FSubject(RunControl := FOwner,
+    Commands := FControl.Cmd);
+CheckSample();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetCommand" Id="{49490200-0000-4000-8000-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Writes only the chosen external command field.</summary>
+*)
+{endregion}
+METHOD PRIVATE SetCommand
+VAR_INPUT
+    Value : BOOL; //! Boolean value written only to the selected command field.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE Command OF
+    E_AdapterCommand.Start:
+        FControl.Cmd.Start := Value;
+    E_AdapterCommand.Abort:
+        FControl.Cmd.Abort := Value;
+    E_AdapterCommand.Reset:
+        FControl.Cmd.Reset := Value;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

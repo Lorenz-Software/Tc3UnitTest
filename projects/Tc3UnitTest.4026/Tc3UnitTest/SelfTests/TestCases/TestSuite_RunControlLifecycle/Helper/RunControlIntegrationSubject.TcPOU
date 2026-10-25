@@ -1,0 +1,157 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControlIntegrationSubject" Id="{f4298285-bac6-40e8-adfb-31e539b9910f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Local real root, Orchestrator, Suite and two Test Cases with one isolated publisher.</summary>
+<description>
+BindPublisher wires each producer before Initialize. Production lifecycle, scheduling and
+reservation handling remain inherited. Configure initializes the hierarchy once; lifecycle
+Reset does not rebuild it. Observation accessors expose the actual children, not mirrored state.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK RunControlIntegrationSubject EXTENDS RunControlBase
+VAR
+    FSuite : SuiteIntegrationSubject;
+    FTestSuites : ARRAY[3..4] OF I_TestSuite;
+    FRealOrchestrator : OrchestratorProbe;
+    FConfigureCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ControlData := ControlData);]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{cccfa8c7-6bc1-4f92-9f37-2bbe7a66c4c0}" />
+    <Method Name="BindPublisher" Id="{0a68f6b5-c5a7-4b0f-a9dc-ef220aca752a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the complete local hierarchy before first use without changing the global publisher.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindPublisher
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;
+FRealOrchestrator.BindPublisher(Publisher := Publisher);
+FOrchestrator := FRealOrchestrator;
+FSuite.BindPublisher(Publisher := Publisher);
+FConfigureCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ChildCallsMatch" Id="{b4290d36-dc4b-4830-a173-785e09138b06}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the Suite's observation of exactly one call per concrete Test Case.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildCallsMatch : BOOL //! Reports the Suite's observation of exactly one call per concrete Test Case.]]></Declaration>
+      <Get Name="Get" Id="{949fca96-e16c-4425-96f2-4af3bb0f310e}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildCallsMatch := FSuite.ChildCallsMatch;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ConfigurationUnchanged" Id="{946f70fa-1e70-4b9f-94b3-137283c916c0}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Confirms both owner configurations ran once across lifecycle Reset/repeat.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ConfigurationUnchanged : BOOL //! Confirms both owner configurations ran once across lifecycle Reset/repeat.]]></Declaration>
+      <Get Name="Get" Id="{b39e9f9a-8833-4136-b187-db5df9b1cf95}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ConfigurationUnchanged := (FConfigureCount = 1) AND (FSuite.ConfigureCount = 1);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Configure" Id="{09073901-9f8b-47ef-9253-4dce561935e3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registers one real Suite; normal configuration defaults include the completion delay.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : RunControlConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    Config : ST_TestSuiteConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigureCount := FConfigureCount + 1;
+Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestSuites := FTestSuites);
+FSuite.Initialize(Parent := THIS^,
+    SuiteName := 'Suite',
+    Config := Config);
+Builder.Register(TestSuite := FSuite);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{acb2b42d-0a31-4796-be04-4a4c586a8653}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Provides the actual Suite child by its registered index for integration observations.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := FSuite.GetTestCase(Index := Index);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestSuite" Id="{7a1d1273-ab8c-44d9-aa93-36480dd47b0d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered Suite for its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestSuite : I_TestSuite //! Typed Suite interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestSuite := 0;
+IF (ChildCount = 0) OR (Index <> ChildArrayLowerBound) THEN
+    RETURN;
+END_IF;
+GetTestSuite := FTestSuites[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestSuites" Id="{ee094201-7ff1-44d2-86a7-4e42dffba418}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the owned real Suite once per root cycle, including Completed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestSuites]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSuite();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TestCaseLowerBound" Id="{20614f57-e404-4faa-8c7b-02786e8d02e2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>First registered Test Case array index in the real Suite.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TestCaseLowerBound : DINT //! First registered Test Case array index in the real Suite.]]></Declaration>
+      <Get Name="Get" Id="{4affe5f0-92b7-46c1-8d38-e132388673fc}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TestCaseLowerBound := FSuite.ChildArrayLowerBound;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

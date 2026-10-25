@@ -1,0 +1,59 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertLaterThan_DT" Id="{3d91dd2f-fe18-4791-96e9-d1a599887f0d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is strictly later than Minimum.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertLaterThan_DT EXTENDS AssertionBase
+VAR_INPUT
+    IN : DT; //! Actual value checked or observed by this Assertion.
+    Minimum : DT; //! Exclusive lower bound; the actual value or count must be greater.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{360f03c8-7f46-4e5e-b011-8dd9dbbd9a22}" />
+    <Method Name="Assert" Id="{26220fb8-e12a-4160-969d-7583cb8b7587}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    MinimumText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <= Minimum THEN
+    MinimumText := DT_TO_STRING(Minimum);
+    ActualText := DT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is not later than limit. Minimum = ',
+        MinimumText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

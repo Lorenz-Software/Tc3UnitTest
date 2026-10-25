@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateStartEvent" Id="{08df4992-8cd8-4e65-a8d4-815467daa26f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a start trigger event without publishing it.</summary>
+<description>
+The caller supplies valid ASCII owner context; publication assigns sequence and time.
+</description>
+*)
+{endregion}
+FUNCTION CreateStartEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateStartEvent.SequenceId := 0;
+CreateStartEvent.Timestamp := 0;
+CreateStartEvent.OwnerScope := OwnerScope;
+CreateStartEvent.EventType := E_EventType.Trigger;
+CreateStartEvent.Severity := E_EventSeverity.Info;
+CreateStartEvent.Name := Name;
+CreateStartEvent.ResourceName := ResourceName;
+CreateStartEvent.State := State;
+CreateStartEvent.Result := E_Result.NotEvaluated;
+CreateStartEvent.Message := 'Start trigger.';]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

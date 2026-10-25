@@ -1,0 +1,144 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="PreparationResource" Id="{2b00e05a-eb00-46d1-8853-1a3a781ca721}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controlled local resource for Preparation selftests; only its FB call advances feedback. RequestValue records every command write, including repeated values. Initialize establishes a fresh fixture.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK PreparationResource
+VAR_INPUT
+    Available : BOOL := TRUE; //! Availability accepted on the next resource-body call.
+    Fault : BOOL := FALSE; //! Technical fault accepted on the next resource-body call.
+    Advance : BOOL := TRUE; //! FALSE holds feedback without cancelling the accepted request.
+END_VAR
+VAR
+    FActualValue : DINT;
+    FRequestedValue : DINT;
+    FCommandWriteCount : UDINT;
+    FAvailable : BOOL := TRUE;
+    FFault : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FAvailable := Available;
+FFault := Fault;
+IF NOT IsReady OR NOT Advance THEN
+    RETURN;
+END_IF;
+
+IF FActualValue < FRequestedValue THEN
+    FActualValue := FActualValue + 1;
+ELSIF FActualValue > FRequestedValue THEN
+    FActualValue := FActualValue - 1;
+END_IF;]]></ST>
+    </Implementation>
+    <Property Name="ActualValue" Id="{1b97fe3f-9104-49c0-8137-d2270efa1d20}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Feedback after the last resource call.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ActualValue : DINT //! Feedback after the last resource call.]]></Declaration>
+      <Get Name="Get" Id="{b53c9a0b-be6a-4229-a181-f04c5b2e758d}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ActualValue := FActualValue;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="CommandWriteCount" Id="{52c93115-b3f2-487b-8874-2c92389ebdb4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Every RequestValue call since fixture initialization, including same-value writes.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC CommandWriteCount : UDINT //! Every RequestValue call since fixture initialization, including same-value writes.]]></Declaration>
+      <Get Name="Get" Id="{0d85979b-d8ac-493d-8a34-fbcc10270a24}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CommandWriteCount := FCommandWriteCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasError" Id="{24f98c08-fd67-4000-9c9e-cb3037076d0f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Fault accepted at the last resource call.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasError : BOOL //! Fault accepted at the last resource call.]]></Declaration>
+      <Get Name="Get" Id="{8ff5da4f-009f-42f6-b056-98ae98cf2463}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasError := FFault;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{b50798ba-8bce-4582-a4e9-20a79253b0af}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restores feedback and request together; fixture setup is not counted as a resource command.</summary>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_INPUT
+    InitialValue : DINT; //! Initial feedback and requested target; fixture initialization clears command-write evidence.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FActualValue := InitialValue;
+FRequestedValue := InitialValue;
+FCommandWriteCount := 0;
+FAvailable := TRUE;
+FFault := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsReady" Id="{53906261-1b95-4bb2-9ed1-0a2e38ceaf2d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current resource condition permits movement; independent of the target value.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Current resource condition permits movement; independent of the target value.]]></Declaration>
+      <Get Name="Get" Id="{485e14c2-f9a0-4a25-9fd1-1b17506c4c2b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := FAvailable AND NOT FFault;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="RequestedValue" Id="{96238d15-3650-429f-8b98-32dc4afbca1c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Last requested target; accepting a command does not establish feedback.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC RequestedValue : DINT //! Last requested target; accepting a command does not establish feedback.]]></Declaration>
+      <Get Name="Get" Id="{66033695-7df6-4c81-a6b1-97cb8e9f91b9}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RequestedValue := FRequestedValue;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="RequestValue" Id="{95576322-4795-440c-b5ca-0dfd86721481}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records one command write without changing feedback; a later advancing resource call processes it.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestValue
+VAR_INPUT
+    Value : DINT; //! New requested target; this call records a command write without advancing feedback.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRequestedValue := Value;
+FCommandWriteCount := FCommandWriteCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

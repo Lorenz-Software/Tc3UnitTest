@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextStartsWith_String" Id="{5b9a8c5a-f9c7-490b-835e-3d0085ce5dfc}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exact prefix comparison without copies; an empty prefix matches. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextStartsWith_String : BOOL //! TRUE when Value starts with Prefix; an empty Prefix matches.
+VAR_IN_OUT CONSTANT
+    Value : STRING(Param_Assertions.AssertionStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Prefix : STRING(Param_Assertions.AssertionStringLength); //! Read-only prefix compared by code unit; an empty value matches in this helper.
+END_VAR
+VAR
+    CharacterIndex : DINT;
+END_VAR
+VAR CONSTANT
+    Terminator : BYTE := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextStartsWith_String := FALSE;
+
+FOR CharacterIndex := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Prefix[CharacterIndex] = Terminator THEN
+    {analysis +175}
+        TextStartsWith_String := TRUE;
+        RETURN;
+    END_IF;
+
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Value[CharacterIndex] <> Prefix[CharacterIndex] THEN
+    {analysis +175}
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

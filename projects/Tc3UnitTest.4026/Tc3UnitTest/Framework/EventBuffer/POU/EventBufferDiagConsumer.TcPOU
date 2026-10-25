@@ -1,0 +1,274 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="EventBufferDiagConsumer" Id="{41b5b30c-3aaa-414c-99af-9b0263d0a38e}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Discards events for PLC-only lifecycle diagnosis; this is not an evaluated test run.</summary>
+<description>
+Call once per cycle after RunControl in the same task, including during initial Reset.
+Supply the initialized buffer service and its actual one-based event storage. No other consumer
+may acknowledge this epoch. The array is borrowed only for this call, never copied or retained.
+Activation consumes immediately; subsequent batches follow ConsumeInterval without catch-up.
+Disabled calls neither access the buffer nor clear held diagnostics. No events are evaluated.
+
+
+HasError describes diagnostic consumption, not the test verdict. A batch attempt clears its previous batch/error state before work; a failing batch retains confirmed partial progress and reports Error. ResetDiagnostics clears observations only. Disabling resets the interval schedule, so the next valid activation consumes immediately; it does not reset the buffer or its epoch.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK EventBufferDiagConsumer
+VAR_INPUT
+    Enable : BOOL := FALSE; //! Enables event discarding; default FALSE. The first enabled call consumes immediately.
+    Buffer : I_EventBuffer; //! Initialized service for the supplied Events array; no other consumer may acknowledge this epoch.
+END_VAR
+VAR_IN_OUT CONSTANT
+    Events : ARRAY[*] OF ST_Event; //! Read-only physical ring storage belonging to Buffer; borrowed only for this call, not retained.
+END_VAR
+VAR
+    FEnabled : BOOL;
+    FMaxEventsPerCall : UINT := 32;
+    FConsumeInterval : TIME := T#10ms;
+    FIntervalTimer : Stopwatch;
+    FDiscardedEventCount : ULINT;
+    FLastBatchEventCount : UINT;
+    FPeakPendingEventCount : UINT;
+    FHasError : BOOL;
+END_VAR
+VAR_TEMP
+    PendingStatus : ST_FifoStatus;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT Enable THEN
+    FEnabled := FALSE;
+    FIntervalTimer.Reset();
+    RETURN;
+END_IF;
+
+IF Buffer = 0 THEN
+    FHasError := TRUE;
+    RETURN;
+END_IF;
+
+PendingStatus := Buffer.FifoStatus;
+IF PendingStatus.ConfigError OR PendingStatus.IndexError
+    OR (PendingStatus.BufferLength < 2)
+    OR (PendingStatus.ElementCount >= PendingStatus.BufferLength) THEN
+    FHasError := TRUE;
+    RETURN;
+END_IF;
+FPeakPendingEventCount := MAX(FPeakPendingEventCount, PendingStatus.ElementCount);
+
+IF FEnabled THEN
+    FIntervalTimer.Update();
+    IF NOT FIntervalTimer.IsValid THEN
+        FHasError := TRUE;
+        FIntervalTimer.Start();
+        RETURN;
+    END_IF;
+    IF FIntervalTimer.ElapsedTime < FConsumeInterval THEN
+        RETURN;
+    END_IF;
+END_IF;
+
+FEnabled := TRUE;
+ConsumeEvents(Events := Events);
+FIntervalTimer.Start();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6df5090e-69c2-40ed-99cf-060f062eeeba}" />
+    <Method Name="ConsumeEvents" Id="{66020001-0000-4000-8000-00000000000c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Discards at most one bounded batch from the FIFO head; counts only confirmed deletions.</summary>
+<description>
+An invalid binding, range, sequence or rejected deletion stops this batch and sets HasError.
+Buffer and Events must identify the same storage; equal dimensions alone cannot prove identity.
+</description>
+*)
+{endregion}
+METHOD PRIVATE ConsumeEvents
+VAR_IN_OUT CONSTANT
+    Events : ARRAY[*] OF ST_Event; //! Read-only one-based storage of Buffer, borrowed for this batch without copying or retention.
+END_VAR
+VAR
+    FifoStatus : ST_FifoStatus;
+    BufferStatus : ST_EventBufferStatus;
+    BatchLimit : UINT;
+    EntryNumber : UINT;
+    HeadSequenceId : UDINT;
+    DeleteSequenceId : UDINT;
+END_VAR
+VAR CONSTANT
+    MaxDiscardedEventCount : ULINT := ULINT#18446744073709551615;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FLastBatchEventCount := 0;
+FHasError := FALSE;
+IF FMaxEventsPerCall = 0 THEN
+    FHasError := TRUE;
+    RETURN;
+END_IF;
+
+FifoStatus := Buffer.FifoStatus;
+IF FifoStatus.ConfigError OR FifoStatus.IndexError
+    OR (FifoStatus.BufferLength < 2)
+    OR (LOWER_BOUND(Events, 1) <> 1)
+    OR (UPPER_BOUND(Events, 1) <> UINT_TO_DINT(FifoStatus.BufferLength))
+    OR (FifoStatus.ElementCount >= FifoStatus.BufferLength) THEN
+    FHasError := TRUE;
+    RETURN;
+END_IF;
+
+BatchLimit := MIN(FMaxEventsPerCall, FifoStatus.ElementCount);
+FOR EntryNumber := 1 TO BatchLimit DO
+    FifoStatus := Buffer.FifoStatus;
+    IF FifoStatus.ConfigError OR FifoStatus.IndexError
+        OR (FifoStatus.IndexOut < 1) OR (FifoStatus.IndexOut > FifoStatus.BufferLength) THEN
+        FHasError := TRUE;
+        RETURN;
+    END_IF;
+    IF FifoStatus.BufferEmpty THEN
+        EXIT;
+    END_IF;
+
+    HeadSequenceId := Events[FifoStatus.IndexOut].SequenceId;
+    BufferStatus := Buffer.Status;
+    IF (HeadSequenceId = 0)
+        OR (HeadSequenceId <= BufferStatus.DeletedSequenceId)
+        OR (HeadSequenceId > BufferStatus.SequenceId) THEN
+        FHasError := TRUE;
+        RETURN;
+    END_IF;
+
+    DeleteSequenceId := HeadSequenceId;
+    Buffer.ProcessDeleteRequest(SequenceId := DeleteSequenceId);
+    BufferStatus := Buffer.Status;
+    IF BufferStatus.DeletedSequenceId <> HeadSequenceId THEN
+        FHasError := TRUE;
+        RETURN;
+    END_IF;
+
+    FLastBatchEventCount := FLastBatchEventCount + 1;
+    IF FDiscardedEventCount < MaxDiscardedEventCount THEN
+        FDiscardedEventCount := FDiscardedEventCount + 1;
+    END_IF;
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ConsumeInterval" Id="{66020001-0000-4000-8000-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Minimum batch interval, default T#10ms. T#0ms consumes every call; no catch-up batches.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ConsumeInterval : TIME //! Minimum batch interval, default T#10ms. T#0ms consumes every call; no catch-up batches.]]></Declaration>
+      <Get Name="Get" Id="{66020001-0000-4000-8000-000000000005}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ConsumeInterval := FConsumeInterval;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{66020001-0000-4000-8000-000000000006}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FConsumeInterval := ConsumeInterval;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="DiscardedEventCount" Id="{66020001-0000-4000-8000-000000000007}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Confirmed discarded events since ResetDiagnostics, saturating at ULINT maximum; independent of buffer epochs.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC DiscardedEventCount : ULINT //! Confirmed discarded events since ResetDiagnostics, saturating at ULINT maximum; independent of buffer epochs.]]></Declaration>
+      <Get Name="Get" Id="{66020001-0000-4000-8000-000000000008}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[DiscardedEventCount := FDiscardedEventCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasError" Id="{66020001-0000-4000-8000-000000000009}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Buffer observation, batch or time-base failure; retained until a batch succeeds or ResetDiagnostics is called.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasError : BOOL //! Buffer observation, batch or time-base failure; retained until a batch succeeds or ResetDiagnostics is called.]]></Declaration>
+      <Get Name="Get" Id="{66020001-0000-4000-8000-00000000000a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasError := FHasError;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LastBatchEventCount" Id="{66030001-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual deletions in the last attempted batch, including partial failure; held between batches and while disabled.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC LastBatchEventCount : UINT //! Actual deletions in the last attempted batch, including partial failure; held between batches and while disabled.]]></Declaration>
+      <Get Name="Get" Id="{66030002-0000-4000-8000-000000000001}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LastBatchEventCount := FLastBatchEventCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="MaxEventsPerCall" Id="{66020001-0000-4000-8000-000000000001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Maximum events per cyclic call, default 32. Zero is invalid and prevents consumption.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC MaxEventsPerCall : UINT //! Maximum events per cyclic call, default 32. Zero is invalid and prevents consumption.]]></Declaration>
+      <Get Name="Get" Id="{66020001-0000-4000-8000-000000000002}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[MaxEventsPerCall := FMaxEventsPerCall;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{66020001-0000-4000-8000-000000000003}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FMaxEventsPerCall := MaxEventsPerCall;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Property Name="PeakPendingEventCount" Id="{66030001-0000-4000-8000-000000000002}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Highest valid pre-consumption occupancy sampled on every enabled call since ResetDiagnostics; not only at batch intervals.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC PeakPendingEventCount : UINT //! Highest valid pre-consumption occupancy sampled on every enabled call since ResetDiagnostics; not only at batch intervals.]]></Declaration>
+      <Get Name="Get" Id="{66030002-0000-4000-8000-000000000002}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PeakPendingEventCount := FPeakPendingEventCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetDiagnostics" Id="{66020001-0000-4000-8000-00000000000b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Immediately clears only the three consumer statistics and error indication; no buffer or scheduling effects.</summary>
+*)
+{endregion}
+METHOD PUBLIC ResetDiagnostics]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDiscardedEventCount := 0;
+FLastBatchEventCount := 0;
+FPeakPendingEventCount := 0;
+FHasError := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

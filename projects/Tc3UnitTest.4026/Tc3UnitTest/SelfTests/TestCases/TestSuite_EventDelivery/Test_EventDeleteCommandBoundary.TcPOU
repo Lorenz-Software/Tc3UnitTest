@@ -1,0 +1,329 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventDeleteCommandBoundary" Id="{b3d29fed-6ee4-4fe2-bab6-280bcef25287}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies DeleteSequenceId consumption at explicit call boundaries across successive PLC cycles.</summary>
+<description>
+Uses the actual field of a local ST_EventBufferCommand as VAR_IN_OUT, not a copied request.
+A higher watermark replaces an earlier value before the call. Another is queued after return,
+survives publication in the next cycle and is consumed only by the following delete call.
+Zero after successful or rejected processing must not replay deletion or diagnostics.
+No write occurs inside ProcessDeleteRequest: this scenario does not exercise its changed-value
+branch or establish atomicity against ADS writes between comparison and clearing.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventDeleteCommandBoundary EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FCommands : ST_EventBufferCommand;
+    FStep : UINT;
+    FBeforeCall : AssertTrue;
+    FBeforeCallMatches : BOOL;
+    FPending : AssertTrue;
+    FPendingMatches : BOOL;
+    FNextCall : AssertTrue;
+    FNextCallMatches : BOOL;
+    FZeroNoReplay : AssertTrue;
+    FZeroNoReplayMatches : BOOL;
+    FRejectedNoReplay : AssertTrue;
+    FRejectedNoReplayMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 10;
+    Arrange : UINT := 0;
+    ReplaceBeforeCall : UINT := 1;
+    ObservePending : UINT := 2;
+    ConsumePending : UINT := 3;
+    ObserveCleared : UINT := 4;
+    RejectFuture : UINT := 5;
+    ObserveRejected : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500004-0050-4050-8050-000000000002}" />
+    <Method Name="AggregateResults" Id="{00500004-0050-4050-8050-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FBeforeCall);
+Aggregator.AddProvider(Provider := FPending);
+Aggregator.AddProvider(Provider := FNextCall);
+Aggregator.AddProvider(Provider := FZeroNoReplay);
+Aggregator.AddProvider(Provider := FRejectedNoReplay);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500004-0050-4050-8050-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FBeforeCall.IsInitialized
+    AND FPending.IsInitialized
+    AND FNextCall.IsInitialized
+    AND FZeroNoReplay.IsInitialized
+    AND FRejectedNoReplay.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500004-0050-4050-8050-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FBeforeCall.Initialize(Parent := THIS^,
+    AssertionName := 'BeforeCall');
+FPending.Initialize(Parent := THIS^,
+    AssertionName := 'Pending');
+FNextCall.Initialize(Parent := THIS^,
+    AssertionName := 'NextCall');
+FZeroNoReplay.Initialize(Parent := THIS^,
+    AssertionName := 'ZeroNoReplay');
+FRejectedNoReplay.Initialize(Parent := THIS^,
+    AssertionName := 'RejectedNoReplay');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500004-0050-4050-8050-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500004-0050-4050-8050-00000000000a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FBeforeCall(Enable := Evaluate,
+    State := State,
+    IN := FBeforeCallMatches);
+FPending(Enable := Evaluate,
+    State := State,
+    IN := FPendingMatches);
+FNextCall(Enable := Evaluate,
+    State := State,
+    IN := FNextCallMatches);
+FZeroNoReplay(Enable := Evaluate,
+    State := State,
+    IN := FZeroNoReplayMatches);
+FRejectedNoReplay(Enable := Evaluate,
+    State := State,
+    IN := FRejectedNoReplayMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500004-0050-4050-8050-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500004-0050-4050-8050-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FStep := Arrange;
+FCommands.Reset := FALSE;
+FCommands.DeleteSequenceId := 0;
+FBeforeCall.Reset();
+FBeforeCallMatches := FALSE;
+FPending.Reset();
+FPendingMatches := FALSE;
+FNextCall.Reset();
+FNextCallMatches := FALSE;
+FZeroNoReplay.Reset();
+FZeroNoReplayMatches := FALSE;
+FRejectedNoReplay.Reset();
+FRejectedNoReplayMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500004-0050-4050-8050-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the scenario until its final observation has been evaluated.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    StateMachine();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{00500004-0050-4050-8050-00000000000b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one boundary scenario step per enabled test cycle.</summary>
+*)
+{endregion}
+METHOD PRIVATE StateMachine
+VAR
+    Index : UINT;
+    WriteResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Arrange:
+        IF NOT FSubject.Initialize(Buffer := FEvents,
+            FifoControl := FFifo,
+            Status := FBufferStatus) THEN
+            Error(Message := 'Local Event Buffer initialization failed.');
+            RETURN;
+        END_IF;
+        FBeforeCallMatches := TRUE;
+        FOR Index := 1 TO 4 DO
+            WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalCommand',
+                State := E_State.Running,
+                Severity := E_EventSeverity.Info,
+                Message := UINT_TO_STRING(Index)));
+            FBeforeCallMatches := FBeforeCallMatches AND (WriteResult = UINT_TO_INT(Index));
+        END_FOR;
+        FStep := ReplaceBeforeCall;
+
+    ReplaceBeforeCall:
+        FCommands.DeleteSequenceId := 1;
+        FCommands.DeleteSequenceId := 2;
+        FSubject.ProcessDeleteRequest(SequenceId := FCommands.DeleteSequenceId);
+        FBeforeCallMatches := FBeforeCallMatches AND (FCommands.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 2) AND (FBufferStatus.SequenceId = 4)
+            AND (FFifo.IndexOut = 3) AND (FFifo.IndexIn = 5) AND (FFifo.ElementCount = 2)
+            AND (FEvents[1].SequenceId = 0) AND (FEvents[2].SequenceId = 0)
+            AND (FEvents[3].SequenceId = 3) AND (FEvents[4].SequenceId = 4);
+        FCommands.DeleteSequenceId := 4;
+        FStep := ObservePending;
+
+    ObservePending:
+        WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalCommand',
+            State := E_State.Running,
+            Severity := E_EventSeverity.Info,
+            Message := 'Published while deletion is pending.'));
+        FPendingMatches := (WriteResult = 5) AND (FCommands.DeleteSequenceId = 4)
+            AND (FBufferStatus.DeletedSequenceId = 2) AND (FBufferStatus.SequenceId = 5)
+            AND (FFifo.IndexOut = 3) AND (FFifo.IndexIn = 6) AND (FFifo.ElementCount = 3)
+            AND (FEvents[3].SequenceId = 3) AND (FEvents[4].SequenceId = 4)
+            AND (FEvents[5].SequenceId = 5);
+        FStep := ConsumePending;
+
+    ConsumePending:
+        FSubject.ProcessDeleteRequest(SequenceId := FCommands.DeleteSequenceId);
+        FNextCallMatches := (FCommands.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.SequenceId = 5)
+            AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 6) AND (FFifo.ElementCount = 1)
+            AND (FEvents[3].SequenceId = 0) AND (FEvents[4].SequenceId = 0)
+            AND (FEvents[5].SequenceId = 5);
+        FStep := ObserveCleared;
+
+    ObserveCleared:
+        FSubject.ProcessDeleteRequest(SequenceId := FCommands.DeleteSequenceId);
+        FZeroNoReplayMatches := (FCommands.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.SequenceId = 5)
+            AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 6) AND (FFifo.ElementCount = 1)
+            AND (FEvents[5].SequenceId = 5) AND (FBufferStatus.LostEventCount = 0);
+        FCommands.DeleteSequenceId := 100;
+        FStep := RejectFuture;
+
+    RejectFuture:
+        FSubject.ProcessDeleteRequest(SequenceId := FCommands.DeleteSequenceId);
+        FRejectedNoReplayMatches := (FCommands.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.SequenceId = 6)
+            AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 7) AND (FFifo.ElementCount = 2)
+            AND (FEvents[5].SequenceId = 5)
+            AND (FEvents[6].SequenceId = 6) AND (FEvents[6].Name = 'EventBuffer')
+            AND (FEvents[6].EventType = E_EventType.Framework)
+            AND (FEvents[6].Severity = E_EventSeverity.Warning);
+        FStep := ObserveRejected;
+
+    ObserveRejected:
+        FSubject.ProcessDeleteRequest(SequenceId := FCommands.DeleteSequenceId);
+        FRejectedNoReplayMatches := FRejectedNoReplayMatches AND (FCommands.DeleteSequenceId = 0)
+            AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.SequenceId = 6)
+            AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 7) AND (FFifo.ElementCount = 2)
+            AND (FEvents[5].SequenceId = 5) AND (FEvents[6].SequenceId = 6)
+            AND (FBufferStatus.LostEventCount = 0);
+        FPerformed := TRUE;
+
+ELSE
+    Error(Message := 'Unknown delete-command test step.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

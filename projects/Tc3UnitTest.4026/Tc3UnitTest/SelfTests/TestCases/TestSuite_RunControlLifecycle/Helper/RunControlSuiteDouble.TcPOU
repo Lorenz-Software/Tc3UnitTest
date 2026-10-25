@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControlSuiteDouble" Id="{38e4cd30-da99-46ea-b36e-5760366fefe9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adds the typed Test Suite status to the existing scripted child boundary; requests remain observation-only.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK RunControlSuiteDouble EXTENDS OrchestrationChildDouble IMPLEMENTS I_TestSuite]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ObservationInput := ObservationInput);]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b4c32636-433c-40b4-91df-200c787909fc}" />
+    <Property Name="Status" Id="{0ec26066-e050-40ee-bb6b-ca9f173357a1}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Projects the scripted child observation into the typed Run-Control-facing status; no lifecycle is copied.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Status : ST_TestSuiteStatus //! Projects the scripted child observation into the typed Run-Control-facing status; no lifecycle is copied.]]></Declaration>
+      <Get Name="Get" Id="{f3eb4702-69c6-454a-a185-bebfcd8dff88}">
+        <Declaration><![CDATA[VAR
+    Snapshot : ST_TestSuiteStatus;
+    View : ST_OrchestrationObservation;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[View := Observation;
+Snapshot.Execution.State := View.State;
+Snapshot.Execution.Result := View.Result;
+Snapshot.Execution.Ready := View.Ready;
+Snapshot.Execution.Completed := View.Complete;
+Snapshot.Execution.Error := View.Result = E_Result.Error;
+CASE View.State OF
+    E_State.Uninitialized:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.NotReady;
+        Snapshot.Execution.Uninitialized := TRUE;
+    E_State.Reset:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Reset;
+    E_State.Idle:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Idle;
+    E_State.Starting:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Starting;
+    E_State.Running:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Running;
+        Snapshot.Execution.Running := TRUE;
+    E_State.Completing:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Completing;
+    E_State.Completed:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Completed;
+    E_State.Aborting, E_State.AbortingFromError:
+        Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Aborting;
+ELSE
+    Snapshot.Execution.ExecutionStatus := E_ExecutionStatus.Error;
+END_CASE;
+Status := Snapshot;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

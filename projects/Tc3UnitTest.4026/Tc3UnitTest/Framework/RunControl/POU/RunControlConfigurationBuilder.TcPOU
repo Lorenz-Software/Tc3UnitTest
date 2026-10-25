@@ -1,0 +1,347 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControlConfigurationBuilder" Id="{2666aaa6-e5b9-4db4-9c5f-a343c3a8bedf}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Setup-only configuration: Initialize through Finalize requires stable array/child storage.</summary>
+<description>
+No FB body call is required. Finalize discards the temporary array pointer on either outcome.
+At most 65535 children can be registered; Initialize clears the complete array after validating mode and capacity.
+
+
+The returned configuration describes the owner's actual array; Finalize does not copy child storage or make it immutable. Keep that array, child instances and assigned slots stable for the complete execution lifetime. Do not retain a temporary builder passed to Configure. Setup clears array capacity and scans/shifts registered entries; it is configuration work, not cyclic scheduling.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK RunControlConfigurationBuilder
+VAR
+    FInitialized : BOOL;
+    FEntries : POINTER TO I_TestSuite;
+    FFinalized : BOOL;
+    FRegistrationError : BOOL;
+    FConfiguration : ST_TestSuiteCollectionConfig;
+END_VAR
+
+VAR CONSTANT
+    MaxCount : UINT := 65535;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{62cf80e5-a031-4e04-bf84-dc57f0f2e4e3}" />
+    <Property Name="Count" Id="{f5c46e6d-c1d3-4439-ab6c-9dc90f3fc365}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of registered entries, contiguous from FirstIndex.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Count : UINT //! Number of registered entries, contiguous from FirstIndex.]]></Declaration>
+      <Get Name="Get" Id="{c9b9cb87-e5a5-4f32-b76a-debbee93be97}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Count := FConfiguration.Count;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Finalize" Id="{08023a91-783f-4283-a733-f956c4ef7789}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Finalizes validation and releases the array binding; repeated calls return the same configuration.</summary>
+<description>
+An empty collection or any latched registration error is invalid. Serial slots must follow registration order; Parallel uses slot one; ParallelSlots must form consecutive positive groups starting at one. The temporary pointer is discarded on every first finalization outcome. Finalization validates slots and bindings, not child initialization; Run Control performs those later checks.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Finalize : ST_TestSuiteCollectionConfig //! Finalized bounds, count and mode; IsValid determines whether the configuration can be used.
+VAR
+    Offset : DINT;
+    PreviousSlot : UDINT;
+    Slot : UDINT;
+    Child : I_TestSuite;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FFinalized THEN
+    Finalize := FConfiguration;
+    RETURN;
+END_IF;
+
+IF NOT FInitialized OR FRegistrationError OR (FEntries = 0) OR (FConfiguration.Count = 0) THEN
+    FConfiguration.IsValid := FALSE;
+    FEntries := 0;
+    FFinalized := TRUE;
+    Finalize := FConfiguration;
+    RETURN;
+END_IF;
+
+PreviousSlot := 0;
+FOR Offset := 0 TO UINT_TO_DINT(FConfiguration.Count) - 1 DO
+    Child := FEntries[Offset];
+    IF Child = 0 THEN
+        FRegistrationError := TRUE;
+        EXIT;
+    END_IF;
+    Slot := UINT_TO_UDINT(Child.ExecutionSlot);
+    IF (Slot = 0) OR (Slot < PreviousSlot) OR (Slot > PreviousSlot + 1)
+        OR ((FConfiguration.Mode = E_OrchestrationMode.Serial) AND (Slot <> DINT_TO_UDINT(Offset) + 1))
+        OR ((FConfiguration.Mode = E_OrchestrationMode.Parallel) AND (Slot <> 1)) THEN
+        FRegistrationError := TRUE;
+        EXIT;
+    END_IF;
+    PreviousSlot := Slot;
+END_FOR;
+
+FConfiguration.IsValid := NOT FRegistrationError;
+FEntries := 0;
+FFinalized := TRUE;
+Finalize := FConfiguration;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="FirstIndex" Id="{20f5574e-b53d-4abf-b78f-6d8aab347f5b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual lower bound of the supplied array.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC FirstIndex : DINT //! Actual lower bound of the supplied array.]]></Declaration>
+      <Get Name="Get" Id="{1eaa9df6-d046-4443-9755-339377afa00f}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FirstIndex := FConfiguration.FirstIndex;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{058759b1-2e93-449b-b481-269d868dc0a8}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Starts a new build and clears the supplied array; bounds and mode remain fixed until Finalize.</summary>
+<description>
+A valid mode and a positive array capacity are checked before the array is cleared; rejected prerequisites leave its entries untouched. Registration starts at the actual lower bound and occupies a contiguous prefix. A new Initialize starts a fresh build after previous success or failure. The registration count is capped at 65535 even if physical capacity is larger.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_INPUT
+    Mode : E_OrchestrationMode; //! Scheduling strategy fixed for this build; Register is for Serial/Parallel, RegisterWithSlot for ParallelSlots.
+END_VAR
+VAR_IN_OUT
+    TestSuites : ARRAY[*] OF I_TestSuite; //! Owner-held array cleared and filled by the builder; storage must stay fixed through Finalize and registered children must outlive execution.
+END_VAR
+VAR
+    Index : LINT;
+    Capacity : LINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialized := FALSE;
+FEntries := 0;
+FFinalized := FALSE;
+FRegistrationError := FALSE;
+FConfiguration.IsValid := FALSE;
+FConfiguration.Count := 0;
+FConfiguration.FirstIndex := LOWER_BOUND(TestSuites, 1);
+FConfiguration.LastIndex := UPPER_BOUND(TestSuites, 1);
+FConfiguration.Mode := Mode;
+
+IF (Mode <> E_OrchestrationMode.Serial)
+    AND (Mode <> E_OrchestrationMode.Parallel)
+    AND (Mode <> E_OrchestrationMode.ParallelSlots) THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+
+Capacity := DINT_TO_LINT(FConfiguration.LastIndex) - DINT_TO_LINT(FConfiguration.FirstIndex) + 1;
+IF Capacity <= 0 THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+
+FOR Index := DINT_TO_LINT(FConfiguration.FirstIndex) TO DINT_TO_LINT(FConfiguration.LastIndex) DO
+    TestSuites[LINT_TO_DINT(Index)] := 0;
+END_FOR;
+FEntries := ADR(TestSuites[FConfiguration.FirstIndex]);
+FInitialized := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Insert" Id="{0208434a-2f91-42a9-82a1-910773051e59}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates before mutation, inserts the child and sets its effective slot.</summary>
+*)
+{endregion}
+METHOD PRIVATE Insert : BOOL //! TRUE after insertion and slot assignment; FALSE latches a registration error without adding an entry.
+VAR_INPUT
+    TestSuite : I_TestSuite; //! Unique nonzero child to insert; the instance must outlive the finalized owner collection.
+    ExecutionSlot : UINT; //! Positive effective slot; stable sorted insertion preserves registration order within equal slots.
+END_VAR
+VAR
+    Offset : DINT;
+    InsertOffset : DINT;
+    Child : I_TestSuite;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Insert := FALSE;
+IF NOT FInitialized OR FRegistrationError OR (FEntries = 0) OR (TestSuite = 0) OR (ExecutionSlot = 0) THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+IF (FConfiguration.Count = MaxCount)
+    OR (UINT_TO_LINT(FConfiguration.Count) >= DINT_TO_LINT(FConfiguration.LastIndex) - DINT_TO_LINT(FConfiguration.FirstIndex) + 1) THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+
+InsertOffset := UINT_TO_DINT(FConfiguration.Count);
+FOR Offset := 0 TO UINT_TO_DINT(FConfiguration.Count) - 1 DO
+    Child := FEntries[Offset];
+    IF (Child = 0) OR (Child = TestSuite) THEN
+        FRegistrationError := TRUE;
+        RETURN;
+    END_IF;
+    IF (InsertOffset = UINT_TO_DINT(FConfiguration.Count)) AND (Child.ExecutionSlot > ExecutionSlot) THEN
+        InsertOffset := Offset;
+    END_IF;
+END_FOR;
+IF FEntries[FConfiguration.Count] <> 0 THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+
+TestSuite.ExecutionSlot := ExecutionSlot;
+FOR Offset := UINT_TO_DINT(FConfiguration.Count) TO InsertOffset + 1 BY -1 DO
+    FEntries[Offset] := FEntries[Offset - 1];
+END_FOR;
+FEntries[InsertOffset] := TestSuite;
+FConfiguration.Count := FConfiguration.Count + 1;
+Insert := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsFinalized" Id="{eed83b6a-e60d-4d44-990b-3467b658f26b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Finalize has completed, independently of validation success.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsFinalized : BOOL //! Finalize has completed, independently of validation success.]]></Declaration>
+      <Get Name="Get" Id="{b2a226cf-034d-40f1-a73a-b15411d96dae}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsFinalized := FFinalized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsValid" Id="{4bc91494-16c0-4e71-bb3b-7367c33e468c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Finalization succeeded; FALSE before Finalize.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsValid : BOOL //! Finalization succeeded; FALSE before Finalize.]]></Declaration>
+      <Get Name="Get" Id="{f5aae552-64d9-4f17-98f2-83e9c72c0e22}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsValid := FConfiguration.IsValid;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="LastIndex" Id="{15c5f432-c657-4c4a-87d5-bd0110854fc3}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual upper bound, including unused capacity.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC LastIndex : DINT //! Actual upper bound, including unused capacity.]]></Declaration>
+      <Get Name="Get" Id="{b03bec38-9eeb-48e7-81c7-b71ed16ea81b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[LastIndex := FConfiguration.LastIndex;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Mode" Id="{e4b0f305-190f-47bd-b908-2e7e47d8b73a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Mode selected by Initialize.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Mode : E_OrchestrationMode //! Mode selected by Initialize.]]></Declaration>
+      <Get Name="Get" Id="{0311dbfb-3ab7-4ec2-9666-2463bb55047a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Mode := FConfiguration.Mode;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Register" Id="{9bdd6063-8b6b-4f33-823e-2cd8961219bb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Appends a unique child in Serial or Parallel mode and assigns its effective slot.</summary>
+<description>
+Serial assigns increasing slots and Parallel assigns slot one. Rejection before finalization latches a build error, making Finalize invalid until another Initialize. After Finalize this method returns FALSE without altering the frozen configuration or adding a new error.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Register : BOOL //! TRUE when the child was registered; FALSE adds no entry; pre-finalization rejection latches a build error.
+VAR_INPUT
+    TestSuite : I_TestSuite; //! Nonzero child interface to register once; its instance must outlive the registered collection.
+END_VAR
+VAR
+    Slot : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Register := FALSE;
+IF FFinalized THEN
+    RETURN;
+END_IF;
+IF (FConfiguration.Mode <> E_OrchestrationMode.Serial)
+    AND (FConfiguration.Mode <> E_OrchestrationMode.Parallel) THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+
+Slot := 1;
+IF FConfiguration.Mode = E_OrchestrationMode.Serial THEN
+    IF FConfiguration.Count = MaxCount THEN
+        FRegistrationError := TRUE;
+        RETURN;
+    END_IF;
+    Slot := FConfiguration.Count + 1;
+END_IF;
+Register := Insert(TestSuite := TestSuite,
+    ExecutionSlot := Slot);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RegisterWithSlot" Id="{c521f553-fc60-45a1-9df9-e11b5e372774}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registers a unique child in ParallelSlots mode, stably inserting by positive slot.</summary>
+<description>
+Available only in ParallelSlots mode. Slots must be positive; stable insertion sorts the array by slot. Finalize additionally rejects gaps or a first slot other than one. Rejection before finalization latches a build error; calls after Finalize return FALSE without changing its frozen outcome.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RegisterWithSlot : BOOL //! TRUE when the child was registered; FALSE adds no entry; pre-finalization rejection latches a build error.
+VAR_INPUT
+    TestSuite : I_TestSuite; //! Nonzero child interface to register once; its instance must outlive the registered collection.
+    ExecutionSlot : UINT; //! Positive slot number for ParallelSlots registration; children sharing a slot may overlap, with at most one new Start admitted per helper call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RegisterWithSlot := FALSE;
+IF FFinalized THEN
+    RETURN;
+END_IF;
+IF FConfiguration.Mode <> E_OrchestrationMode.ParallelSlots THEN
+    FRegistrationError := TRUE;
+    RETURN;
+END_IF;
+RegisterWithSlot := Insert(TestSuite := TestSuite,
+    ExecutionSlot := ExecutionSlot);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

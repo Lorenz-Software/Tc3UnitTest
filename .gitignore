@@ -1,8 +1,72 @@
-# Local task records, session notes, and temporary engineering data.
-/.local-work/
-/.tmp/
-/.project-workflow/
-/local/
+# Repository-local workspaces and agent/session data
+local/
+.tmp/
+.project-workflow/
+artifacts/
+.codex/
 
-# Generated build, validation, documentation, and release output.
-/artifacts/
+# Installed copy of the project-owned authoring skill; source is under skills/.
+/.agents/skills/tc3unittest-framework-authoring/
+last-message.md
+*.backup/
+
+# TwinCAT PLC generated files and backups
+*.plcproj.bak
+*.plcproj.orig
+*.tpy
+*.tclrs
+*.library
+*.compiled-library
+*.compiled-library-v3
+*.compileinfo
+*.asm
+*.core
+LineIDs.dbg
+LineIDs.dbg.bak
+
+# Generated TMC files are not required for a plain PLC project. If this
+# repository later provides shared TMC types or TcCOM modules, track the
+# required TMC files explicitly with !<path> rules.
+*.tmc
+*.tmcRefac
+
+# TwinCAT project backups and generated variants
+*.tsproj.bak
+*.tsproj.b?k
+*.tsproj.orig
+*.xti.bak
+*.xti.bk?
+*.xti.orig
+*.xtv
+*.xtv.bak
+*.xtv.bk?
+*.xt?.bk?
+*.xt?.orig
+
+# TwinCAT Multiuser and generated project directories
+**/.TcGit/
+**/_Boot/
+**/_CompileInfo/
+**/_Libraries/
+**/_ModuleInstall/
+**/_Deployment/
+**/_Repository/
+
+# Visual Studio and TwinCAT XAE user state
+**/.vs/
+*.sln
+!projects/Tc3UnitTest.4026/Tc3UnitTest.4026.sln
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.~u
+*.project.~u
+
+# Public repository task records and generated help packages.
+/.local-work/
+/help/*.zip
+
+# Local documentation-generator outputs, including IDE-created intermediates.
+/tools/documentation/generator/scripts/src/bin/
+/tools/documentation/generator/scripts/src/obj/

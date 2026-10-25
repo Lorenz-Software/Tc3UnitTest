@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_SerialOrchestration" Id="{992a0849-53cf-405e-8490-cd281ea659ee}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies Serial-specific registration order, admission and child progression.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_SerialOrchestration EXTENDS TestSuiteBase
+VAR
+    FRegistrationOrder : Test_SerialRegistrationOrder;
+    FImmediateCompletion : Test_SerialImmediateCompletion;
+    FUnequalDurations : Test_SerialUnequalDurations;
+    FNotReadyCandidate : Test_SerialNotReadyCandidate;
+    FFailedResultContinues : Test_SerialFailedResultContinues;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{44b9b044-4a04-4b04-8004-000000000002}" />
+    <Method Name="Configure" Id="{44b9b044-4a04-4b04-8004-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the owned orchestration scenarios in deterministic order.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+
+FRegistrationOrder.Initialize(Parent := THIS^,
+    TestName := 'RegistrationOrder',
+    Config := TestConfig);
+Builder.Register(TestCase := FRegistrationOrder);
+
+FImmediateCompletion.Initialize(Parent := THIS^,
+    TestName := 'ImmediateCompletion',
+    Config := TestConfig);
+Builder.Register(TestCase := FImmediateCompletion);
+
+FUnequalDurations.Initialize(Parent := THIS^,
+    TestName := 'UnequalDurations',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnequalDurations);
+
+FNotReadyCandidate.Initialize(Parent := THIS^,
+    TestName := 'NotReadyCandidate',
+    Config := TestConfig);
+Builder.Register(TestCase := FNotReadyCandidate);
+
+FFailedResultContinues.Initialize(Parent := THIS^,
+    TestName := 'FailedResultContinues',
+    Config := TestConfig);
+Builder.Register(TestCase := FFailedResultContinues);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{44b9b044-4a04-4b04-8004-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered Test Case from the same array used during configuration.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{44b9b044-4a04-4b04-8004-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned Test Case once per initialized Suite cycle, including completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRegistrationOrder();
+FImmediateCompletion();
+FUnequalDurations();
+FNotReadyCandidate();
+FFailedResultContinues();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

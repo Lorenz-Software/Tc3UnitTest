@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertionLifecycleSubject" Id="{68d81731-a132-4bde-941a-42cbccb16bd0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exposes calls and activity gates of AssertionBase without replacing its processing.</summary>
+<description>
+Bind the local publisher before Initialize. The inherited body owns initialization,
+reset priority and activity history. Assert records both gates and a bounded sample;
+active evaluation dispatches the selected inherited finding method without a result guard.
+This deliberately exercises base-owned suppression. Counters are cumulative until ClearTrace.
+ResetAssertion clears the sample and records the input available on the reset call.
+The outer test owns expectations; this subject does not compute expected gates.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertionLifecycleSubject EXTENDS AssertionBase
+VAR_INPUT
+    Sample : UINT := 0; //! Controlled sample captured only while observation is active.
+    Finding : E_Result := E_Result.Passed; //! Passed, Failed or Error finding dispatched only while evaluation is active.
+    FindingMessage : STRING(GVL_Constants.MessageLength) := 'Controlled finding.'; //! Diagnostic text supplied to the selected Fail or Error operation.
+END_VAR
+VAR_OUTPUT
+    AssertCallCount : UINT; //! Cumulative Assert-hook invocations since ClearTrace.
+    ResetCallCount : UINT; //! Cumulative ResetAssertion-hook invocations since ClearTrace.
+    ObservationCount : UINT; //! Cumulative Assert calls with the observation gate active since ClearTrace.
+    EvaluationCount : UINT; //! Cumulative Assert calls with the evaluation gate active since ClearTrace.
+    ObservedSample : UINT; //! Last Sample accepted while observation was active; ResetAssertion clears it.
+    ResetSample : UINT; //! Sample present at the latest ResetAssertion call.
+    ObservationDuringAssert : BOOL; //! Observation gate recorded on the latest Assert-hook entry.
+    EvaluationDuringAssert : BOOL; //! Evaluation gate recorded on the latest Assert-hook entry.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{09bedd8f-7064-45b6-ba4d-1bf7d18ac8c1}" />
+    <Method Name="Assert" Id="{e802d2d9-1878-4b2c-9545-10b1d7a68738}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records inherited gates and evaluates only when permitted.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AssertCallCount := AssertCallCount + 1;
+ObservationDuringAssert := ObservationActive;
+EvaluationDuringAssert := EvaluationActive;
+IF ObservationDuringAssert THEN
+    ObservationCount := ObservationCount + 1;
+    ObservedSample := Sample;
+END_IF;
+IF EvaluationDuringAssert THEN
+    EvaluationCount := EvaluationCount + 1;
+    CASE Finding OF
+        E_Result.Passed:
+            Pass();
+        E_Result.Failed:
+            Fail(Message := FindingMessage);
+        E_Result.Error:
+            Error(Message := FindingMessage);
+    ELSE
+        RETURN;
+    END_CASE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ClearTrace" Id="{c9b9256e-6575-4c3c-b6df-32c3a580b357}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears only test instrumentation; never changes inherited Assertion state.</summary>
+*)
+{endregion}
+METHOD PUBLIC ClearTrace]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AssertCallCount := 0;
+ResetCallCount := 0;
+ObservationCount := 0;
+EvaluationCount := 0;
+ObservedSample := 0;
+ResetSample := 0;
+ObservationDuringAssert := FALSE;
+EvaluationDuringAssert := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{ef8c4d6f-15cf-471d-a52b-4c58de1622cf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records one reset with bound inputs and clears the observation sample.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ResetCallCount := ResetCallCount + 1;
+ResetSample := Sample;
+ObservedSample := 0;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

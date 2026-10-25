@@ -1,0 +1,542 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertionBase" Id="{bb18ca78-e6ef-448f-a67d-ba9d44a932c6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Shared cyclic assertion lifecycle, identity and monotonic result escalation.</summary>
+<description>
+
+Initialize from the owning Test Case configuration, then call the concrete FB once per
+cycle with its typed inputs. Derived FB bodies call SUPER^() once. The base invokes Assert only
+after successful initialization and outside a reset call.
+
+Enable controls observation. ObserveFirstCycle determines whether its first enabled call
+is observed. EvaluationActive normally follows ObservationActive; explicit-evaluation and
+history-based families refine this gate.
+
+Reset queues work for the next FB call: result becomes NotEvaluated, observation history
+is cleared by ResetAssertion and that call performs no assertion check. Identity and publisher
+binding are retained. Initialize also queues this reset, including when initialization
+fails.
+
+Pass cannot clear Failed or Error. Fail escalates NotEvaluated or Passed; Error can also
+escalate Failed. Findings are published once per result escalation, not every cyclic failure. A
+failed publication is not retried.
+
+State is owner-supplied finding context, not a state machine input. Diagnostic value text
+may be shortened or rounded; comparisons use the original typed values. The selected publisher
+must exist before any publication.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT AssertionBase IMPLEMENTS I_Assertion
+VAR_INPUT
+    Enable : BOOL; //! Enables observation; Initialize's ObserveFirstCycle setting controls the first enabled call.
+    State : E_State := E_State.Uninitialized; //! Owner's current lifecycle state included in finding events; default Uninitialized.
+END_VAR
+VAR
+    /// Instance binding selected by BindPublisher or lazily by EventPublisher.
+    FEventPublisher : I_EventPublisher;
+    FName : STRING(GVL_Constants.NameLength) := '<UnnamedAssertion>';
+    FResourceName : STRING(GVL_Constants.ResourceNameLength);
+    FResult : E_Result := E_Result.NotEvaluated;
+    FEnabled : BOOL;
+    FInitialized : BOOL;
+    FResetRequested : BOOL;
+    FObserveFirstCycle : BOOL := TRUE;
+    FEnablePrevious : BOOL;
+    FResetActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FEnablePrevious := FEnabled AND NOT FResetActive;
+FEnabled := Enable;
+FResetActive := FResetRequested;
+
+IF FResetActive THEN
+    FResetRequested := FALSE;
+    FEnablePrevious := FALSE;
+    FResult := E_Result.NotEvaluated;
+    ResetAssertion();
+    RETURN;
+END_IF;
+
+IF NOT FInitialized THEN
+    RETURN;
+END_IF;
+
+Assert();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a1e41711-db90-43f9-a309-8807c87da49c}" />
+    <Method Name="Assert" Id="{097e2057-2cc2-4538-b403-1a3cb7cca076}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Implement the typed observation and result check.</summary>
+<description>
+
+Called once per initialized non-reset FB call, including disabled calls. Apply the
+family-specific ObservationActive and EvaluationActive gates. Validate prerequisites before
+access; applicable Error checks precede Failed checks and Pass is the successful
+fallback.
+
+Do not suppress required observation or configuration-error checks merely because Result
+is Failed. The implementation comment provides an illustrative ordering, not mandatory test
+conditions.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT Assert]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(*
+Implementation sketch, not a mandatory copy template.
+Keep applicable Error checks before Failed checks; Pass is the fallback.
+Omit conditions that do not exist. Multiple branches per severity are allowed.
+
+Before result evaluation:
+- Perform required observation/snapshot work under its own activity gate.
+- Validate each operation's prerequisites before accessing its data.
+- Observation errors may occur without EvaluationActive.
+- Do not skip required observation or memory safety checks because of Result.
+- Validate independent initialization/configuration when it is performed;
+  do not report unused inputs as errors merely because the FB is called.
+
+Example result evaluation (placeholder conditions/messages):
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF ErrorConditionA THEN
+    Error(Message := ErrorMessageA);
+    RETURN;
+END_IF;
+
+IF ErrorConditionB THEN
+    Error(Message := ErrorMessageB);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF FailureConditionA THEN
+    Fail(Message := FailureMessageA);
+    RETURN;
+END_IF;
+
+IF FailureConditionB THEN
+    Fail(Message := FailureMessageB);
+    RETURN;
+END_IF;
+
+Pass();
+
+A held Failed result must not bypass applicable Error checks.
+Pass/Fail/Error retain the monotonic result and suppress repeated findings.
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindPublisher" Id="{ed1d5b65-3246-4d4c-b8e5-04b552c23001}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Select the instance publisher immediately; ignore a zero assignment.</summary>
+<description>
+
+Retains identity, result and observation state. The caller owns the service lifetime.
+There is no lifecycle guard, reset or replay when replacing this binding.
+
+</description>
+*)
+{endregion}
+METHOD PUBLIC BindPublisher
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Publisher retained by the Assertion; caller owns its lifetime. Zero leaves the current binding unchanged.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Publisher = 0 THEN
+    RETURN;
+END_IF;
+
+FEventPublisher := Publisher;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Enabled" Id="{05b19444-832b-4f39-86e4-1668f2ef156d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Enable accepted at the last FB call; not proof of evaluation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Enabled : BOOL //! Enable accepted at the last FB call; not proof of evaluation.]]></Declaration>
+      <Get Name="Get" Id="{f7f72a83-f06f-46cc-90ff-ca3ba5f16c4d}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Enabled := FEnabled;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Error" Id="{7efa3286-0c2e-45da-8099-51fb5fa25530}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Escalate any non-Error result to Error and publish one finding.</summary>
+<description>
+
+Failed can escalate to Error. Repeated Error calls do nothing. The result is stored
+before publication; a publication failure is not retried.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED Error
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text for this finding; copied into the event within MessageLength.
+END_VAR
+VAR
+    Finding : ST_Event;
+    PublishResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FResult = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+FResult := E_Result.Error;
+Finding := CreateAssertionErrorEvent(Name := FName,
+    ResourceName := FResourceName,
+    State := State,
+    Message := Message);
+PublishResult := EventPublisher.PublishEvent(Event := Finding);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{66689336-414c-42ab-925b-96c52f7dcb40}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Use the polymorphic ObservationActive gate for direct result evaluation.</summary>
+<description>
+
+Explicit-evaluation and history-based descendants override this getter. A TRUE gate
+permits checking; it does not mean the result is Passed or that this call has published a
+finding.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Effective gate for direct result evaluation; delegates to ObservationActive in this base.]]></Declaration>
+      <Get Name="Get" Id="{e480abf5-bbb8-4928-aafd-92b8915a77e4}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := ObservationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="EventPublisher" Id="{39d78fff-4328-428c-94cc-af4d3d7b0c05}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return the instance publisher, binding the global default lazily if still
+unset.</summary>
+<description>
+
+The first read without a local binding copies GVL_EventBuffer.Publisher. A nonzero local
+binding is retained; later global changes do not replace it. This getter can therefore change
+the binding. Publication requires a valid publisher.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC EventPublisher : I_EventPublisher //! Instance publisher; the first unbound access adopts and retains the global default.]]></Declaration>
+      <Get Name="Get" Id="{eaaf9709-6837-41fa-b249-c4a5494a5b04}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IF FEventPublisher = 0 THEN
+    FEventPublisher := GVL_EventBuffer.Publisher;
+END_IF;
+EventPublisher := FEventPublisher;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Fail" Id="{1eb6f02e-b2e0-493a-a0b2-777c39345d18}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Escalate NotEvaluated or Passed to Failed and publish one finding.</summary>
+<description>
+
+Already Failed or Error is unchanged. The result is stored before publication; a
+publication failure is not retried.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED Fail
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text for this finding; copied into the event within MessageLength.
+END_VAR
+VAR
+    Finding : ST_Event;
+    PublishResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FResult OF
+    E_Result.NotEvaluated, E_Result.Passed:
+        FResult := E_Result.Failed;
+ELSE
+    RETURN;
+END_CASE;
+
+Finding := CreateAssertionFailedEvent(Name := FName,
+    ResourceName := FResourceName,
+    State := State,
+    Message := Message);
+PublishResult := EventPublisher.PublishEvent(Event := Finding);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{18d24ef9-99d2-4ccd-a916-129c986db101}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configure the hierarchical identity and observation settings; return initialization
+success.</summary>
+<description>
+The Parent Test Case identity must already be valid. The complete name consists of the
+Parent's three hierarchy segments and a nonempty local Assertion suffix, which may contain
+additional dots. It must fit NameLength; sibling uniqueness remains the caller's
+responsibility. The parent interface is read here, not retained.
+The composed name is length-limited into Name before validation of the unshortened name,
+so an invalid name can remain available for diagnostics. Missing parent or invalid name
+publishes a framework error and returns FALSE.
+Clears base result and enable history and queues ResetAssertion for the next FB call,
+where typed inputs are bound. ResourceName and ObserveFirstCycle are copied after a parent is
+available. TRUE enables subsequent checking; normal Reset retains these settings.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL Initialize : BOOL //! TRUE after successful identity and setup validation; FALSE leaves the object uninitialized.
+VAR_INPUT
+    Parent : I_TestCase; //! Owning Test Case with an established Name; read during initialization, not retained.
+    AssertionName : STRING(GVL_Constants.NameLength); //! Nonempty assertion suffix appended to Parent.Name; the complete name must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context copied into finding events; empty by default.
+    ObserveFirstCycle : BOOL := TRUE; //! TRUE observes the first enabled call; FALSE skips it. Default TRUE; does not delay explicit Evaluate.
+END_VAR
+VAR
+    ParentName : STRING(GVL_Constants.NameLength);
+    FullName : STRING(2 * GVL_Constants.NameLength + 1);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FInitialized := FALSE;
+FResult := E_Result.NotEvaluated;
+FEnabled := FALSE;
+FEnablePrevious := FALSE;
+FResetRequested := TRUE;
+FResetActive := TRUE;
+
+IF Parent = 0 THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := AssertionName,
+        ResourceName := ResourceName,
+        State := E_State.Uninitialized,
+        Severity := E_EventSeverity.Error,
+        Message := 'Missing Test Case parent.'));
+    RETURN;
+END_IF;
+
+ParentName := Parent.Name;
+FullName := CONCAT(CONCAT(ParentName, '.'), AssertionName);
+// SA0175: ASCII name contract; byte-based access is intentional and bounded.
+{analysis -175}
+FName := LEFT(FullName, UINT_TO_INT(GVL_Constants.NameLength));
+{analysis +175}
+FResourceName := ResourceName;
+FObserveFirstCycle := ObserveFirstCycle;
+
+IF NOT IsNameValid(Name := FullName, Depth := 4) THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := E_State.Uninitialized,
+        Severity := E_EventSeverity.Error,
+        Message := CONCAT('Invalid Assertion name: ', FullName)));
+    RETURN;
+END_IF;
+
+FInitialized := TRUE;
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsInitialized" Id="{18d24ef9-99d2-4ccd-a916-129c986db103}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>TRUE after successful explicit initialization; retained by normal Reset.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsInitialized : BOOL //! TRUE after successful explicit initialization; retained by normal Reset.]]></Declaration>
+      <Get Name="Get" Id="{18d24ef9-99d2-4ccd-a916-129c986db104}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsInitialized := FInitialized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Name" Id="{c5d91f87-9cf8-4606-b3fd-111ae5728898}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Length-limited hierarchical event name assigned by Initialize; retained by
+Reset.</summary>
+<description>
+
+May contain an invalid diagnostic name; IsInitialized indicates validity.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Name : STRING(GVL_Constants.NameLength) //! Length-limited hierarchical event name assigned by Initialize; retained by Reset.]]></Declaration>
+      <Get Name="Get" Id="{51a7b121-0be7-4b4c-bd40-2e30d5b80251}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := FName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ObservationActive" Id="{834f1dbf-86c1-4c3e-8e3b-a9948589f4a7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Indicate whether observation is enabled for the current accepted FB inputs.</summary>
+<description>
+
+Requires successful initialization, no reset in this call and Enabled. With
+ObserveFirstCycle FALSE, a preceding enabled non-reset call is required. Overrides preserve
+reset suppression and remain side-effect-free.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ObservationActive : BOOL //! TRUE when initialized and enabled outside Reset, subject to the first-cycle setting and accepted call history.]]></Declaration>
+      <Get Name="Get" Id="{c7d84758-0103-4ebf-baf3-28cd4910f991}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ObservationActive := FInitialized AND NOT FResetActive AND FEnabled
+    AND (FObserveFirstCycle OR FEnablePrevious);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ObserveFirstCycle" Id="{60901a72-0430-4f18-9d15-ff34e332ef4d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read-only first-cycle setting supplied through Initialize; default TRUE, retained by
+Reset.</summary>
+<description>
+
+Initialize with FALSE when the commanded test object must process before
+observation.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ObserveFirstCycle : BOOL //! Read-only first-cycle setting supplied through Initialize; default TRUE, retained by Reset.]]></Declaration>
+      <Get Name="Get" Id="{ae229a2e-b117-4c86-bbaa-cabef22b3d8c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ObserveFirstCycle := FObserveFirstCycle;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Pass" Id="{00113c93-312b-4b7e-a5db-69d6a0327a3e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Promote NotEvaluated to Passed without publishing a finding.</summary>
+<description>
+
+Leaves Passed, Failed and Error unchanged.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED Pass]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FResult = E_Result.NotEvaluated THEN
+    FResult := E_Result.Passed;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Reset" Id="{ec54424c-7436-45d1-a5d7-8457ff73de04}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Request a reset to be consumed by the next FB call.</summary>
+<description>
+
+Does not immediately change Result. The consuming call clears result and observation
+state and returns without checking; typed FB inputs must be bound for family-specific reset
+work. Identity, settings and publisher are retained.
+
+</description>
+*)
+{endregion}
+METHOD PUBLIC Reset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetRequested := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{98959708-35bc-4a02-ae53-b28ef33acb67}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reset family-specific observation state while FB inputs are bound.</summary>
+<description>
+
+The base implementation is empty. Override for owned history, snapshots or counters; do
+not publish findings here. Called by the reset FB path, never directly by Initialize.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ResourceName" Id="{21f10956-ded2-48db-8c2d-92cbdeeddd41}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read-only tested resource context supplied through Initialize; default '', retained by
+Reset.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC ResourceName : STRING(GVL_Constants.ResourceNameLength) //! Read-only tested resource context supplied through Initialize; default '', retained by Reset.]]></Declaration>
+      <Get Name="Get" Id="{855a72e0-5a00-4ef3-9ff6-c14025ca6069}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResourceName := FResourceName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{35612613-f714-46ff-9182-8889ea8ff1f0}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return the held assertion result.</summary>
+<description>
+
+Passed, Failed and Error do not de-escalate during checking. Consuming Reset or calling
+Initialize clears the result to NotEvaluated. Disabled calls alone do not clear it.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Held assertion result; ordinary evaluation cannot lower Failed or Error.]]></Declaration>
+      <Get Name="Get" Id="{3593cda1-f260-4f0f-80bd-645c3a2fba63}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

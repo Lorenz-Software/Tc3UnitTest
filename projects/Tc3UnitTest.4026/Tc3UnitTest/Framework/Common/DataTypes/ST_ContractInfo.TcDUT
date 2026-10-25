@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_ContractInfo" Id="{ee14ff23-700c-48d0-b75d-f73e9ea06e4b}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compatibility and effective library-version metadata.</summary>
+*)
+{endregion}
+TYPE ST_ContractInfo :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ContractVersion : STRING(GVL_Constants.VersionLength) := ''; //! Version of this communication contract, formatted as Major.Minor.Build.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    FrameworkVersion : STRING(GVL_Constants.VersionLength) := ''; //! Effective library version as Major.Minor.Build; TwinCAT revision is omitted.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

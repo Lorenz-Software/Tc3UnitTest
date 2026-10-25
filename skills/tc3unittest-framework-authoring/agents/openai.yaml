@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tc3UnitTest Framework Authoring"
+  short_description: "Derive test plans and reusable Tc3UnitTest scenarios"
+  default_prompt: "Use $tc3unittest-framework-authoring to derive or implement the requested PLC tests, preserving agreed intent and reviewing reuse of Test Cases and Preparations."

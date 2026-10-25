@@ -1,0 +1,41 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateInvalidStateTransitionEvent" Id="{90e25299-d928-47a3-9a2c-3df74da4387e}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Framework Error diagnostic for a rejected transition without publishing it.</summary>
+<description>
+State records StateOld; Message includes StateOld and the rejected StateNew. No transition is performed.
+</description>
+*)
+{endregion}
+FUNCTION CreateInvalidStateTransitionEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    StateOld : E_State; //! Owner state before the reported or rejected transition.
+    StateNew : E_State; //! Rejected destination included in Message; the structured event State remains StateOld.
+END_VAR
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Message := CONCAT(STR1 := 'Invalid State transition requested ', STR2 := INT_TO_STRING(TO_INT(StateOld)));
+Message := CONCAT(STR1 := Message, STR2 := ' -> ');
+Message := CONCAT(STR1 := Message, STR2 := INT_TO_STRING(TO_INT(StateNew)));
+
+CreateInvalidStateTransitionEvent.SequenceId := 0;
+CreateInvalidStateTransitionEvent.Timestamp := 0;
+CreateInvalidStateTransitionEvent.OwnerScope := OwnerScope;
+CreateInvalidStateTransitionEvent.EventType := E_EventType.Framework;
+CreateInvalidStateTransitionEvent.Severity := E_EventSeverity.Error;
+CreateInvalidStateTransitionEvent.Name := Name;
+CreateInvalidStateTransitionEvent.ResourceName := ResourceName;
+CreateInvalidStateTransitionEvent.State := StateOld;
+CreateInvalidStateTransitionEvent.Result := E_Result.NotEvaluated;
+CreateInvalidStateTransitionEvent.Message := Message;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

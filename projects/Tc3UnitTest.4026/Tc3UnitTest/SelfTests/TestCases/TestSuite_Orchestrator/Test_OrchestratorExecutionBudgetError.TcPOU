@@ -1,0 +1,66 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorExecutionBudgetError" Id="{e3306d23-7050-46b7-a0ba-a271e0362f3d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an impossible execution budget without Start, capacity retry or repeated diagnostics.</summary>
+<description>
+The child returns Error, representing a budget larger than the configured buffer can hold.
+Repeated Execution calls verify held Error and one diagnostic without further admission attempts.
+Actual budget arithmetic belongs to reservation integration tests.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorExecutionBudgetError EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{c2c44323-5023-411a-8c77-bd3049117f8a}" />
+    <Method Name="ConfigureScenario" Id="{48258274-ae25-48f8-918f-a09f58ae8340}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reservation responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildCount := 2;
+FStepCount := 5;
+
+{region "01 - Observe readiness before execution admission"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Reject the impossible execution reservation"}
+FSteps[2].ExecutionReservationResults[1] := E_EventReservationResult.Error;
+FSteps[2].ExpectedUnacceptedExecutionReservations[1] := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedResult := E_Result.Error;
+FSteps[2].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "03 - Retain Error without retry or another diagnostic"}
+FSteps[3].ExecutionReservationResults[1] := E_EventReservationResult.Error;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedResult := E_Result.Error;
+FSteps[3].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "04 - Retain Error without retry or another diagnostic"}
+FSteps[4].ExecutionReservationResults[1] := E_EventReservationResult.Error;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedResult := E_Result.Error;
+FSteps[4].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "05 - Retain Error without retry or another diagnostic"}
+FSteps[5].ExecutionReservationResults[1] := E_EventReservationResult.Error;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+FSteps[5].ExpectedDiagnosticCount := 1;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

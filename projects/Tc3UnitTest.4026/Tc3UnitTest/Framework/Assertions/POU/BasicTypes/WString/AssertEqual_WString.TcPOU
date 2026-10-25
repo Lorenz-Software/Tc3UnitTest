@@ -1,0 +1,94 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqual_WString" Id="{ef959eff-a7e2-4dee-afd2-0ae306c389ae}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact, case-sensitive text equality.</summary>
+<description>
+
+Read-only text must remain stable during the call and fit the configured Param_Assertions
+text capacity. Invalid references or a missing terminator within that capacity report
+Error.
+
+Compares exact text case-sensitively, without trimming; empty operands are valid.
+
+Comparison uses WSTRING code units. Diagnostic previews are shortened and converted for
+the STRING event message; they need not preserve every displayed character.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqual_WString EXTENDS AssertionBase
+VAR_IN_OUT CONSTANT
+    IN : WSTRING(Param_Assertions.AssertionWStringLength); //! Actual text; content capacity is set by Param_Assertions.
+    Expected : WSTRING(Param_Assertions.AssertionWStringLength); //! Expected text, with the same content limit as IN.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{68e75015-6b19-4b09-9683-20720082e866}" />
+    <Method Name="Assert" Id="{b192a302-64c2-4e31-98ae-b67b529e2622}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates text length before comparison and result escalation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionWStringLengthValid(Value := IN) THEN
+    Error(Message := 'Assertion error: IN exceeds configured WSTRING length.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionWStringLengthValid(Value := Expected) THEN
+    Error(Message := 'Assertion error: Expected exceeds configured WSTRING length.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF IN <> Expected THEN
+    ExpectedText := CreateAssertionTextValue_WString(Value := Expected);
+    ActualText := CreateAssertionTextValue_WString(Value := IN);
+    Message := CONCAT('Assertion failed: values are not equal. Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,155 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_Orchestratable" Id="{9c9ed8a7-44a3-4652-9dfa-6c04c8e479e3}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Common child orchestration view; the owner calls the concrete FB.</summary>
+*)
+{endregion}
+INTERFACE I_Orchestratable EXTENDS I_ResultProvider]]></Declaration>
+    <Folder Name="MetaData" Id="{cffe2762-c74c-483a-9f52-d88840fcc454}" />
+    <Property Name="ExecutionSlot" Id="{be0f3c89-1a1a-4b2a-b6c2-8ff26f3e0d8d}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Parent-assigned slot; set only during configuration. Initialize and Reset retain it.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ExecutionSlot : UINT //! Parent-assigned slot; set only during configuration. Initialize and Reset retain it.]]></Declaration>
+      <Get Name="Get" Id="{39fc1512-7268-4c82-bb89-349259d5295e}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+      <Set Name="Set" Id="{093fb1d4-63db-4dd9-80ea-91ee2fdafcf5}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Set>
+    </Property>
+    <Method Name="FreeReservedEvents" Id="{f56d5c21-36cf-4fd1-ae07-59eef3037496}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases the complete registered subtree synchronously without changing lifecycle states. Attempts all contributions; FALSE permits partial success. Repeated release is idempotent.</summary>
+*)
+{endregion}
+METHOD FreeReservedEvents : BOOL //! TRUE when all subtree contributions were released; FALSE permits partial success.]]></Declaration>
+    </Method>
+    <Property Name="HasError" Id="{51ddaa21-a2e2-473f-8ef3-268722327424}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports configuration or runtime error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY HasError : BOOL //! Reports configuration or runtime error.]]></Declaration>
+      <Get Name="Get" Id="{de46e4d1-798f-4592-a4db-7ca2fd8f9091}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsComplete" Id="{29a494fd-568a-4f98-a2e5-240d8abfc658}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports terminal lifecycle completion.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsComplete : BOOL //! Reports terminal lifecycle completion.]]></Declaration>
+      <Get Name="Get" Id="{8696202e-7fa3-4a46-b95b-2eac363111df}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{534d6f35-1e41-4ba3-b494-d2ddc6c49390}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports successful explicit initialization, not lifecycle readiness.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsInitialized : BOOL //! Reports successful explicit initialization, not lifecycle readiness.]]></Declaration>
+      <Get Name="Get" Id="{50697cb8-86e3-4b34-a1a6-82a3767a2dc2}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{178a711f-58f7-40d7-a526-458c6ed57a9f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports current start readiness.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsReady : BOOL //! Reports current start readiness.]]></Declaration>
+      <Get Name="Get" Id="{efc19072-bf28-4723-a5a0-21332574c952}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="RequestAbort" Id="{0bf25289-3e07-4852-a315-00fd7a52cae4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records an Abort request for cyclic processing.</summary>
+*)
+{endregion}
+METHOD RequestAbort]]></Declaration>
+    </Method>
+    <Method Name="RequestReset" Id="{6603ddee-9c21-4775-85b8-bea44c462241}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a reset request for cyclic processing.</summary>
+*)
+{endregion}
+METHOD RequestReset]]></Declaration>
+    </Method>
+    <Method Name="RequestStart" Id="{bf168234-b8e9-458c-911f-2915bf195e2b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a start request for cyclic processing.</summary>
+*)
+{endregion}
+METHOD RequestStart]]></Declaration>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{f0317b0d-6218-447e-8b70-18e021583b5f}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Own contribution to the global Event Buffer reservation; changed only with that aggregate.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ReservedEntryCount : UINT //! Own contribution to the global Event Buffer reservation; changed only with that aggregate.]]></Declaration>
+      <Get Name="Get" Id="{692f2a91-aace-4528-9af4-76bc71afb799}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="ReserveExecutionEvents" Id="{443d0f5f-c477-4436-88ae-fee476b03369}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Accepted updates the reservation; WaitingForCapacity is retryable, Error is not.</summary>
+*)
+{endregion}
+METHOD ReserveExecutionEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.]]></Declaration>
+    </Method>
+    <Method Name="ReserveResetEvents" Id="{f7bc8f2e-9e39-440b-b7e8-55f89237c58a}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Accepted updates the reservation; WaitingForCapacity is retryable, Error is not.</summary>
+*)
+{endregion}
+METHOD ReserveResetEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.]]></Declaration>
+    </Method>
+    <Property Name="State" Id="{313b4a28-4105-4d0f-b096-faace39219e6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current owner lifecycle state.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY State : E_State //! Current owner lifecycle state.]]></Declaration>
+      <Get Name="Get" Id="{dd304e71-c8c0-403c-9077-aec295ca440a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

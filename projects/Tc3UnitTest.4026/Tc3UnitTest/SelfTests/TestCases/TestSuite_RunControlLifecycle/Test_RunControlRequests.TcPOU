@@ -1,0 +1,394 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlRequests" Id="{37fb1824-d555-4f62-88f8-9ecfb60acfa1}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks direct root requests, one-call consumption and Reset/Abort/Start priority.</summary>
+<description>
+The controlled helper only supplies readiness and completion. The script covers a Start
+received while not ready, repeated Start method calls before one FB call, Start while active,
+Abort together with Start, and Reset together with both lower-priority requests.
+A repeated Reset while already resetting still has one trigger but no repeated transition.
+Following request-free calls verify that consumed requests cannot replay.
+Checks before the subject call prove that the methods do not advance its lifecycle or publish.
+The active Reset warning is expected and isolated; this scenario never finalizes a run.
+External command bits and their two-sample qualification are deliberately not exercised.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlRequests EXTENDS TestCaseBase
+VAR
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FControl : ST_RunControl;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT;
+    FStepChecked : BOOL;
+    FLifecycle : AssertTrue;
+    FLifecycleMatches : BOOL := TRUE;
+    FDeferredRequests : AssertTrue;
+    FDeferredRequestsMatches : BOOL := TRUE;
+    FTriggerEvidence : AssertTrue;
+    FTriggerEvidenceMatches : BOOL := TRUE;
+    FEventBoundary : AssertTrue;
+    FEventBoundaryMatches : BOOL := TRUE;
+    FProjection : AssertTrue;
+    FProjectionMatches : BOOL := TRUE;
+    FDispatch : AssertTrue;
+    FDispatchMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    Setup : INT := 0;
+    InitialIdle : INT := 1;
+    StartNotReady : INT := 2;
+    ReadyWithoutRequest : INT := 3;
+    RepeatedStart : INT := 4;
+    StartWhileActive : INT := 5;
+    AbortOverStart : INT := 6;
+    ResetOverAll : INT := 7;
+    RepeatReset : INT := 8;
+    ResetFinished : INT := 9;
+    NoReplayAfterReset : INT := 10;
+    AbortInIdle : INT := 11;
+    NoReplayAfterAbort : INT := 12;
+    StepCount : INT := 13;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ec88d4a8-431f-462b-be55-5ee69323c8d0}" />
+    <Method Name="AggregateResults" Id="{e2fe3548-0b93-448b-a3cb-fa9d4c47d50d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FLifecycle);
+Aggregator.AddProvider(Provider := FDeferredRequests);
+Aggregator.AddProvider(Provider := FTriggerEvidence);
+Aggregator.AddProvider(Provider := FEventBoundary);
+Aggregator.AddProvider(Provider := FProjection);
+Aggregator.AddProvider(Provider := FDispatch);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{fae164ff-68c0-4bcc-8ce7-978b03bd6328}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := StepCount;
+FLifecycle.Initialize(Parent := THIS^,
+    AssertionName := 'Lifecycle');
+FDeferredRequests.Initialize(Parent := THIS^,
+    AssertionName := 'DeferredRequests');
+FTriggerEvidence.Initialize(Parent := THIS^,
+    AssertionName := 'TriggerEvidence');
+FEventBoundary.Initialize(Parent := THIS^,
+    AssertionName := 'EventBoundary');
+FProjection.Initialize(Parent := THIS^,
+    AssertionName := 'Projection');
+FDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'Dispatch');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{5f06ce9e-87ad-4b88-a39b-74fcbc950bbc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{a3cd6c24-0a54-4a56-8a65-6446d020cf4e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks each request step before advancing; no expected subject result is counted as a test Assertion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FLifecycle(Enable := Enable,
+    State := State,
+    IN := FLifecycleMatches);
+FDeferredRequests(Enable := Enable,
+    State := State,
+    IN := FDeferredRequestsMatches);
+FTriggerEvidence(Enable := Enable,
+    State := State,
+    IN := FTriggerEvidenceMatches);
+FEventBoundary(Enable := Enable,
+    State := State,
+    IN := FEventBoundaryMatches);
+FProjection(Enable := Enable,
+    State := State,
+    IN := FProjectionMatches);
+FDispatch(Enable := Enable,
+    State := State,
+    IN := FDispatchMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{17f2cc0e-d611-4e34-a247-ec364b866d03}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{d8e0a8df-15eb-4ada-a7a3-41582fcd4985}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FStepChecked := FALSE;
+FLifecycleMatches := TRUE;
+FDeferredRequestsMatches := TRUE;
+FTriggerEvidenceMatches := TRUE;
+FEventBoundaryMatches := TRUE;
+FProjectionMatches := TRUE;
+FDispatchMatches := TRUE;
+FLifecycle.Reset();
+FDeferredRequests.Reset();
+FTriggerEvidence.Reset();
+FEventBoundary.Reset();
+FProjection.Reset();
+FDispatch.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{0ae7b234-4ac6-45cd-863d-ce29e42496b6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    IF FStep = NoReplayAfterAbort THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+    FStepChecked := FALSE;
+    NextTestState();
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{918eb1bb-49b9-4c9b-a4e8-0885c9778f83}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies direct requests before one subject call; counts semantic event types, never diagnostic wording.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_RunConfig;
+    ChildView : ST_OrchestrationObservation;
+    ExpectedState : E_State := E_State.Idle;
+    ExpectedTask : E_OrchestratorTask := E_OrchestratorTask.Idle;
+    ExpectedResult : E_Result := E_Result.NotEvaluated;
+    ExpectedReady : BOOL;
+    ExpectedTriggers : UINT;
+    ExpectedWarnings : UINT;
+    TriggerCount : UINT;
+    WarningCount : UINT;
+    Index : UINT;
+    StateBeforeRequest : E_State;
+    ResultBeforeRequest : E_Result;
+    SequenceBeforeRequest : UDINT;
+    SequenceBeforeCall : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FStep = Setup THEN
+    IF NOT FCapture.Initialize(Buffer := FEvents,
+        FifoControl := FCaptureFifo,
+        Status := FCaptureStatus) THEN
+        Error(Message := 'Root request capture could not be initialized.');
+        RETURN;
+    END_IF;
+    FHelper.BeginScenario();
+    FSubject.Bind(Publisher := FCapture,
+        Helper := FHelper,
+        Config := Config);
+    IF NOT FSubject.Initialize(Name := 'RequestSubject',
+        EventBuffer := FCapture) THEN
+        Error(Message := 'Root request subject could not be initialized.');
+        RETURN;
+    END_IF;
+END_IF;
+
+StateBeforeRequest := FSubject.State;
+ResultBeforeRequest := FSubject.Result;
+SequenceBeforeRequest := FCaptureStatus.SequenceId;
+FHelper.SetObservation(Ready := FALSE);
+CASE FStep OF
+    Setup:
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+        ExpectedTriggers := 1;
+    InitialIdle:
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        ExpectedReady := TRUE;
+        ExpectedTriggers := 1;
+    StartNotReady:
+        FSubject.RequestStart();
+        ExpectedTriggers := 2;
+    ReadyWithoutRequest:
+        FHelper.SetObservation(Ready := TRUE);
+        ExpectedReady := TRUE;
+        ExpectedTriggers := 2;
+    RepeatedStart:
+        FHelper.SetObservation(Ready := TRUE);
+        FSubject.RequestStart();
+        FSubject.RequestStart();
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+        ExpectedState := E_State.Starting;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        ExpectedTriggers := 3;
+    StartWhileActive:
+        FSubject.RequestStart();
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+        ExpectedState := E_State.Running;
+        ExpectedTask := E_OrchestratorTask.Execution;
+        ExpectedTriggers := 4;
+    AbortOverStart:
+        FSubject.RequestStart();
+        FSubject.RequestAbort();
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+        ExpectedState := E_State.Aborting;
+        ExpectedTask := E_OrchestratorTask.Abort;
+        ExpectedResult := E_Result.Abort;
+        ExpectedTriggers := 6;
+    ResetOverAll:
+        FSubject.RequestStart();
+        FSubject.RequestAbort();
+        FSubject.RequestReset();
+        ChildView.State := E_State.Reset;
+        ChildView.Ready := FALSE;
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+        ExpectedTriggers := 9;
+    RepeatReset:
+        FSubject.RequestReset();
+        ExpectedState := E_State.Reset;
+        ExpectedTask := E_OrchestratorTask.Reset;
+        ExpectedTriggers := 10;
+    ResetFinished:
+        FHelper.SetObservation(Ready := TRUE,
+            ResetFinished := TRUE);
+        ExpectedReady := TRUE;
+        ExpectedTriggers := 10;
+    NoReplayAfterReset:
+        FHelper.SetObservation(Ready := TRUE);
+        ExpectedReady := TRUE;
+        ExpectedTriggers := 10;
+    AbortInIdle, NoReplayAfterAbort:
+        IF FStep = AbortInIdle THEN
+            FSubject.RequestAbort();
+        END_IF;
+        FHelper.SetObservation(Ready := TRUE);
+        ExpectedReady := TRUE;
+        ExpectedTriggers := 11;
+ELSE
+    Error(Message := 'Unexpected root request test step.');
+    RETURN;
+END_CASE;
+FDeferredRequestsMatches := (FSubject.State = StateBeforeRequest)
+    AND (FSubject.Result = ResultBeforeRequest)
+    AND (FCaptureStatus.SequenceId = SequenceBeforeRequest);
+SequenceBeforeCall := FCaptureStatus.SequenceId;
+FSubject.SetChildObservation(Observation := ChildView);
+FSubject(ControlData := FControl);
+FLifecycleMatches := (FSubject.State = ExpectedState)
+    AND (FSubject.Result = ExpectedResult)
+    AND (FSubject.IsReady = ExpectedReady)
+    AND (FHelper.CurrentTask = ExpectedTask)
+    AND NOT FSubject.HasError;
+FProjectionMatches := (FControl.Name = 'RequestSubject')
+    AND (FControl.Status.Execution.State = ExpectedState)
+    AND (FControl.Status.Execution.Result = ExpectedResult)
+    AND (FControl.Status.Execution.Ready = ExpectedReady);
+FDispatchMatches := (FHelper.ExecuteCount = INT_TO_UINT(FStep + 1))
+    AND (FSubject.ChildCallCount = INT_TO_UINT(FStep + 1))
+    AND FSubject.ChildBodyCallsMatch
+    AND (FHelper.InitializeCount = 1) AND (FSubject.ConfigureCount = 1);
+
+FEventBoundaryMatches := TRUE;
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    FEventBoundaryMatches := FEventBoundaryMatches
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.RunControl)
+        AND (FEvents[Index].Name = 'RequestSubject')
+        AND (FEvents[Index].EventType <> E_EventType.Result)
+        AND (FEvents[Index].EventType <> E_EventType.Aggregation)
+        AND (FEvents[Index].Severity <> E_EventSeverity.Error);
+    IF FEvents[Index].EventType = E_EventType.Trigger THEN
+        TriggerCount := TriggerCount + 1;
+    END_IF;
+    IF FEvents[Index].Severity = E_EventSeverity.Warning THEN
+        WarningCount := WarningCount + 1;
+    END_IF;
+END_FOR;
+ExpectedWarnings := BOOL_TO_UINT(FStep >= ResetOverAll);
+FEventBoundaryMatches := FEventBoundaryMatches
+    AND (WarningCount = ExpectedWarnings)
+    AND (FCaptureStatus.LostEventCount = 0);
+FTriggerEvidenceMatches := TriggerCount = ExpectedTriggers;
+IF FStep = RepeatReset THEN
+    FTriggerEvidenceMatches := FTriggerEvidenceMatches
+        AND (FCaptureStatus.SequenceId = SequenceBeforeCall + 1);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

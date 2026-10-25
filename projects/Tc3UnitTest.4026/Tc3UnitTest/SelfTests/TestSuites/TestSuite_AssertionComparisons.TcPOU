@@ -1,0 +1,142 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionComparisons" Id="{fc87f79e-e8dc-4233-9278-36025709ab7d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks scalar comparisons, ranges, temporal boundaries and diagnostic rendering.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionComparisons EXTENDS TestSuiteBase
+VAR
+    FSignedRelations : Test_AssertionSignedRelations;
+    FUnsignedRelations : Test_AssertionUnsignedRelations;
+    FBitEquality : Test_AssertionBitEquality;
+    FBooleanComparisons : Test_AssertionBooleanComparisons;
+    FCharacterEquality : Test_AssertionCharacterEquality;
+    FSignedRanges : Test_AssertionSignedRanges;
+    FUnsignedRanges : Test_AssertionUnsignedRanges;
+    FDurationComparisons : Test_AssertionDurationComparisons;
+    FDateNormalization : Test_AssertionDateNormalization;
+    FTODDomain : Test_AssertionTODDomain;
+    FLTODDomain : Test_AssertionLTODDomain;
+    FScalarDiagnostics : Test_AssertionScalarDiagnostics;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 12;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9e00cd40-cc8f-439a-aef3-6925e65d5948}" />
+    <Method Name="Configure" Id="{49e25515-d69f-4433-b485-7c8ac02d6eb0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the twelve isolated scalar comparison scenarios.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FSignedRelations.Initialize(Parent := THIS^,
+    TestName := 'SignedRelations',
+    Config := TestConfig);
+Builder.Register(TestCase := FSignedRelations);
+FUnsignedRelations.Initialize(Parent := THIS^,
+    TestName := 'UnsignedRelations',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnsignedRelations);
+FBitEquality.Initialize(Parent := THIS^,
+    TestName := 'BitEquality',
+    Config := TestConfig);
+Builder.Register(TestCase := FBitEquality);
+FBooleanComparisons.Initialize(Parent := THIS^,
+    TestName := 'BooleanComparisons',
+    Config := TestConfig);
+Builder.Register(TestCase := FBooleanComparisons);
+FCharacterEquality.Initialize(Parent := THIS^,
+    TestName := 'CharacterEquality',
+    Config := TestConfig);
+Builder.Register(TestCase := FCharacterEquality);
+FSignedRanges.Initialize(Parent := THIS^,
+    TestName := 'SignedRanges',
+    Config := TestConfig);
+Builder.Register(TestCase := FSignedRanges);
+FUnsignedRanges.Initialize(Parent := THIS^,
+    TestName := 'UnsignedRanges',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnsignedRanges);
+FDurationComparisons.Initialize(Parent := THIS^,
+    TestName := 'DurationComparisons',
+    Config := TestConfig);
+Builder.Register(TestCase := FDurationComparisons);
+FDateNormalization.Initialize(Parent := THIS^,
+    TestName := 'DateNormalization',
+    Config := TestConfig);
+Builder.Register(TestCase := FDateNormalization);
+FTODDomain.Initialize(Parent := THIS^,
+    TestName := 'TODDomain',
+    Config := TestConfig);
+Builder.Register(TestCase := FTODDomain);
+FLTODDomain.Initialize(Parent := THIS^,
+    TestName := 'LTODDomain',
+    Config := TestConfig);
+Builder.Register(TestCase := FLTODDomain);
+FScalarDiagnostics.Initialize(Parent := THIS^,
+    TestName := 'ScalarDiagnostics',
+    Config := TestConfig);
+Builder.Register(TestCase := FScalarDiagnostics);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{510e9f3c-cf06-4bff-a57e-ad60792b209a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{716e27c8-8a29-40c2-92b6-c3f553727454}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSignedRelations();
+FUnsignedRelations();
+FBitEquality();
+FBooleanComparisons();
+FCharacterEquality();
+FSignedRanges();
+FUnsignedRanges();
+FDurationComparisons();
+FDateNormalization();
+FTODDomain();
+FLTODDomain();
+FScalarDiagnostics();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

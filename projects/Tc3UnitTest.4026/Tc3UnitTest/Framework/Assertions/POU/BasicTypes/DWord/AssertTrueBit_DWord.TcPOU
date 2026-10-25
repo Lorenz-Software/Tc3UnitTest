@@ -1,0 +1,79 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertTrueBit_DWord" Id="{dd29bd03-90d7-4f7a-a4ad-62c01f1cbfee}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the selected DWORD bit is TRUE.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertTrueBit_DWord EXTENDS AssertionBase
+VAR_INPUT
+    IN : DWORD; //! Actual bitfield.
+    BitIndex : USINT; //! Zero-based bit index (0..31); an invalid index produces Error during evaluation.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{c3b2e3c1-c307-4595-a982-ca4aa4681258}" />
+    <Method Name="Assert" Id="{70a8a5f3-a7b4-4ac4-9866-4922210e875e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates the index before evaluating the selected bit.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Mask : DWORD;
+    ActualBit : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    MaxBitIndex : USINT := 31;
+    SingleBitMask : DWORD := 16#01;
+    NoBitMask : DWORD := 16#00;
+    HexDigitCount : USINT := 8;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF BitIndex > MaxBitIndex THEN
+    Message := CONCAT('Assertion error: bit index is outside valid range. BitIndex = ',
+        USINT_TO_STRING(BitIndex));
+    Message := CONCAT(Message, ', MaxBitIndex = ');
+    Message := CONCAT(Message, USINT_TO_STRING(MaxBitIndex));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+Mask := SHL(SingleBitMask, BitIndex);
+ActualBit := (IN AND Mask) <> NoBitMask;
+
+IF NOT ActualBit THEN
+    ActualText := CreateAssertionTextValue_Hex(Value := DWORD_TO_LWORD(IN),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: bit is FALSE but must be TRUE. BitIndex = ',
+        USINT_TO_STRING(BitIndex));
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,106 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionArrays" Id="{38230fb8-6a00-46d8-8480-e4a41549b691}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks array comparison and search boundaries with isolated Assertion subjects.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionArrays EXTENDS TestSuiteBase
+VAR
+    FArrayComparison : Test_AssertionArrayComparison;
+    FArrayValueSearch : Test_AssertionArrayValueSearch;
+    FArrayPatternSearch : Test_AssertionArrayPatternSearch;
+    FMaskedArrayComparison : Test_AssertionMaskedArrayComparison;
+    FFloatingPointArray : Test_AssertionFloatingPointArray;
+    FArrayTextBridge : Test_AssertionArrayTextBridge;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1ac6c46a-b9bb-4f78-b7c3-8a6eaea420cb}" />
+    <Method Name="Configure" Id="{f99541e9-4fb2-4424-8c65-9ea42abd0f04}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes six isolated array comparison and search Test Cases and registers them serially.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FArrayComparison.Initialize(Parent := THIS^,
+    TestName := 'ArrayComparison',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayComparison);
+FArrayValueSearch.Initialize(Parent := THIS^,
+    TestName := 'ArrayValueSearch',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayValueSearch);
+FArrayPatternSearch.Initialize(Parent := THIS^,
+    TestName := 'ArrayPatternSearch',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayPatternSearch);
+FMaskedArrayComparison.Initialize(Parent := THIS^,
+    TestName := 'MaskedArrayComparison',
+    Config := TestConfig);
+Builder.Register(TestCase := FMaskedArrayComparison);
+FFloatingPointArray.Initialize(Parent := THIS^,
+    TestName := 'FloatingPointArray',
+    Config := TestConfig);
+Builder.Register(TestCase := FFloatingPointArray);
+FArrayTextBridge.Initialize(Parent := THIS^,
+    TestName := 'ArrayTextBridge',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayTextBridge);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{c7b7c7c6-0da1-46de-abf2-11bc0b20addd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{e8e9902d-17e1-41c1-a6e0-4f8506a32243}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls every owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayComparison();
+FArrayValueSearch();
+FArrayPatternSearch();
+FMaskedArrayComparison();
+FFloatingPointArray();
+FArrayTextBridge();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

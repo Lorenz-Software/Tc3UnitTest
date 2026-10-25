@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateResetEvent" Id="{34bba858-8f5c-46b0-8acf-7364211dc4ab}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a reset trigger event without publishing it.</summary>
+<description>
+The caller supplies valid ASCII owner context; publication assigns sequence and time.
+</description>
+*)
+{endregion}
+FUNCTION CreateResetEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateResetEvent.SequenceId := 0;
+CreateResetEvent.Timestamp := 0;
+CreateResetEvent.OwnerScope := OwnerScope;
+CreateResetEvent.EventType := E_EventType.Trigger;
+CreateResetEvent.Severity := E_EventSeverity.Info;
+CreateResetEvent.Name := Name;
+CreateResetEvent.ResourceName := ResourceName;
+CreateResetEvent.State := State;
+CreateResetEvent.Result := E_Result.NotEvaluated;
+CreateResetEvent.Message := 'Reset trigger.';]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

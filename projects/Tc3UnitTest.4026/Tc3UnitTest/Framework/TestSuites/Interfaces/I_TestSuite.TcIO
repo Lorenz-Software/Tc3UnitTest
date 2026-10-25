@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_TestSuite" Id="{f7cb290d-44c0-41b4-aa8d-68287488ce9e}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Typed owner status with the shared child orchestration view.</summary>
+<description>
+Adds only typed Status to I_Orchestratable; shared requests, readiness/state, initialization, reservation operations, slot and inherited identity/result remain in that view. The owner invokes the concrete FB cyclically; interface requests and getters do not execute it. Production composition and the explicitly childless mock have different internal responsibilities.
+</description>
+*)
+{endregion}
+INTERFACE I_TestSuite EXTENDS I_Orchestratable]]></Declaration>
+    <Property Name="Status" Id="{ddfdee78-95e4-435b-bf82-49219d5665de}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current owner status snapshot; reading does not execute lifecycle processing.</summary>
+*)
+{endregion}
+PROPERTY Status : ST_TestSuiteStatus //! Current owner status snapshot; reading does not execute lifecycle processing.]]></Declaration>
+      <Get Name="Get" Id="{e12b1a09-8480-4ef4-a50e-4cc32b8f30a5}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

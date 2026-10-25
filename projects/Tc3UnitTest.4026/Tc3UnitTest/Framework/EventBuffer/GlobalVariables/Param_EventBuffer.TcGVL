@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="Param_EventBuffer" Id="{cb619d26-b92f-43b4-97dd-2385b00c9c22}" ParameterList="True">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumer-configurable compile-time capacities; no runtime command storage.</summary>
+<description>
+Library parameter defaults are consumer-overridable at compile time. EventBufferLength must be 3..32767; effective usable capacity is length minus one. Reset and execution headroom remain shared unreserved producer capacity, not a budget multiplied by active owners. Owner admission validates its complete budget against actual publisher capacity. External consumers use the published BufferLength rather than a local parameter value.
+</description>
+*)
+{endregion}
+{attribute 'qualified_only'}
+VAR_GLOBAL CONSTANT
+    {attribute 'TcNoSymbol'}
+    EventBufferLength : UINT := 256; //! Physical ring length 3..32767, default 256; usable capacity is length minus one.
+    {attribute 'TcNoSymbol'}
+    EventBufferResetHeadroom : UINT := 20; //! Shared free producer capacity during hierarchical reset; must fit the buffer.
+    {attribute 'TcNoSymbol'}
+    EventBufferExecutionHeadroom : UINT := 10; //! Shared unreserved producer capacity during normal execution; must fit the buffer.
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

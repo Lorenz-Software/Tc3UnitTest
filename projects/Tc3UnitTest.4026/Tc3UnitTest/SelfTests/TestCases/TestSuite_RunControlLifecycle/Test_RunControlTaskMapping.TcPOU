@@ -1,0 +1,332 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlTaskMapping" Id="{a1e3d9f4-c286-492b-8c71-cdd299b57597}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes RunControlBase task mapping through the controlled helper, not a copied scheduler.</summary>
+<description>
+Each Test state performs one subject call. Startup Reset remains pending until the helper
+reports completion. Readiness can then change in Idle without another Reset.
+A short Start/Abort path covers Execution, Abort, completing-task retention and completed Idle.
+It is a mapping probe; request priorities, detailed result payloads and deadlines have their
+own scenarios. Child snapshots become visible only through ProcessTestSuites.
+The subject uses local ControlData and a local Event Buffer; the outer root is never replaced.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlTaskMapping EXTENDS TestCaseBase
+VAR
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FControl : ST_RunControl;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT := StartupReset;
+    FChecked : BOOL;
+    FStepExecuted : BOOL;
+    FExpectedState : E_State;
+    FExpectedTask : E_OrchestratorTask;
+    FExpectedReady : BOOL;
+    FExpectedTriggers : UINT;
+    FTriggerCount : UINT;
+    FBeforeFirstCallMatches : BOOL;
+    FStateMapping : AssertTrue;
+    FReadiness : AssertTrue;
+    FDispatch : AssertTrue;
+    FPublicStatus : AssertTrue;
+    FStartupReset : AssertTrue;
+    FCaptureIntegrity : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 32;
+    StartupReset : INT := 1;
+    HoldReset : INT := 2;
+    FinishReset : INT := 3;
+    ReadyIdle : INT := 4;
+    WithdrawReady : INT := 5;
+    RestoreReady : INT := 6;
+    StartExecution : INT := 7;
+    Running : INT := 8;
+    AbortRequestStep : INT := 9;
+    HoldAbort : INT := 10;
+    ObserveAbortedChildren : INT := 11;
+    Completing : INT := 12;
+    Completed : INT := 13;
+    HoldCompleted : INT := 14;
+    StepCount : INT := 14;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{4ba1a35d-c470-47ff-be58-7639d1badab2}" />
+    <Method Name="AggregateResults" Id="{e116e9ba-40c4-4647-922c-516b37744e26}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FStateMapping);
+Aggregator.AddProvider(Provider := FReadiness);
+Aggregator.AddProvider(Provider := FDispatch);
+Aggregator.AddProvider(Provider := FPublicStatus);
+Aggregator.AddProvider(Provider := FStartupReset);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{8c460c9e-3e86-4f26-9e58-b646d62bd565}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := StepCount;
+FStateMapping.Initialize(Parent := THIS^,
+    AssertionName := 'StateMapping');
+FReadiness.Initialize(Parent := THIS^,
+    AssertionName := 'Readiness');
+FDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'Dispatch');
+FPublicStatus.Initialize(Parent := THIS^,
+    AssertionName := 'PublicStatus');
+FStartupReset.Initialize(Parent := THIS^,
+    AssertionName := 'StartupReset');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{8159d03f-d123-4193-b095-c7bc3c73239d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{504a7ac3-83c1-4495-83b0-db147ada6078}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks every scripted mapping step and latches any deviation across the whole scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FStepExecuted;
+FStateMapping(Enable := Evaluate,
+    State := State,
+    IN := (FSubject.State = FExpectedState) AND (FHelper.CurrentTask = FExpectedTask)
+        AND (FSubject.Result <> E_Result.Error));
+FReadiness(Enable := Evaluate,
+    State := State,
+    IN := FSubject.IsReady = FExpectedReady);
+FDispatch(Enable := Evaluate,
+    State := State,
+    IN := (FHelper.ExecuteCount = INT_TO_UINT(FStep))
+        AND (FSubject.ChildCallCount = INT_TO_UINT(FStep))
+        AND FSubject.ChildBodyCallsMatch
+        AND (FSubject.ConfigureCount = 1) AND (FHelper.InitializeCount = 1));
+FPublicStatus(Enable := Evaluate,
+    State := State,
+    IN := (FControl.Name = 'MappingSubject')
+        AND (FControl.Status.Execution.State = FExpectedState)
+        AND (FControl.Status.Execution.Ready = FExpectedReady)
+        AND (FControl.Status.Execution.Result = FSubject.Result)
+        AND NOT FControl.Status.Execution.ConfigError
+        AND (FControl.Status.SuiteCountTotal = 2));
+FStartupReset(Enable := Evaluate,
+    State := State,
+    IN := FBeforeFirstCallMatches AND (FTriggerCount = FExpectedTriggers)
+        AND (FEvents[1].EventType = E_EventType.Trigger)
+        AND (FEvents[1].State = E_State.Uninitialized));
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureStatus.LostEventCount = 0);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{43b53b14-816a-43a6-bbcf-9ffc3afc6700}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{05af42a8-e6c3-4827-a850-1db9f2f21aea}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := StartupReset;
+FChecked := FALSE;
+FStepExecuted := FALSE;
+FStateMapping.Reset();
+FReadiness.Reset();
+FDispatch.Reset();
+FPublicStatus.Reset();
+FStartupReset.Reset();
+FCaptureIntegrity.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{fe4b67fe-c70a-4209-8915-a07108db9bbb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Config : ST_RunConfig;
+    ChildView : ST_OrchestrationObservation;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    IF FStep = StepCount THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+    FChecked := FALSE;
+    FStepExecuted := FALSE;
+    NextTestState();
+END_IF;
+IF FStep = StartupReset THEN
+    IF NOT FCapture.Initialize(Buffer := FEvents,
+        FifoControl := FCaptureFifo,
+        Status := FCaptureStatus) THEN
+        Error(Message := 'Run Control task-mapping capture could not be initialized.');
+        RETURN;
+    END_IF;
+    Config.CompletionDelay := T#0ms;
+    FHelper.BeginScenario();
+    FSubject.Bind(Publisher := FCapture,
+        Helper := FHelper,
+        Config := Config);
+    IF NOT FSubject.Initialize(Name := 'MappingSubject',
+        EventBuffer := FCapture) THEN
+        Error(Message := 'Run Control task-mapping subject could not be initialized.');
+        RETURN;
+    END_IF;
+    FBeforeFirstCallMatches := (FSubject.State = E_State.Uninitialized)
+        AND NOT FSubject.IsReady AND (FHelper.ExecuteCount = 0)
+        AND (FSubject.ChildCallCount = 0) AND (FCaptureStatus.SequenceId = 0);
+END_IF;
+
+FExpectedState := E_State.Idle;
+FExpectedTask := E_OrchestratorTask.Idle;
+FExpectedReady := FALSE;
+FExpectedTriggers := 1;
+ChildView.State := E_State.Idle;
+ChildView.Ready := TRUE;
+FHelper.SetObservation(Ready := FALSE);
+CASE FStep OF
+    StartupReset, HoldReset:
+        FExpectedState := E_State.Reset;
+        FExpectedTask := E_OrchestratorTask.Reset;
+    FinishReset:
+        FHelper.SetObservation(Ready := FALSE,
+            ResetFinished := TRUE);
+    ReadyIdle, RestoreReady:
+        FHelper.SetObservation(Ready := TRUE);
+        FExpectedReady := TRUE;
+    WithdrawReady:
+        FHelper.SetObservation(Ready := FALSE);
+    StartExecution:
+        FHelper.SetObservation(Ready := TRUE);
+        FSubject.RequestStart();
+        FExpectedState := E_State.Starting;
+        FExpectedTask := E_OrchestratorTask.Execution;
+        FExpectedTriggers := 2;
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+    Running:
+        FExpectedState := E_State.Running;
+        FExpectedTask := E_OrchestratorTask.Execution;
+        FExpectedTriggers := 2;
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+    AbortRequestStep, HoldAbort:
+        IF FStep = AbortRequestStep THEN
+            FSubject.RequestAbort();
+        END_IF;
+        FExpectedState := E_State.Aborting;
+        FExpectedTask := E_OrchestratorTask.Abort;
+        FExpectedTriggers := 3;
+        ChildView.State := E_State.Running;
+        ChildView.Ready := FALSE;
+    ObserveAbortedChildren, Completing, Completed, HoldCompleted:
+        ChildView.State := E_State.Completed;
+        ChildView.Ready := FALSE;
+        ChildView.Result := E_Result.Abort;
+        ChildView.Complete := TRUE;
+        FExpectedTriggers := 3;
+        CASE FStep OF
+            ObserveAbortedChildren:
+                FExpectedState := E_State.Aborting;
+                FExpectedTask := E_OrchestratorTask.Abort;
+            Completing:
+                FHelper.SetObservation(Ready := FALSE,
+                    AbortFinished := TRUE);
+                FExpectedState := E_State.Completing;
+                FExpectedTask := E_OrchestratorTask.Abort;
+        ELSE
+            FExpectedState := E_State.Completed;
+        END_CASE;
+END_CASE;
+FSubject.SetChildObservation(Observation := ChildView);
+FSubject(ControlData := FControl);
+FTriggerCount := 0;
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    IF FEvents[Index].EventType = E_EventType.Trigger THEN
+        FTriggerCount := FTriggerCount + 1;
+    END_IF;
+END_FOR;
+FStepExecuted := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,61 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_LReal" Id="{13d6d7ae-7ca3-459b-9c12-5d20b9fe5444}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Formats LREAL diagnostics without floating-point arithmetic or native real-to-string conversion.</summary>
+<description>Configurable significant decimal digits (default 6, clamped to 1..17), ties-to-even; NaN, +Inf, -Inf and signed zero are explicit.
+Scientific notation keeps extreme values within AssertionValueLength. Does not determine Assertion validity.</description>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_LReal : STRING(GVL_Constants.AssertionValueLength) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    Value : LREAL; //! Value to render as diagnostic text; formatting does not change comparison semantics.
+    SignificantDigits : UINT := 6; //! Significant decimal digits; default 6, clamped to 1..17.
+END_VAR
+VAR
+    Representation : AssertionLRealRepresentation;
+    Fraction : ULINT;
+    ExponentField : INT;
+    Exponent : INT;
+    Negative : BOOL;
+END_VAR
+VAR CONSTANT
+    SignMask : LWORD := LWORD#16#8000000000000000;
+    FractionMask : LWORD := LWORD#16#000FFFFFFFFFFFFF;
+    ExponentMask : LWORD := LWORD#16#00000000000007FF;
+    FractionBits : INT := 52;
+    ExponentBias : INT := 1023;
+    SpecialExponent : INT := 2047;
+    ImplicitBit : ULINT := ULINT#4503599627370496;
+    MaximumSignificantDigits : UINT := 17;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[Representation.Value := Value;
+Negative := (Representation.Bits AND SignMask) <> 0;
+Fraction := LWORD_TO_ULINT(Representation.Bits AND FractionMask);
+ExponentField := LWORD_TO_INT(SHR(Representation.Bits, FractionBits) AND ExponentMask);
+IF ExponentField = SpecialExponent THEN
+    IF Fraction <> 0 THEN
+        CreateAssertionTextValue_LReal := 'NaN';
+    ELSIF Negative THEN
+        CreateAssertionTextValue_LReal := '-Inf';
+    ELSE
+        CreateAssertionTextValue_LReal := '+Inf';
+    END_IF;
+    RETURN;
+END_IF;
+
+IF ExponentField = 0 THEN
+    Exponent := 1 - ExponentBias - FractionBits;
+ELSE
+    Fraction := Fraction + ImplicitBit;
+    Exponent := ExponentField - ExponentBias - FractionBits;
+END_IF;
+CreateAssertionTextValue_LReal := CreateAssertionTextValue_BinaryFloat(Significand := Fraction,
+    BinaryExponent := Exponent,
+    Negative := Negative,
+    SignificantDigits := UINT_TO_INT(LIMIT(UINT#1, SignificantDigits, MaximumSignificantDigits)));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

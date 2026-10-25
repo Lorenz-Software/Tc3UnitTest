@@ -1,0 +1,52 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="PreparationStatusProbe" Id="{651cff2e-d963-49f4-8693-1e0e50319d16}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exercises the real UpdateStatus mapping and counts Prepare calls without resource actions.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK PreparationStatusProbe EXTENDS PreparationBase
+VAR_INPUT
+    DiagnosticState : E_State := E_State.Idle; //! Scripted diagnostic state projected by Prepare.
+    ExecutionStatus : E_ExecutionStatus := E_ExecutionStatus.Idle; //! Scripted execution classification projected by Prepare.
+    Ready : BOOL := TRUE; //! Scripted readiness projected by Prepare.
+END_VAR
+VAR
+    FCallCount : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3826a284-3aff-47b0-b279-06043bc7462c}" />
+    <Property Name="CallCount" Id="{4ea25e0f-8848-42ca-8846-7e49897fb3f7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current CallCount observation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC CallCount : UDINT //! Current CallCount observation.]]></Declaration>
+      <Get Name="Get" Id="{dd8e9009-a703-4ddb-92f6-883627137434}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CallCount := FCallCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Prepare" Id="{af46e5dc-fbda-4963-bf25-1c1f75f38b39}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the inherited status projector once, including when disabled.</summary>
+*)
+{endregion}
+METHOD PROTECTED Prepare]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCallCount := FCallCount + 1;
+UpdateStatus(State := DiagnosticState,
+    ExecutionStatus := ExecutionStatus,
+    Ready := Ready);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

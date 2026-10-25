@@ -1,0 +1,139 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_EventPublisher" Id="{9fa02900-015e-4c04-a332-30ee2b69bc51}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>PLC-side event publication and capacity view.</summary>
+<description>
+The default service is single-task and must be initialized with valid, stable storage before use. Publication copies the payload and assigns sequence/time; it does not consume an owner's reservation. Reservations are admission accounting, not storage or per-publication protection. Keep owner contributions consistent with the aggregate count and release them through their owner operations. Sequence exhaustion within an epoch is unsupported.
+</description>
+*)
+{endregion}
+INTERFACE I_EventPublisher]]></Declaration>
+    <Property Name="Capacity" Id="{e9cf75a4-c8db-45dc-b888-597c4f886a39}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Usable event positions, independent of occupancy and reservations; zero when invalid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY Capacity : UINT //! Usable event positions, independent of occupancy and reservations; zero when invalid.]]></Declaration>
+      <Get Name="Get" Id="{f0ff207f-fb09-4545-bd46-101a9ad2204c}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="FreeEntryCount" Id="{087d5228-3261-44ca-b937-3ea526d37b29}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Usable free event positions before reservations; zero when invalid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY FreeEntryCount : UINT //! Usable free event positions before reservations; zero when invalid.]]></Declaration>
+      <Get Name="Get" Id="{e541d6e6-cf89-406b-a9e3-a310cd5cd36f}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="FreeReservedSpace" Id="{38811271-039e-4c93-b187-bd7c97887db7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Release only reservations, never events; FALSE changes neither count.</summary>
+<description>
+Requires an initialized valid binding, but no free capacity or valid FIFO indices.
+
+The default service validates configuration and accounting even for a zero release. Free capacity and valid FIFO indices are not required. Destructive buffer reset clears the aggregate ledger, not stale owner-local contributions; use the coordinated owner release/reset path.
+</description>
+*)
+{endregion}
+METHOD FreeReservedSpace : BOOL //! TRUE after updating both reservation counts; FALSE leaves both unchanged.
+VAR_INPUT
+    EntryCount : UINT; //! Number of this owner's reserved entries to release; does not delete events.
+END_VAR
+VAR_IN_OUT
+    OwnerReservedEntryCount : UINT; //! Owner's live reservation ledger; updated with the global count only on success, unchanged on rejection.
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="IsValid" Id="{ceb0e6f9-a9f5-49d2-a50d-bfae55639820}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>FIFO binding, configuration and indices are valid.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY IsValid : BOOL //! FIFO binding, configuration and indices are valid.]]></Declaration>
+      <Get Name="Get" Id="{8c22fbbc-ee8c-48ae-8d6d-6d63cfa17a31}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="LostEventCount" Id="{51610e30-3c59-4af2-b907-fd41d1f50260}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Lost event count for producer diagnostics and aggregation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY LostEventCount : UINT //! Lost event count for producer diagnostics and aggregation.]]></Declaration>
+      <Get Name="Get" Id="{d8f6b8f5-c88f-4fb1-9bcd-79f5c44cf99f}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="PublishEvent" Id="{a11eaf42-c403-4eab-b499-b22ef7deb1f6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publish a value copy with producer-assigned SequenceId and UTC Timestamp.</summary>
+<description>
+Positive slot on success, zero when full, negative E_EventPublishResult on error.
+
+The return describes the requested event. The default service may also attempt a capacity diagnostic after a successful insertion. That attempt can consume capacity or increase LostEventCount without changing the primary return. Publishing does not decrement an owner's reservation. Sequence numbers may be assigned before insertion succeeds; a nonzero loss count means an incomplete log.
+</description>
+*)
+{endregion}
+METHOD PublishEvent : INT //! Positive physical slot on success, zero when full, negative E_EventPublishResult on error.
+VAR_INPUT
+    Event : ST_Event; //! Event payload copied into the buffer; SequenceId and Timestamp are assigned by the publisher.
+END_VAR]]></Declaration>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{13070905-14a5-4fba-8c13-d2a02c7c5dff}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregate producer reservations; not published externally.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ReservedEntryCount : UINT //! Aggregate producer reservations; not published externally.]]></Declaration>
+      <Get Name="Get" Id="{fcacee79-cda0-4dc7-a63f-ecf229430758}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="ReserveSpace" Id="{1fb54931-b426-4740-b884-afe2c6711b22}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reserve additional event positions plus shared headroom; FALSE changes neither count.</summary>
+<description>
+Requires valid initialized configuration and a consistent owner contribution; positive requests also require valid indices.
+
+For the default service, positive requests require free capacity for the updated aggregate count plus shared headroom. A zero request checks configuration and owner contribution but bypasses index and capacity checks. Both ledgers change together on success; no event is created. Keep the owner ledger unchanged by unrelated code.
+</description>
+*)
+{endregion}
+METHOD ReserveSpace : BOOL //! TRUE after updating both reservation counts; FALSE leaves both unchanged.
+VAR_INPUT
+    EntryCount : UINT; //! Additional number of event entries to reserve for this owner.
+    HeadroomEntryCount : UINT; //! Shared free entries checked for positive requests; not added to the owner's reservation.
+END_VAR
+VAR_IN_OUT
+    OwnerReservedEntryCount : UINT; //! Owner's live reservation ledger; updated with the global count only on success, unchanged on rejection.
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

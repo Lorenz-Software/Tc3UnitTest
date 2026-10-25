@@ -1,0 +1,1019 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionFloatingSnapshot" Id="{60041aaf-7029-41ab-865f-7d23f9e52ac4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks REAL/LREAL snapshot capture policy and comparison against the original values.</summary>
+<description>
+The second selected NaN must reject the complete capture without modifying even
+the first Memory element. Signed infinities are valid array snapshots; later NaN
+is a mismatch, not a capture error. Exactly representable tolerance steps separate
+comparison against the original snapshot from comparison against the previous call.
+IEEE union views only construct stimuli and inspect copied bits; no test arithmetic
+or conversion is performed on non-finite values.
+Each named step calls each subject once and checks public gates, result and local
+findings before advancing in the next cycle. Outer Assertions collect checkpoints
+per trace; subjects never contribute their intentional failures to the test result.
+FirstFailedStep retains the first mismatch. No timed stimulus or expected-result
+algorithm is used.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionFloatingSnapshot EXTENDS TestCaseBase
+VAR
+    FReal : AssertArrayNoValueChange_Real;
+    FLReal : AssertArrayNoValueChange_LReal;
+    FRealInput : ARRAY[-1..0] OF REAL;
+    FRealMemory : ARRAY[5..7] OF REAL;
+    FRealFirst : AssertionRealRepresentation;
+    FRealSecond : AssertionRealRepresentation;
+    FRealMemoryFirst : AssertionRealRepresentation;
+    FRealMemorySecond : AssertionRealRepresentation;
+    FRealExpectedFirst : DWORD;
+    FRealExpectedSecond : DWORD;
+    FLRealInput : ARRAY[-1..0] OF LREAL;
+    FLRealMemory : ARRAY[5..7] OF LREAL;
+    FLRealFirst : AssertionLRealRepresentation;
+    FLRealSecond : AssertionLRealRepresentation;
+    FLRealMemoryFirst : AssertionLRealRepresentation;
+    FLRealMemorySecond : AssertionLRealRepresentation;
+    FLRealExpectedFirst : LWORD;
+    FLRealExpectedSecond : LWORD;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FStep : UINT;
+    FTrace : UINT;
+    FFirstFailedStep : UINT;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FStepMatches : BOOL;
+    FResultsMatch : BOOL;
+    FActivityMatches : BOOL;
+    FFindingsMatch : BOOL;
+    FMemoryMatches : BOOL;
+    FResetSubjects : BOOL;
+    FRealEnable : BOOL;
+    FRealResult : E_Result;
+    FRealObservation : BOOL;
+    FRealEvaluation : BOOL;
+    FRealFinding : E_Result;
+    FLRealEnable : BOOL;
+    FLRealResult : E_Result;
+    FLRealObservation : BOOL;
+    FLRealEvaluation : BOOL;
+    FLRealFinding : E_Result;
+    FRejectedSnapshot : AssertTrue;
+    FInfiniteSnapshot : AssertTrue;
+    FLaterNaNDivergence : AssertTrue;
+    FOriginalSnapshotTolerance : AssertTrue;
+    FNewSnapshotAfterReset : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    StepResetNaNCapture : UINT := 1;
+    StepRejectNaNBeforeCopy : UINT := 2;
+    StepNoRepeatedNaNEvent : UINT := 3;
+    StepResetRejectedSnapshot : UINT := 4;
+    StepRecoverCapture : UINT := 5;
+    StepRecoverComparison : UINT := 6;
+    StepResetInfinity : UINT := 7;
+    StepCaptureInfinities : UINT := 8;
+    StepEqualSignedInfinities : UINT := 9;
+    StepChangedInfinitySign : UINT := 10;
+    StepReturnToSignedInfinities : UINT := 11;
+    StepResetLaterNaN : UINT := 12;
+    StepCaptureBeforeLaterNaN : UINT := 13;
+    StepCompareBeforeLaterNaN : UINT := 14;
+    StepLaterNaNIsFailed : UINT := 15;
+    StepResetTolerance : UINT := 16;
+    StepCaptureTolerance : UINT := 17;
+    StepWithinTolerance : UINT := 18;
+    StepInclusiveTolerance : UINT := 19;
+    StepBeyondOriginalTolerance : UINT := 20;
+    StepResetNewFinite : UINT := 21;
+    StepCaptureNewFinite : UINT := 22;
+    StepCompareNewFinite : UINT := 23;
+    LastStep : UINT := StepCompareNewFinite;
+    TraceRejectedSnapshot : UINT := 1;
+    TraceInfiniteSnapshot : UINT := 2;
+    TraceLaterNaNDivergence : UINT := 3;
+    TraceOriginalSnapshotTolerance : UINT := 4;
+    TraceNewSnapshotAfterReset : UINT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f457dd46-f387-4929-bfa0-c97a4a2a0c78}" />
+    <Method Name="AggregateResults" Id="{f1838bfb-e88e-4e11-bac0-fa7e1082c8d4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only the outer checks, not the intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FRejectedSnapshot);
+Aggregator.AddProvider(Provider := FInfiniteSnapshot);
+Aggregator.AddProvider(Provider := FLaterNaNDivergence);
+Aggregator.AddProvider(Provider := FOriginalSnapshotTolerance);
+Aggregator.AddProvider(Provider := FNewSnapshotAfterReset);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{e9f02ef7-eef8-40d7-8599-e3ef42dfe806}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each production subject with stable bindings and the selected stimulus.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReal(Enable := FRealEnable,
+    State := E_State.Running,
+    Tolerance := 0.5,
+    StartIndex := -1,
+    Length := 2,
+    IN := FRealInput,
+    Memory := FRealMemory);
+FLReal(Enable := FLRealEnable,
+    State := E_State.Running,
+    Tolerance := 0.5,
+    StartIndex := -1,
+    Length := 2,
+    IN := FLRealInput,
+    Memory := FLRealMemory);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{1c83cd5e-8ef8-4de1-a9c5-f01008953ccf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks finding order, identities and exact count without retaining prior events.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    FindingMatches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+IF FRealFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FReal.Name,
+        ExpectedResult := FRealFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FLRealFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FLReal.Name,
+        ExpectedResult := FLRealFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{d3a2bf81-2172-45a2-bc81-287501642401}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an incomplete capture or subject setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FRejectedSnapshot.IsInitialized
+    AND FInfiniteSnapshot.IsInitialized
+    AND FLaterNaNDivergence.IsInitialized
+    AND FOriginalSnapshotTolerance.IsInitialized
+    AND FNewSnapshotAfterReset.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Observation selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckMemory" Id="{1bcb96ea-8e80-474c-8199-b94bd5277e3a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks copied IEEE representations without evaluating non-finite floating-point values.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckMemory]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRealMemoryFirst.Value := FRealMemory[5];
+FRealMemorySecond.Value := FRealMemory[6];
+FLRealMemoryFirst.Value := FLRealMemory[5];
+FLRealMemorySecond.Value := FLRealMemory[6];
+FMemoryMatches := (FRealMemoryFirst.Bits = FRealExpectedFirst)
+    AND (FRealMemorySecond.Bits = FRealExpectedSecond)
+    AND (FRealMemory[7] = -999.0)
+    AND (FLRealMemoryFirst.Bits = FLRealExpectedFirst)
+    AND (FLRealMemorySecond.Bits = FLRealExpectedSecond)
+    AND (FLRealMemory[7] = -999.0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{03b7627e-4ac3-4c55-b1cb-f800319e27b6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal result and observation/evaluation expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResultsMatch := (FReal.Result = FRealResult)
+    AND (FLReal.Result = FLRealResult);
+FActivityMatches := (FReal.Enabled = FRealEnable)
+    AND (FReal.ObservationActive = FRealObservation)
+    AND (FReal.EvaluationActive = FRealEvaluation)
+    AND (FLReal.Enabled = FLRealEnable)
+    AND (FLReal.ObservationActive = FLRealObservation)
+    AND (FLReal.EvaluationActive = FLRealEvaluation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{b05846b4-fbb6-435f-b75d-44401d82592b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FRejectedSnapshot.Initialize(Parent := THIS^,
+    AssertionName := 'RejectedSnapshot');
+FInfiniteSnapshot.Initialize(Parent := THIS^,
+    AssertionName := 'InfiniteSnapshot');
+FLaterNaNDivergence.Initialize(Parent := THIS^,
+    AssertionName := 'LaterNaNDivergence');
+FOriginalSnapshotTolerance.Initialize(Parent := THIS^,
+    AssertionName := 'OriginalSnapshotTolerance');
+FNewSnapshotAfterReset.Initialize(Parent := THIS^,
+    AssertionName := 'NewSnapshotAfterReset');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FReal.BindPublisher(Publisher := FCapture);
+Initialized := FReal.Initialize(Parent := THIS^,
+    AssertionName := 'Real',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FLReal.BindPublisher(Publisher := FCapture);
+Initialized := FLReal.Initialize(Parent := THIS^,
+    AssertionName := 'LReal',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{e2762fbc-a807-40c9-aeb0-d9f037b6a1f3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one expected Failed or Error finding from the bounded local capture.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{4f65d2fa-bfdf-4283-9008-2e4ee2144bb1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{6adf19be-95f8-479b-9c7f-12d8d97321ee}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks this checkpoint before the next cycle advances the trace.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FRejectedSnapshot(Enable := Check AND (FTrace = TraceRejectedSnapshot),
+    State := State,
+    IN := FStepMatches);
+FInfiniteSnapshot(Enable := Check AND (FTrace = TraceInfiniteSnapshot),
+    State := State,
+    IN := FStepMatches);
+FLaterNaNDivergence(Enable := Check AND (FTrace = TraceLaterNaNDivergence),
+    State := State,
+    IN := FStepMatches);
+FOriginalSnapshotTolerance(Enable := Check AND (FTrace = TraceOriginalSnapshotTolerance),
+    State := State,
+    IN := FStepMatches);
+FNewSnapshotAfterReset(Enable := Check AND (FTrace = TraceNewSnapshotAfterReset),
+    State := State,
+    IN := FStepMatches);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{e3af4a99-f270-484f-88de-fa1343d64ea7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{c479bbd4-f77d-44ed-96ec-0b86b6bfd968}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets checkpoint bookkeeping and queues each subject reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := StepResetNaNCapture;
+FTrace := 0;
+FFirstFailedStep := 0;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FRejectedSnapshot.Reset();
+FInfiniteSnapshot.Reset();
+FLaterNaNDivergence.Reset();
+FOriginalSnapshotTolerance.Reset();
+FNewSnapshotAfterReset.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{829b469e-a122-4585-8558-450c86b04364}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes exactly one named checkpoint per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = LastStep THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+
+IF NOT SelectStep() THEN
+    RETURN;
+END_IF;
+FCapture.Reset();
+IF FResetSubjects THEN
+    ResetSubjects();
+END_IF;
+CallSubjects();
+CheckResults();
+CheckMemory();
+CheckFindings();
+FStepMatches := FResultsMatch AND FActivityMatches AND FMemoryMatches AND FFindingsMatch;
+IF NOT FStepMatches AND (FFirstFailedStep = 0) THEN
+    FFirstFailedStep := FStep;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{ec174ba5-ab3f-4cc8-b890-6f40362cac33}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues subject reset; the next bound call consumes it.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReal.Reset();
+FLReal.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectStep" Id="{2108e9e6-163f-43ef-8925-83b1757a2f08}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal stimuli, gates and findings for a named checkpoint.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectStep : BOOL //! TRUE after selecting a supported script step and its literal expectations; FALSE reports an unknown step.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectStep := FALSE;
+FRealFinding := E_Result.NotEvaluated;
+FLRealFinding := E_Result.NotEvaluated;
+CASE FStep OF
+    StepResetNaNCapture:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#7FC00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#C4424000;
+        FRealExpectedSecond := DWORD#16#C45E0000;
+        FRealMemory[5] := -777.0;
+        FRealMemory[6] := -888.0;
+        FRealMemory[7] := -999.0;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#7FF8000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#C088480000000000;
+        FLRealExpectedSecond := LWORD#16#C08BC00000000000;
+        FLRealMemory[5] := -777.0;
+        FLRealMemory[6] := -888.0;
+        FLRealMemory[7] := -999.0;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepRejectNaNBeforeCopy:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#7FC00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#C4424000;
+        FRealExpectedSecond := DWORD#16#C45E0000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#7FF8000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#C088480000000000;
+        FLRealExpectedSecond := LWORD#16#C08BC00000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FRealFinding := E_Result.Error;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+        FLRealFinding := E_Result.Error;
+    StepNoRepeatedNaNEvent:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#7FC00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#C4424000;
+        FRealExpectedSecond := DWORD#16#C45E0000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#7FF8000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#C088480000000000;
+        FLRealExpectedSecond := LWORD#16#C08BC00000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepResetRejectedSnapshot:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#C4424000;
+        FRealExpectedSecond := DWORD#16#C45E0000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#C088480000000000;
+        FLRealExpectedSecond := LWORD#16#C08BC00000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepRecoverCapture:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepRecoverComparison:
+        FTrace := TraceRejectedSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepResetInfinity:
+        FTrace := TraceInfiniteSnapshot;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#7F800000;
+        FRealSecond.Bits := DWORD#16#FF800000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#7FF0000000000000;
+        FLRealSecond.Bits := LWORD#16#FFF0000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepCaptureInfinities:
+        FTrace := TraceInfiniteSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#7F800000;
+        FRealSecond.Bits := DWORD#16#FF800000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#7F800000;
+        FRealExpectedSecond := DWORD#16#FF800000;
+        FLRealFirst.Bits := LWORD#16#7FF0000000000000;
+        FLRealSecond.Bits := LWORD#16#FFF0000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#7FF0000000000000;
+        FLRealExpectedSecond := LWORD#16#FFF0000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepEqualSignedInfinities:
+        FTrace := TraceInfiniteSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#7F800000;
+        FRealSecond.Bits := DWORD#16#FF800000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#7F800000;
+        FRealExpectedSecond := DWORD#16#FF800000;
+        FLRealFirst.Bits := LWORD#16#7FF0000000000000;
+        FLRealSecond.Bits := LWORD#16#FFF0000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#7FF0000000000000;
+        FLRealExpectedSecond := LWORD#16#FFF0000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepChangedInfinitySign:
+        FTrace := TraceInfiniteSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#7F800000;
+        FRealSecond.Bits := DWORD#16#7F800000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#7F800000;
+        FRealExpectedSecond := DWORD#16#FF800000;
+        FLRealFirst.Bits := LWORD#16#7FF0000000000000;
+        FLRealSecond.Bits := LWORD#16#7FF0000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#7FF0000000000000;
+        FLRealExpectedSecond := LWORD#16#FFF0000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FRealFinding := E_Result.Failed;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+        FLRealFinding := E_Result.Failed;
+    StepReturnToSignedInfinities:
+        FTrace := TraceInfiniteSnapshot;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#7F800000;
+        FRealSecond.Bits := DWORD#16#FF800000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#7F800000;
+        FRealExpectedSecond := DWORD#16#FF800000;
+        FLRealFirst.Bits := LWORD#16#7FF0000000000000;
+        FLRealSecond.Bits := LWORD#16#FFF0000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#7FF0000000000000;
+        FLRealExpectedSecond := LWORD#16#FFF0000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepResetLaterNaN:
+        FTrace := TraceLaterNaNDivergence;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#7F800000;
+        FRealExpectedSecond := DWORD#16#FF800000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#7FF0000000000000;
+        FLRealExpectedSecond := LWORD#16#FFF0000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepCaptureBeforeLaterNaN:
+        FTrace := TraceLaterNaNDivergence;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepCompareBeforeLaterNaN:
+        FTrace := TraceLaterNaNDivergence;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepLaterNaNIsFailed:
+        FTrace := TraceLaterNaNDivergence;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#7FC00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#7FF8000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FRealFinding := E_Result.Failed;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+        FLRealFinding := E_Result.Failed;
+    StepResetTolerance:
+        FTrace := TraceOriginalSnapshotTolerance;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepCaptureTolerance:
+        FTrace := TraceOriginalSnapshotTolerance;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41000000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepWithinTolerance:
+        FTrace := TraceOriginalSnapshotTolerance;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41040000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4020800000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepInclusiveTolerance:
+        FTrace := TraceOriginalSnapshotTolerance;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#41080000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4021000000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepBeyondOriginalTolerance:
+        FTrace := TraceOriginalSnapshotTolerance;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#410C0000;
+        FRealSecond.Bits := DWORD#16#41A00000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4021800000000000;
+        FLRealSecond.Bits := LWORD#16#4034000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FRealFinding := E_Result.Failed;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+        FLRealFinding := E_Result.Failed;
+    StepResetNewFinite:
+        FTrace := TraceNewSnapshotAfterReset;
+        FResetSubjects := TRUE;
+        FRealFirst.Bits := DWORD#16#42200000;
+        FRealSecond.Bits := DWORD#16#42480000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#41000000;
+        FRealExpectedSecond := DWORD#16#41A00000;
+        FLRealFirst.Bits := LWORD#16#4044000000000000;
+        FLRealSecond.Bits := LWORD#16#4049000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4020000000000000;
+        FLRealExpectedSecond := LWORD#16#4034000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepCaptureNewFinite:
+        FTrace := TraceNewSnapshotAfterReset;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#42200000;
+        FRealSecond.Bits := DWORD#16#42480000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#42200000;
+        FRealExpectedSecond := DWORD#16#42480000;
+        FLRealFirst.Bits := LWORD#16#4044000000000000;
+        FLRealSecond.Bits := LWORD#16#4049000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4044000000000000;
+        FLRealExpectedSecond := LWORD#16#4049000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepCompareNewFinite:
+        FTrace := TraceNewSnapshotAfterReset;
+        FResetSubjects := FALSE;
+        FRealFirst.Bits := DWORD#16#42200000;
+        FRealSecond.Bits := DWORD#16#42480000;
+        FRealInput[-1] := FRealFirst.Value;
+        FRealInput[0] := FRealSecond.Value;
+        FRealExpectedFirst := DWORD#16#42200000;
+        FRealExpectedSecond := DWORD#16#42480000;
+        FLRealFirst.Bits := LWORD#16#4044000000000000;
+        FLRealSecond.Bits := LWORD#16#4049000000000000;
+        FLRealInput[-1] := FLRealFirst.Value;
+        FLRealInput[0] := FLRealSecond.Value;
+        FLRealExpectedFirst := LWORD#16#4044000000000000;
+        FLRealExpectedSecond := LWORD#16#4049000000000000;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+ELSE
+    Error(Message := 'Unknown observation checkpoint.');
+    RETURN;
+END_CASE;
+SelectStep := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

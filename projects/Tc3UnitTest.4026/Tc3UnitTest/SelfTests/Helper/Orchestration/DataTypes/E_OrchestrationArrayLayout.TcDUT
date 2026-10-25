@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_OrchestrationArrayLayout" Id="{f85f2c8b-da5f-4d38-abeb-f2924c50916c}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects an actual fixed array used by the collection-bound tests.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_OrchestrationArrayLayout :
+(
+    Ordinary, //! One-based three-entry fixture array.
+    Shifted, //! Fixture array with lower bound 7.
+    Negative, //! Fixture array with lower bound -3.
+    SpareCapacity //! Six-entry fixture array with an occupied prefix and unused capacity.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

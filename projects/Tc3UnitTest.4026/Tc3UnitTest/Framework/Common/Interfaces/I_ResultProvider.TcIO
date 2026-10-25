@@ -1,0 +1,39 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_ResultProvider" Id="{7bfc8d8e-7e05-40be-9ffd-faaf98864504}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read-only identity and result view; queries do not advance or modify the provider.</summary>
+*)
+{endregion}
+INTERFACE I_ResultProvider]]></Declaration>
+    <Property Name="Name" Id="{86f28d77-4be1-4e04-a656-163cc4a115c6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Hierarchical identity supplied by the owning initialization path.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY Name : STRING(GVL_Constants.NameLength) //! Hierarchical identity supplied by the owning initialization path.]]></Declaration>
+      <Get Name="Get" Id="{682a043d-cca7-435d-8c5e-a3f7990a561d}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="Result" Id="{fae02ed9-e2c4-4c78-823b-33e3e447dfba}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current result by value; reading has no processing side effects.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY Result : E_Result //! Current result by value; reading has no processing side effects.]]></Declaration>
+      <Get Name="Get" Id="{2ee80dc1-ae28-491a-a657-d662301f1608}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

@@ -1,0 +1,45 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestCaseExecutionStatus" Id="{b07fa516-72f9-40fd-b9d9-0b4b43ed18dd}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Test Case execution snapshot including Preparation and Test activity.</summary>
+<description>
+This is a by-value lifecycle projection, not an external command or a separate state machine. Preparation and Test intervals both map to coarse Running with their respective activity flags. Completed does not mean Passed. Initial declaration defaults use Unknown; regular uninitialized projection uses NotReady and Uninitialized TRUE. The base does not use Inactive for selection.
+</description>
+*)
+{endregion}
+TYPE ST_TestCaseExecutionStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    State : E_State := E_State.Uninitialized; //! Owner's detailed lifecycle state, including configured Test Case phases.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ExecutionStatus : E_ExecutionStatus := E_ExecutionStatus.Unknown; //! Coarse execution classification derived from State.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Result : E_Result := E_Result.NotEvaluated; //! Current held evaluation result; numeric order is not severity order.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Uninitialized : BOOL := FALSE; //! TRUE while owner State is Uninitialized; successful Initialize alone does not complete the initial Reset.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ConfigError : BOOL := FALSE; //! Owner setup is invalid or has not yet been validated.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Ready : BOOL := FALSE; //! Owner is initialized, Idle and ready to accept Start.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Running : BOOL := FALSE; //! Owner is in its active execution phase.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Completed : BOOL := FALSE; //! Owner has reached its terminal Completed state; does not imply Passed.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Aborted : BOOL := FALSE; //! Owner completed with Abort result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    // SA0033: Contract status field retained even when not consumed by this application.
+    {attribute 'analysis' := '-33'}
+    Inactive : BOOL := FALSE; //! Contract-reserved inactive indication; retained for compatible consumers.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Error : BOOL := FALSE; //! Owner reports an error, including Result = Error.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    PreparationActive : BOOL := FALSE; //! A configured Preparation state is currently active.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestActive : BOOL := FALSE; //! A configured Test state is currently active.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,40 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_WChar" Id="{af2c3824-2b1d-48bd-9a92-2c75e56ce7a9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Formats printable ASCII as a quoted character and hexadecimal code; other values as code only. Output is ASCII and at most 13 characters.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_WChar : STRING(13) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    Value : WORD; //! Character code to render; no character validation is performed.
+END_VAR
+VAR
+    HexText : STRING(7);
+    Text : STRING(13);
+END_VAR
+VAR CONSTANT
+    FirstPrintableAscii : WORD := 16#20;
+    LastPrintableAscii : WORD := 16#7E;
+    HexDigitCount : USINT := 4;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[HexText := CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Value),
+    DigitCount := HexDigitCount);
+
+IF (Value < FirstPrintableAscii) OR (Value > LastPrintableAscii) THEN
+    CreateAssertionTextValue_WChar := HexText;
+    RETURN;
+END_IF;
+
+Text := '$' $' (';
+// SA0175: Printable-ASCII guard; index 1 fits the quoted template.
+{analysis -175}
+Text[1] := WORD_TO_BYTE(Value);
+{analysis +175}
+Text := CONCAT(Text, HexText);
+CreateAssertionTextValue_WChar := CONCAT(Text, ')');]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

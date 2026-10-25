@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_RunControlCompletionScenario" Id="{ce5df153-f774-43d7-9fed-fbd9c7ab730f}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completion-delay and retained-publication scenarios for the isolated root.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_RunControlCompletionScenario :
+(
+    ZeroDelay, //! Complete with zero configured completion delay.
+    DefaultDelay, //! Complete after the configured default delay.
+    InvalidTime, //! Force invalid completion-time validity through the protected seam.
+    LateResetChildren //! Exercise delayed child Reset completion after owner finalization.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,84 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqualBit_Byte" Id="{4f2a1b8d-f49b-4a85-ab95-d37befa2c878}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the selected BYTE bit equals the expected Boolean value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqualBit_Byte EXTENDS AssertionBase
+VAR_INPUT
+    IN : BYTE; //! Actual bitfield.
+    BitIndex : USINT; //! Zero-based bit index (0..7); an invalid index produces Error during evaluation.
+    Expected : BOOL; //! Expected selected bit value.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{51275d0a-558b-4b67-8e98-41a447e04c7f}" />
+    <Method Name="Assert" Id="{2187c735-c223-4ab5-880b-fbd513ff1cef}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates the index before evaluating the selected bit.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Mask : BYTE;
+    ActualBit : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    MaxBitIndex : USINT := 7;
+    SingleBitMask : BYTE := 16#01;
+    NoBitMask : BYTE := 16#00;
+    HexDigitCount : USINT := 2;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF BitIndex > MaxBitIndex THEN
+    Message := CONCAT('Assertion error: bit index is outside valid range. BitIndex = ',
+        USINT_TO_STRING(BitIndex));
+    Message := CONCAT(Message, ', MaxBitIndex = ');
+    Message := CONCAT(Message, USINT_TO_STRING(MaxBitIndex));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+Mask := SHL(SingleBitMask, BitIndex);
+ActualBit := (IN AND Mask) <> NoBitMask;
+
+IF ActualBit <> Expected THEN
+    ActualText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(IN),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: bit value does not match. BitIndex = ',
+        USINT_TO_STRING(BitIndex));
+    Message := CONCAT(Message, ', Expected = ');
+    Message := CONCAT(Message, BOOL_TO_STRING(Expected));
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, BOOL_TO_STRING(ActualBit));
+    Message := CONCAT(Message, ', Value = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

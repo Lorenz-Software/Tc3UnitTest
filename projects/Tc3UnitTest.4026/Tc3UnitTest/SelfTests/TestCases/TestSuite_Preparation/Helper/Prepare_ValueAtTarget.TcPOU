@@ -1,0 +1,86 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Prepare_ValueAtTarget" Id="{f5398f18-ab4e-43f7-9fed-a9728aa19f28}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Establishes both request and feedback at TargetValue using the real PreparationBase status projection. The test owns and calls the resource separately. Disabled calls observe without commands or cancellation.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Prepare_ValueAtTarget EXTENDS PreparationBase
+VAR_INPUT
+    TargetValue : DINT := 0; //! Requested resource value while enabled; disabled calls observe without issuing commands.
+END_VAR
+VAR
+    FResource : REFERENCE TO PreparationResource;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{571918e0-9565-4d3f-b804-6afe95c51e76}" />
+    <Method Name="Initialize" Id="{a36d61bd-14d2-46c5-a45a-8d8a695cb5aa}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the test-owned resource before use. Its lifetime must cover all Preparation calls. No resource access or feedback change; subsequent FB calls refresh the inherited observation.</summary>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_IN_OUT
+    // SA0167: Borrowed static resource, not a temporary FB instance.
+    {attribute 'analysis' := '-167'}
+    Resource : PreparationResource; //! Borrowed static resource retained by reference; keep it alive and stable for all preparation calls.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResource REF= Resource;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Prepare" Id="{3ca58524-8306-4653-83c5-b3c7da1071dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes every call; errors and unsupported resource conditions prevent command writes.</summary>
+*)
+{endregion}
+METHOD PROTECTED Prepare
+VAR
+    ObservedState : E_State;
+    ObservedExecutionStatus : E_ExecutionStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT __ISVALIDREF(FResource) THEN
+    UpdateStatus(State := E_State.Error,
+        ExecutionStatus := E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF FResource.HasError THEN
+    UpdateStatus(State := E_State.Error,
+        ExecutionStatus := E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF Enabled AND FResource.IsReady AND (FResource.RequestedValue <> TargetValue) THEN
+    FResource.RequestValue(Value := TargetValue);
+END_IF;
+
+IF (FResource.ActualValue = TargetValue) AND (FResource.RequestedValue = TargetValue) THEN
+    ObservedState := E_State.Completed;
+    ObservedExecutionStatus := E_ExecutionStatus.Completed;
+ELSIF Enabled AND FResource.IsReady THEN
+    ObservedState := E_State.Running;
+    ObservedExecutionStatus := E_ExecutionStatus.Running;
+ELSIF FResource.IsReady THEN
+    ObservedState := E_State.Idle;
+    ObservedExecutionStatus := E_ExecutionStatus.Idle;
+ELSE
+    ObservedState := E_State.Idle;
+    ObservedExecutionStatus := E_ExecutionStatus.NotReady;
+END_IF;
+
+UpdateStatus(State := ObservedState,
+    ExecutionStatus := ObservedExecutionStatus,
+    Ready := FResource.IsReady);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

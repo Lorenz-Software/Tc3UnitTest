@@ -1,0 +1,253 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SuiteBuilderSlotInsertion" Id="{2437e214-0d0f-42e4-8271-2fda3d83365f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks stable insertion into two slots, including a temporary gap before Finalize.</summary>
+<description>Child mocks are inert interface identities and slot storage only; no child initialization or FB call is performed.</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SuiteBuilderSlotInsertion EXTENDS TestCaseBase
+VAR
+    FBuilder : TestSuiteConfigurationBuilder;
+    FCases : ARRAY[1..4] OF I_TestCase;
+    FChildA : TestCaseMock;
+    FChildB : TestCaseMock;
+    FChildC : TestCaseMock;
+    FChildD : TestCaseMock;
+    FScenarioExecuted : BOOL;
+    FChecksEvaluated : BOOL;
+    FRegistration : AssertTrue;
+    FRegistrationMatches : BOOL;
+    FOrder : AssertTrue;
+    FOrderMatches : BOOL;
+    FSlots : AssertTrue;
+    FSlotsMatches : BOOL;
+    FFinalization : AssertTrue;
+    FFinalizationMatches : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00560001-0056-4056-8056-000000000021}" />
+    <Method Name="AggregateResults" Id="{00560001-0056-4056-8056-00000000001f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each owned Assertion once without executing it.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FRegistration);
+Aggregator.AddProvider(Provider := FOrder);
+Aggregator.AddProvider(Provider := FSlots);
+Aggregator.AddProvider(Provider := FFinalization);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00560001-0056-4056-8056-000000000018}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires successful base and owned Assertion initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FRegistration.IsInitialized
+    AND FOrder.IsInitialized
+    AND FSlots.IsInitialized
+    AND FFinalization.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00560001-0056-4056-8056-000000000017}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures one direct builder scenario and its named Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FScenarioExecuted := FALSE;
+FChecksEvaluated := FALSE;
+
+FRegistrationMatches := FALSE;
+FRegistration.Initialize(Parent := THIS^,
+    AssertionName := 'Registration');
+FOrderMatches := FALSE;
+FOrder.Initialize(Parent := THIS^,
+    AssertionName := 'Order');
+FSlotsMatches := FALSE;
+FSlots.Initialize(Parent := THIS^,
+    AssertionName := 'Slots');
+FFinalizationMatches := FALSE;
+FFinalization.Initialize(Parent := THIS^,
+    AssertionName := 'Finalization');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00560001-0056-4056-8056-00000000001a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes Abort immediately; no asynchronous resource operation is started.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00560001-0056-4056-8056-00000000001e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates recorded observations and consumes pending resets on disabled calls.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRegistration(Enable := Enable,
+    State := State,
+    IN := FRegistrationMatches);
+
+FOrder(Enable := Enable,
+    State := State,
+    IN := FOrderMatches);
+
+FSlots(Enable := Enable,
+    State := State,
+    IN := FSlotsMatches);
+
+FFinalization(Enable := Enable,
+    State := State,
+    IN := FFinalizationMatches);
+
+IF Enable AND FRegistration.EvaluationActive
+    AND FOrder.EvaluationActive
+    AND FSlots.EvaluationActive
+    AND FFinalization.EvaluationActive THEN
+    FChecksEvaluated := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00560001-0056-4056-8056-000000000019}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed for synchronous builder calls.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override signature; this scenario has no Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00560001-0056-4056-8056-00000000001b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears recorded checks and Assertion results; each scenario initializes its own builder.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FScenarioExecuted := FALSE;
+FChecksEvaluated := FALSE;
+FRegistrationMatches := FALSE;
+FRegistration.Reset();
+FOrderMatches := FALSE;
+FOrder.Reset();
+FSlotsMatches := FALSE;
+FSlots.Reset();
+FFinalizationMatches := FALSE;
+FFinalization.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00560001-0056-4056-8056-00000000001c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs setup operations once, then completes after their observations have been evaluated.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecksEvaluated THEN
+    CompleteTests();
+ELSIF NOT FScenarioExecuted THEN
+    RunScenario();
+    FScenarioExecuted := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunScenario" Id="{00560001-0056-4056-8056-00000000001d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks stable insertion into two slots, including a temporary gap before Finalize.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunScenario
+VAR
+    ChildA : I_TestCase;
+    ChildB : I_TestCase;
+    ChildC : I_TestCase;
+    ChildD : I_TestCase;
+    AcceptedA : BOOL;
+    AcceptedB : BOOL;
+    AcceptedC : BOOL;
+    AcceptedD : BOOL;
+    Config : ST_TestCaseCollectionConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ChildA := FChildA;
+ChildB := FChildB;
+ChildC := FChildC;
+ChildD := FChildD;
+FBuilder.Initialize(Mode := E_OrchestrationMode.ParallelSlots,
+    TestCases := FCases);
+AcceptedA := FBuilder.RegisterWithSlot(TestCase := ChildA,
+    ExecutionSlot := 2);
+AcceptedB := FBuilder.RegisterWithSlot(TestCase := ChildB,
+    ExecutionSlot := 1);
+AcceptedC := FBuilder.RegisterWithSlot(TestCase := ChildC,
+    ExecutionSlot := 2);
+AcceptedD := FBuilder.RegisterWithSlot(TestCase := ChildD,
+    ExecutionSlot := 1);
+FRegistrationMatches := AcceptedA AND AcceptedB AND AcceptedC AND AcceptedD;
+FOrderMatches := (FCases[1] = ChildB) AND (FCases[2] = ChildD)
+    AND (FCases[3] = ChildA) AND (FCases[4] = ChildC);
+FSlotsMatches := (FChildA.ExecutionSlot = 2) AND (FChildB.ExecutionSlot = 1)
+    AND (FChildC.ExecutionSlot = 2) AND (FChildD.ExecutionSlot = 1);
+
+Config := FBuilder.Finalize();
+FFinalizationMatches := Config.IsValid AND FBuilder.IsValid AND FBuilder.IsFinalized
+    AND (Config.FirstIndex = 1) AND (Config.LastIndex = 4) AND (Config.Count = 4)
+    AND (Config.Mode = E_OrchestrationMode.ParallelSlots);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

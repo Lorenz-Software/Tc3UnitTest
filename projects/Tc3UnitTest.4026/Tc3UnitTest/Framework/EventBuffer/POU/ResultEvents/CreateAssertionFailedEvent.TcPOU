@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionFailedEvent" Id="{79c4e6ee-1e79-4400-b635-bb065b671311}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a failed-assertion event without evaluating or publishing it.</summary>
+<description>
+The caller supplies the complete ASCII name, resource context and finding message.
+</description>
+*)
+{endregion}
+FUNCTION CreateAssertionFailedEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text copied into the event within MessageLength.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateAssertionFailedEvent.SequenceId := 0;
+CreateAssertionFailedEvent.Timestamp := 0;
+CreateAssertionFailedEvent.OwnerScope := E_OwnerScope.Assertion;
+CreateAssertionFailedEvent.EventType := E_EventType.Result;
+CreateAssertionFailedEvent.Severity := SelectResultSeverity(Result := E_Result.Failed);
+CreateAssertionFailedEvent.Name := Name;
+CreateAssertionFailedEvent.ResourceName := ResourceName;
+CreateAssertionFailedEvent.State := State;
+CreateAssertionFailedEvent.Result := E_Result.Failed;
+CreateAssertionFailedEvent.Message := Message;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

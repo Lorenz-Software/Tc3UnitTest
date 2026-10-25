@@ -1,0 +1,124 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ParallelReadinessLost" Id="{bbafdd69-b622-401a-99c9-79198aa31131}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Detects a same-slot child's readiness loss after valid admission and prevents further Starts.</summary>
+<description>
+All children initially report ready. Child 2 loses readiness while child 1 starts, as when
+a shared resource changes. Child 1 may finish, but neither unstarted child is dispatched
+and one diagnostic remains held.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ParallelReadinessLost EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b80adf5b-2299-44ff-b1ac-26196499263b}" />
+    <Method Name="ConfigureScenario" Id="{6583b24e-637c-46e2-94cb-e231f1465b05}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reachable child responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 1;
+FStepCount := 8;
+
+{region "01 - Observe initial group readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start child 1 while child 2 loses readiness"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[2].State := E_State.Idle;
+FSteps[2].Children[2].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Detect lost readiness before another Start"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[2].State := E_State.Idle;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].MaxActiveChildCount := 1;
+FSteps[3].ExpectedResult := E_Result.Error;
+FSteps[3].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "04 - Keep the active child reserved without redispatch"}
+FSteps[4].Children[1].State := E_State.Running;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[2].State := E_State.Idle;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].MaxActiveChildCount := 1;
+FSteps[4].ExpectedResult := E_Result.Error;
+FSteps[4].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "05 - Child 1 completes despite the held helper error"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Passed;
+FSteps[5].Children[2].State := E_State.Idle;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedReservations[1] := 1;
+FSteps[5].MaxActiveChildCount := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+FSteps[5].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "06 - Release the completed child only"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Passed;
+FSteps[6].Children[2].State := E_State.Idle;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].ExpectedSlot := 1;
+FSteps[6].ExpectedReleasedEntries[1] := 1;
+FSteps[6].MaxActiveChildCount := 0;
+FSteps[6].ExpectedResult := E_Result.Error;
+FSteps[6].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "07 - Readiness recovery does not clear the held error"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].ExpectedSlot := 1;
+FSteps[7].MaxActiveChildCount := 0;
+FSteps[7].ExpectedResult := E_Result.Error;
+FSteps[7].ExpectedDiagnosticCount := 1;
+{endregion}
+
+{region "08 - Recovered readiness cannot restart execution"}
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Passed;
+FSteps[8].ExpectedSlot := 1;
+FSteps[8].MaxActiveChildCount := 0;
+FSteps[8].ExpectedResult := E_Result.Error;
+FSteps[8].ExpectedDiagnosticCount := 1;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

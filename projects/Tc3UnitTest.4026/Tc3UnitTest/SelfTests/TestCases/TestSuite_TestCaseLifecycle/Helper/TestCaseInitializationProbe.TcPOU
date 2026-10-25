@@ -1,0 +1,99 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestCaseInitializationProbe" Id="{5aa98d95-7578-4bf3-b38e-5213b859f5b6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes initialization ordering without replacing the production lifecycle.</summary>
+<description>
+BeginScenario clears only this adapter's observations. Configure records the state in which
+the production Initialize calls it. The optional rejection exercises a concrete owner's
+additional CheckInitialization failure after the inherited checks have passed.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK TestCaseInitializationProbe EXTENDS TestCaseLifecycleProbe
+VAR
+    FConfigurationObserved : BOOL;
+    FConfigurationContextValid : BOOL;
+    FRejectConfiguration : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{57979dc2-d814-4696-be52-1fac349691d5}" />
+    <Method Name="BeginScenario" Id="{72afb9e7-c627-492a-85b4-920cc7931113}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears observations before one explicit initialization attempt.</summary>
+*)
+{endregion}
+METHOD PUBLIC BeginScenario
+VAR_INPUT
+    RejectConfiguration : BOOL := FALSE; //! TRUE makes the concrete initialization check report Error and reject configuration.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigurationObserved := FALSE;
+FConfigurationContextValid := FALSE;
+FRejectConfiguration := RejectConfiguration;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{9372346d-f503-4781-b3a8-0d2042c3dc93}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects a concrete setup only after the inherited checks succeeded.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+IF FRejectConfiguration THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := FResourceName,
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Concrete test setup rejected.'));
+    RETURN;
+END_IF;
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{dfbadf99-b85d-450c-b545-4d063f32cd69}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes entry, then uses the existing concrete hook implementation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigurationObserved := TRUE;
+FConfigurationContextValid := (State = E_State.Uninitialized) AND NOT IsInitialized AND (Name <> '');
+SUPER^.Configure();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WasConfigurationContextValid" Id="{4006ce62-e289-43fb-a430-d856cb4e0cc1}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configure must run with the new identity, Uninitialized state and initialization not yet accepted.</summary>
+*)
+{endregion}
+METHOD PUBLIC WasConfigurationContextValid : BOOL //! Recorded TRUE when Configure observed the expected new identity and pre-acceptance initialization context.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[WasConfigurationContextValid := FConfigurationContextValid;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="WasConfigured" Id="{d5c01b77-e6ab-400e-b564-1057b67e5995}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports whether Configure was reached in this initialization attempt.</summary>
+*)
+{endregion}
+METHOD PUBLIC WasConfigured : BOOL //! TRUE when Configure was reached during the current scenario.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[WasConfigured := FConfigurationObserved;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

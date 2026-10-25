@@ -1,0 +1,1766 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuiteBase" Id="{a9f58f5e-bc6d-46fc-9500-659dfb918e61}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Base-owned Suite lifecycle and orchestration of a concrete Test Case collection.</summary>
+<description>
+The Run Control calls Initialize. Implement Configure, GetTestCase and ProcessTestCases; the
+concrete FB body calls SUPER^() once per task cycle.
+
+Configure initializes and registers static children. The base owns builder finalization,
+Orchestrator initialization and execution, timeouts, aggregation and owner events. Continue calling
+every child during Completing and Completed; finalized owner results remain held while status is
+refreshed.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT TestSuiteBase IMPLEMENTS I_TestSuite, I_OrchestratableCollection
+VAR
+    /// Instance binding; derived test adapters may assign it before first use.
+    FEventPublisher : I_EventPublisher;
+    FName : STRING(GVL_Constants.NameLength);
+    FResourceName : STRING(GVL_Constants.ResourceNameLength);
+    FConfig : ST_TestSuiteConfig;
+    FCollectionConfiguration : ST_TestCaseCollectionConfig;
+    FInitialized : BOOL;
+    FHasTimeout : BOOL;
+    FHasResetTimeout : BOOL;
+    FHasAbortTimeout : BOOL;
+    FCheckingInitialization : BOOL;
+    FConfigError : BOOL;
+    FOrchestrator : I_Orchestrator;
+    FDefaultOrchestrator : Orchestrator;
+    FStatus : ST_TestSuiteStatus;
+    FResult : E_Result := E_Result.NotEvaluated;
+    FMethodRequests : ST_Command;
+    FState : E_State := E_State.Uninitialized;
+    FExecutionTimer : Stopwatch;
+    FStateTimer : Stopwatch;
+    FAggregator : ResultAggregator;
+    FTestCaseCountInactive : UINT;
+    FTestCaseCountIdle : UINT;
+    FTestCaseCountRunning : UINT;
+    FTestCaseCountCompleted : UINT;
+    FTestCaseCountError : UINT;
+    FCollectionValid : BOOL;
+    FChildrenError : BOOL;
+    FChildrenAborted : BOOL;
+    FChildrenCompleted : BOOL;
+    FChildrenAbortFinished : BOOL;
+    FExecutionSlot : UINT;
+    FReservedEntryCount : UINT;
+END_VAR
+VAR_TEMP
+    Requests : ST_Command;
+    OrchestratorTask : E_OrchestratorTask;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[ProcessRequests(InputRequests := FMethodRequests, Requests => Requests);
+
+FExecutionTimer.Update();
+FStateTimer.Update();
+
+Sequencer(Requests := Requests);
+
+IF IsInitialized THEN
+    OrchestratorTask := MapOrchestratorTask(State := FState,
+        CurrentTask := FOrchestrator.CurrentTask);
+    FOrchestrator.Execute(Task := OrchestratorTask);
+
+    ProcessTestCases();
+    AggregateResults();
+END_IF;
+
+UpdateResult();
+UpdateStatus();
+EmitFinalizationEvents();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{e87e06f0-4132-47ed-9bd6-90e8f3d856cb}" />
+    <Folder Name="MetaData" Id="{8508bb60-0930-4f58-88c3-c98647f5c2fe}" />
+    <Folder Name="Sequencer" Id="{875a4966-8515-415a-8fc8-ea2d3a3d93b9}" />
+    <Folder Name="ToImplement" Id="{26b2678a-0cd2-4f22-b1b2-67cbfdc1d8bb}" />
+    <Method Name="AggregateResults" Id="{beba1736-f8bb-4b55-9f9f-0fb52df6f0e6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates results and execution counters after child calls; refreshes observations from the same snapshots.</summary>
+*)
+{endregion}
+METHOD PRIVATE AggregateResults
+VAR
+    Count : UINT;
+    FirstIndex : DINT;
+    LastIndex : DINT;
+    Index : LINT;
+    ChildStatus : ST_TestCaseStatus;
+    ChildResult : E_Result;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Count := ChildCount;
+FTestCaseCountInactive := 0;
+FTestCaseCountIdle := 0;
+FTestCaseCountRunning := 0;
+FTestCaseCountCompleted := 0;
+FTestCaseCountError := 0;
+FAggregator.Reset();
+FCollectionValid := FALSE;
+FChildrenCompleted := FALSE;
+FChildrenAbortFinished := FALSE;
+FChildrenError := FALSE;
+FChildrenAborted := FALSE;
+
+IF NOT FInitialized OR (Count = 0) THEN
+    RETURN;
+END_IF;
+FirstIndex := ChildArrayLowerBound;
+LastIndex := ChildArrayUpperBound;
+IF DINT_TO_LINT(LastIndex) - DINT_TO_LINT(FirstIndex) + 1 < UINT_TO_LINT(Count) THEN
+    RETURN;
+END_IF;
+
+FCollectionValid := TRUE;
+FChildrenCompleted := TRUE;
+FChildrenAbortFinished := TRUE;
+FOR Index := DINT_TO_LINT(FirstIndex) TO DINT_TO_LINT(FirstIndex) + UINT_TO_LINT(Count) - 1 DO
+    IF NOT ObserveTestCase(Child := GetTestCase(Index := LINT_TO_DINT(Index)),
+        ChildStatus => ChildStatus) THEN
+        FTestCaseCountError := FTestCaseCountError + 1;
+        FAggregator.AddResult(Result := E_Result.Error);
+        CONTINUE;
+    END_IF;
+
+    ChildResult := ChildStatus.Execution.Result;
+    CASE ChildResult OF
+        E_Result.NotEvaluated, E_Result.Passed, E_Result.Failed, E_Result.Abort, E_Result.Error:
+            FAggregator.AddResult(Result := ChildResult);
+    ELSE
+        ChildResult := E_Result.Error;
+        FAggregator.AddResult(Result := ChildResult);
+    END_CASE;
+
+    CASE ChildStatus.Execution.ExecutionStatus OF
+        E_ExecutionStatus.Inactive:
+            FTestCaseCountInactive := FTestCaseCountInactive + 1;
+        E_ExecutionStatus.Idle:
+            FTestCaseCountIdle := FTestCaseCountIdle + 1;
+        E_ExecutionStatus.Running:
+            FTestCaseCountRunning := FTestCaseCountRunning + 1;
+        E_ExecutionStatus.Completed:
+            FTestCaseCountCompleted := FTestCaseCountCompleted + 1;
+    ELSE
+        // Transitional execution states have no dedicated counter in the status contract.
+    END_CASE;
+    IF (ChildStatus.Execution.ExecutionStatus = E_ExecutionStatus.Error) OR (ChildResult = E_Result.Error) THEN
+        FTestCaseCountError := FTestCaseCountError + 1;
+    END_IF;
+
+END_FOR;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ChangeState" Id="{11dd2829-8dc1-457f-b9ec-ed0b8aa17a51}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies permitted transitions; rejection holds state/timers and emits phase-dependent diagnostics or latches Error.</summary>
+*)
+{endregion}
+METHOD PRIVATE ChangeState
+VAR_INPUT
+    NewState : E_State; //! Requested lifecycle destination; identical state is a no-op and rejection leaves state and timers unchanged.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NewState = FState THEN
+    RETURN;
+END_IF;
+IF NOT IsStateTransitionAllowed(NewState := NewState) THEN
+    CASE FState OF
+        E_State.Uninitialized:
+            RETURN;
+
+        E_State.Completed:
+            PublishEvent(Event := CreateInvalidStateTransitionEvent(OwnerScope := E_OwnerScope.TestSuite,
+                Name := FName,
+                ResourceName := FResourceName,
+                StateOld := FState,
+                StateNew := NewState));
+    ELSE
+        IF FResult <> E_Result.Error THEN
+            PublishEvent(Event := CreateInvalidStateTransitionEvent(OwnerScope := E_OwnerScope.TestSuite,
+                Name := FName,
+                ResourceName := FResourceName,
+                StateOld := FState,
+                StateNew := NewState));
+        END_IF;
+        FResult := E_Result.Error;
+    END_CASE;
+    RETURN;
+END_IF;
+
+CASE NewState OF
+    E_State.Uninitialized:
+        FExecutionTimer.Reset();
+        FStateTimer.Start();
+        FResult := E_Result.NotEvaluated;
+    E_State.Reset:
+        FHasTimeout := FALSE;
+        FHasResetTimeout := FALSE;
+        FHasAbortTimeout := FALSE;
+        IF (FState = E_State.Starting) OR (FState = E_State.Running) OR (FState = E_State.Completing)
+            OR (FState = E_State.Aborting) OR (FState = E_State.AbortingFromError) THEN
+            PublishEvent(Event := CreateResetWarningEvent(OwnerScope := E_OwnerScope.TestSuite,
+                Name := FName,
+                ResourceName := FResourceName,
+                State := FState));
+        END_IF;
+        FExecutionTimer.Reset();
+        FStateTimer.Start();
+        FResult := E_Result.NotEvaluated;
+    E_State.Idle:
+        FStateTimer.Start();
+    E_State.Starting:
+        FStateTimer.Start();
+        FExecutionTimer.Start();
+    E_State.Running:
+        FStateTimer.Start();
+    E_State.Completing:
+        FExecutionTimer.Stop();
+        FStateTimer.Start();
+    E_State.Completed:
+        FStateTimer.Start();
+    E_State.Aborting:
+        FExecutionTimer.Stop();
+        FStateTimer.Start();
+        IF FResult <> E_Result.Error THEN
+            FResult := E_Result.Abort;
+        END_IF;
+    E_State.AbortingFromError:
+        FExecutionTimer.Stop();
+        IF FState <> E_State.Aborting THEN
+            FStateTimer.Start();
+        END_IF;
+        FResult := E_Result.Error;
+ELSE
+    RETURN;
+END_CASE;
+PublishEvent(Event := CreateStateTransitionEvent(OwnerScope := E_OwnerScope.TestSuite,
+    Name := FName,
+    ResourceName := FResourceName,
+    StateOld := FState,
+    StateNew := NewState));
+FState := NewState;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{44feed5a-b377-4e42-809d-f06f4c7f0640}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates timeouts, the initialized Orchestrator and every registered child.</summary>
+<description>
+Called after builder finalization and helper initialization. An override must include
+SUPER^.CheckInitialization(), preserve failure and check any additional application setup.
+
+Timeout, ResetTimeout and AbortTimeout must be positive. The base reports its first failed
+check; FALSE prevents successful initialization.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the configured setup is valid; FALSE reports invalid setup and prevents initialization.
+VAR
+    Index : LINT;
+    Child : I_TestCase;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF (FConfig.Timeout = T#0ms) OR (FConfig.ResetTimeout = T#0ms) OR (FConfig.AbortTimeout = T#0ms) THEN
+    PublishInitializationError(Message := 'Suite timeouts must be greater than zero.');
+    RETURN;
+END_IF;
+IF NOT FOrchestrator.IsInitialized THEN
+    PublishInitializationError(Message := 'Orchestrator initialization is invalid.');
+    RETURN;
+END_IF;
+IF (ChildCount = 0)
+    OR (DINT_TO_LINT(ChildArrayUpperBound) - DINT_TO_LINT(ChildArrayLowerBound) + 1 < UINT_TO_LINT(ChildCount)) THEN
+    PublishInitializationError(Message := 'Invalid registered Test Case range.');
+    RETURN;
+END_IF;
+FOR Index := DINT_TO_LINT(ChildArrayLowerBound) TO DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount) - 1 DO
+    Child := GetTestCase(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        PublishInitializationError(Message := CONCAT('Missing Test Case at index ', LINT_TO_STRING(Index)));
+        RETURN;
+    END_IF;
+    IF NOT Child.IsInitialized THEN
+        PublishInitializationError(Message := CONCAT('Test Case is not initialized: ', Child.Name));
+        RETURN;
+    END_IF;
+END_FOR;
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ChildArrayLowerBound" Id="{d782628e-6d81-4c01-b4bc-602e17df2d5f}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual array lower bound; zero when no configuration is available.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildArrayLowerBound : DINT //! Actual array lower bound; zero when no configuration is available.]]></Declaration>
+      <Get Name="Get" Id="{5d380200-52da-406a-bf9b-a31a92d204b6}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildArrayLowerBound := 0;
+IF NOT (FInitialized OR FCheckingInitialization) OR NOT FCollectionConfiguration.IsValid THEN
+    RETURN;
+END_IF;
+ChildArrayLowerBound := FCollectionConfiguration.FirstIndex;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ChildArrayUpperBound" Id="{b1a5f415-0fe0-41cb-9d2b-44d1a31354dc}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual array upper bound, including unused capacity; process only ChildCount
+entries.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildArrayUpperBound : DINT //! Actual array upper bound, including unused capacity; process only ChildCount entries.]]></Declaration>
+      <Get Name="Get" Id="{86e14103-3dd3-455b-9305-f4d5081d8c8e}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildArrayUpperBound := 0;
+IF NOT (FInitialized OR FCheckingInitialization) OR NOT FCollectionConfiguration.IsValid THEN
+    RETURN;
+END_IF;
+ChildArrayUpperBound := FCollectionConfiguration.LastIndex;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ChildCount" Id="{7238664d-9171-4c91-800e-0f107a60e459}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registered population starting at ChildArrayLowerBound; zero when unavailable.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildCount : UINT //! Registered population starting at ChildArrayLowerBound; zero when unavailable.]]></Declaration>
+      <Get Name="Get" Id="{daa864f6-8e2e-4ab5-aaca-6318999f6a4a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildCount := 0;
+IF NOT (FInitialized OR FCheckingInitialization) OR NOT FCollectionConfiguration.IsValid THEN
+    RETURN;
+END_IF;
+ChildCount := FCollectionConfiguration.Count;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Configure" Id="{3326bb5c-7a0e-4763-94c0-237b2fd06f4a}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers this owner's static Test Cases.</summary>
+<description>
+The owner identity is already established. Initialize owned children, bind the local interface
+array through Builder.Initialize, select the mode, and use Register or RegisterWithSlot as
+appropriate.
+
+The base calls Finalize after this hook and retains only validated configuration values; it
+then initializes the Orchestrator and calls CheckInitialization. Do not retain the borrowed
+TestSuiteConfigurationBuilder or its temporary storage binding.
+
+Implement GetTestCase against that same array and keep the composition fixed until full
+hierarchical reinitialization. This abstract hook has no base implementation to call.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed setup builder; initialize and register children during Configure only. The base calls Finalize afterwards.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FExample.Initialize(Parent := THIS^,
+    TestName := 'Example',
+    Config := ExampleConfig);
+Builder.Register(TestCase := FExample);
+Initialize and register each owned child. Use RegisterWithSlot for ParallelSlots.
+The base calls Finalize after this method returns, including an early return.
+Do not retain the builder or mutate the array after configuration.
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="EmitFinalizationEvents" Id="{1bbbc63b-b714-4863-a637-a7f228147eff}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes Result then Aggregation in the single Completing cycle, after result/status projection.</summary>
+<description>
+The single-call Completing phase provides one-shot Result then Aggregation publication; the next sequencing call enters Completed. Failed insertion is accounted for by the publisher without a retry here. Later child status changes do not rewrite the published payload.
+</description>
+*)
+{endregion}
+METHOD PRIVATE EmitFinalizationEvents]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FState <> E_State.Completing THEN
+    RETURN;
+END_IF;
+
+PublishEvent(Event := CreateResultEvent(OwnerScope := E_OwnerScope.TestSuite,
+    Name := FName,
+    ResourceName := FResourceName,
+    State := FState,
+    Result := FResult,
+    Message := ''));
+PublishEvent(Event := CreateTestSuiteAggregationEvent(Name := FName,
+    ResourceName := FResourceName,
+    Status := FStatus));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error" Id="{7447aac5-47da-4b6b-939f-37f73b48245f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches the technical Suite error and emits its first diagnostic; does not change state.</summary>
+*)
+{endregion}
+METHOD PRIVATE Error
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Framework diagnostic text emitted only when first escalating a mutable owner result to Error.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (FState = E_State.Uninitialized) OR (FState = E_State.Completed) THEN
+    RETURN;
+END_IF;
+IF FResult <> E_Result.Error THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := Message));
+END_IF;
+FResult := E_Result.Error;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EventPublisher" Id="{e06ee419-3450-4306-a3ab-938f82d74047}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns this instance's retained event-publication service.</summary>
+<description>
+If the local binding is zero, the getter takes GVL_EventBuffer.Publisher on access. An
+established binding is retained; Initialize and lifecycle Reset do not replace it.
+
+The default must be bound before first diagnostic use. Controlled test adapters may assign the
+protected field before use. This getter performs no event publication, lifecycle processing or
+reservation change.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC EventPublisher : I_EventPublisher //! Returns this instance's retained event-publication service.]]></Declaration>
+      <Get Name="Get" Id="{2ffbab6a-5518-41f4-91d9-2909a776ce01}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IF FEventPublisher = 0 THEN
+    FEventPublisher := GVL_EventBuffer.Publisher;
+END_IF;
+EventPublisher := FEventPublisher;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ExecutionSlot" Id="{7517f184-6857-4071-8ad6-d46e707a9ad4}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Parent-assigned configuration slot; Initialize and Reset retain it.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ExecutionSlot : UINT //! Parent-assigned configuration slot; Initialize and Reset retain it.]]></Declaration>
+      <Get Name="Get" Id="{08da0946-4372-4260-b495-8780dbcc46ed}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ExecutionSlot := FExecutionSlot;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{47d22713-0ec7-4903-b5f6-cdfc3c14e4e4}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FExecutionSlot := ExecutionSlot;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="FreeReservedEvents" Id="{82fae925-250e-40db-ac4d-8ff25349ce4a}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Immediately releases reservations for this Suite and all registered Test Cases.</summary>
+<description>
+Attempts every registered child and the own contribution even after an individual failure.
+TRUE means all attempted releases succeeded; FALSE may mean partial release. Already released
+contributions are not rolled back.
+
+Does not change lifecycle states or stop cyclic child calls. During Reset-error finalization
+it may free a child's budget before that child finishes; no new child requests may then be issued by
+the completed Suite. This is failure cleanup, not normal admission.
+
+Traverses the registered children only when finalized collection metadata is valid. Missing child interfaces or failed child releases make the result FALSE while remaining children and the own release are still attempted. The own zero contribution does not skip child traversal. This is not an initialization or resource-stop operation.
+</description>
+*)
+{endregion}
+// C0298: Reviewed compiler false positive in virtual/interface call-graph detection.
+// Reported to Beckhoff; local suppression without a fabricated stack estimate.
+{warning disable C0298}
+METHOD PUBLIC FINAL FreeReservedEvents : BOOL //! TRUE when all subtree contributions were released; FALSE permits partial success.
+VAR
+    Index : LINT;
+    Child : I_TestCase;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FreeReservedEvents := TRUE;
+IF FCollectionConfiguration.IsValid THEN
+    FOR Index := DINT_TO_LINT(FCollectionConfiguration.FirstIndex)
+        TO DINT_TO_LINT(FCollectionConfiguration.FirstIndex) + UINT_TO_LINT(FCollectionConfiguration.Count) - 1 DO
+        Child := GetTestCase(Index := LINT_TO_DINT(Index));
+        IF Child = 0 THEN
+            FreeReservedEvents := FALSE;
+            CONTINUE;
+        END_IF;
+        IF NOT Child.FreeReservedEvents() THEN
+            FreeReservedEvents := FALSE;
+        END_IF;
+    END_FOR;
+END_IF;
+
+IF UpdateEventReservation(EntryCount := 0,
+    HeadroomEntryCount := 0,
+    ChildEntryCount := 0) <> E_EventReservationResult.Accepted THEN
+    FreeReservedEvents := FALSE;
+END_IF;
+{warning restore C0298}]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetChild" Id="{8fa76978-ef3a-4fe7-8291-60abde78f1a8}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the common view from the typed owner collection without executing the
+child.</summary>
+*)
+{endregion}
+METHOD PUBLIC FINAL GetChild : I_Orchestratable //! Registered child interface at Index; zero for an invalid or unoccupied index.
+VAR_INPUT
+    Index : DINT; //! Original child-array index, not a registration ordinal; valid children occupy LowerBound through LowerBound + Count - 1.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetChild := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetChild := GetTestCase(Index := Index);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{d86508c5-43ca-49e3-b6a4-c12eb99db6d5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered child from the concrete owner's interface array.</summary>
+<description>
+Implement lookup in the same array configured by Configure, using its actual array index
+rather than a hard-coded registration ordinal. Registration can reorder entries by slot.
+
+Check the occupied range starting at ChildArrayLowerBound for ChildCount entries and return
+zero outside it. Do not access unused capacity, execute the child, or cache a setup-time array
+address. This abstract method has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PUBLIC ABSTRACT GetTestCase : I_TestCase //! Registered child interface at Index; zero for an invalid or unoccupied index.
+VAR_INPUT
+    Index : DINT; //! Original child-array index, not a registration ordinal; valid children occupy LowerBound through LowerBound + Count - 1.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="HasAbortTimeout" Id="{661ea33d-89cb-41e7-bb3e-2818eb0cd1cc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected Abort timeout until Initialize or entry into a new Reset.</summary>
+<description>
+An expired abort deadline finishes through Completing with Error. Escalation from Aborting to
+AbortingFromError does not restart that deadline.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasAbortTimeout : BOOL //! Reports a detected Abort timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{339892eb-4c99-4394-9da7-f3ccc056e074}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasAbortTimeout := FHasAbortTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasError" Id="{fe815e36-998c-44c3-8828-2f8da160eafc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the current owner error condition used by status projection.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasError : BOOL //! Reports the current owner error condition used by status projection.]]></Declaration>
+      <Get Name="Get" Id="{bd350ed3-2782-49ad-8aa3-64aad806e1b6}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasError := FConfigError OR (FResult = E_Result.Error);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasResetTimeout" Id="{b38b5b33-8395-4801-8ec0-26def3bf5458}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected Reset timeout until Initialize or entry into a new Reset.</summary>
+<description>
+The owner leaves a timed-out Reset through Completing to Completed with Error, not through
+Abort. Capacity waiting or scenario cleanup remains part of the configured deadline.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasResetTimeout : BOOL //! Reports a detected Reset timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{08e66fae-ff35-4152-9c5b-4ec10e0d18bb}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasResetTimeout := FHasResetTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasTimeout" Id="{fca5099a-d5a3-43bd-b9e7-f2306fa958a6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected execution timeout until Initialize or entry into a new Reset.</summary>
+<description>
+The owner supervises its own execution deadline; the parent does not duplicate this check.
+Invalid timer measurements report Framework errors without setting this timeout flag.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasTimeout : BOOL //! Reports a detected execution timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{8a75f704-ad2c-4344-9e4e-c9cb59f564a4}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasTimeout := FHasTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{acb53658-07a0-4fde-be81-1546e6fad3ee}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Establishes identity, invokes Configure, then validates the complete setup.</summary>
+<description>
+Called by the parent after Event Buffer startup initialization; clears only this owner's old
+reservation. Configure rebuilds the child setup without releasing the previous registry. Parent is
+not retained. Successful setup waits in Uninitialized for the parent's capacity-admitted Reset
+request.
+
+Reinitialization requires configuration reactivation or PLC Cold Reset followed by the
+application's first-cycle initialization chain. Normal PLC Stop/Start and UnitTest Reset do not
+rebuild configuration. Do not call Initialize as recovery during an active run.
+
+The selected publisher must already be usable for configuration diagnostics. Failure leaves
+IsInitialized FALSE; retained diagnostic identity is not proof of valid setup.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL Initialize : BOOL //! TRUE after successful identity and setup validation; FALSE leaves the object uninitialized.
+VAR_INPUT
+    Parent : I_RunControl; //! Owning Run Control with an established Name; read during Initialize, not retained.
+    SuiteName : STRING(GVL_Constants.NameLength); //! Nonempty single name segment appended to Parent.Name; the complete name must fit NameLength.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    Config : ST_TestSuiteConfig; //! Timeout configuration copied during initialization; all timeout values must be greater than zero.
+END_VAR
+VAR
+    FullName : STRING(2 * GVL_Constants.NameLength + 1);
+    EmptyStatus : ST_TestSuiteStatus;
+    // SA0167: Setup-only builder; no state or binding survives this initialization call.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder;
+    EmptyCollectionConfiguration : ST_TestCaseCollectionConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FInitialized := FALSE;
+FReservedEntryCount := 0;
+FCollectionConfiguration := EmptyCollectionConfiguration;
+FHasTimeout := FALSE;
+FHasResetTimeout := FALSE;
+FHasAbortTimeout := FALSE;
+FState := E_State.Uninitialized;
+FExecutionTimer.Reset();
+FStateTimer.Start();
+FAggregator.Reset();
+FTestCaseCountInactive := 0;
+FTestCaseCountIdle := 0;
+FTestCaseCountRunning := 0;
+FTestCaseCountCompleted := 0;
+FTestCaseCountError := 0;
+FCollectionValid := FALSE;
+FChildrenError := FALSE;
+FChildrenAborted := FALSE;
+FChildrenCompleted := FALSE;
+FChildrenAbortFinished := FALSE;
+FCheckingInitialization := FALSE;
+FConfigError := TRUE;
+FName := SuiteName;
+FResourceName := ResourceName;
+FConfig := Config;
+FResult := E_Result.NotEvaluated;
+FStatus := EmptyStatus;
+FStatus.Execution.Uninitialized := TRUE;
+FStatus.Execution.ConfigError := TRUE;
+FStatus.Execution.ExecutionStatus := E_ExecutionStatus.NotReady;
+FMethodRequests.Start := FALSE;
+FMethodRequests.Abort := FALSE;
+FMethodRequests.Reset := FALSE;
+
+IF Parent = 0 THEN
+    PublishInitializationError(Message := 'Missing Run Control parent.');
+    RETURN;
+END_IF;
+FullName := CONCAT(CONCAT(Parent.Name, '.'), SuiteName);
+// SA0175: ASCII name contract; byte-based access is intentional and bounded.
+{analysis -175}
+FName := LEFT(FullName, UINT_TO_INT(GVL_Constants.NameLength));
+{analysis +175}
+IF NOT IsNameValid(Name := FullName, Depth := 2) THEN
+    PublishInitializationError(Message := CONCAT('Invalid Test Suite name: ', FullName));
+    RETURN;
+END_IF;
+
+Configure(Builder := Builder);
+FCollectionConfiguration := Builder.Finalize();
+IF NOT FCollectionConfiguration.IsValid THEN
+    PublishInitializationError(Message := 'Invalid Test Case collection configuration.');
+    RETURN;
+END_IF;
+IF FOrchestrator = 0 THEN
+    FOrchestrator := FDefaultOrchestrator;
+END_IF;
+
+FCheckingInitialization := TRUE;
+IF NOT FOrchestrator.Initialize(Collection := THIS^,
+    Name := FName,
+    ResourceName := FResourceName) THEN
+    FCheckingInitialization := FALSE;
+    PublishInitializationError(Message := 'Orchestrator initialization failed.');
+    RETURN;
+END_IF;
+
+FConfigError := NOT CheckInitialization();
+FCheckingInitialization := FALSE;
+IF FConfigError THEN
+    RETURN;
+END_IF;
+
+FInitialized := TRUE;
+FStatus.Execution.ConfigError := FALSE;
+FStatus.TestCaseCountTotal := ChildCount;
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsAborted" Id="{c5af54d5-9cde-4e09-acf3-83605b1427e5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports completed explicit abort, including the legacy Aborted state.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAborted : BOOL //! Reports completed explicit abort, including the legacy Aborted state.]]></Declaration>
+      <Get Name="Get" Id="{50893371-a97c-43fe-bb64-ab7a3e19047c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAborted := ((FState = E_State.Completed) AND (FResult = E_Result.Abort)) OR (FState = E_State.Aborted);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsAborting" Id="{f7e49787-8825-4fd3-b3ad-e849730d37e7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports explicit or error-driven abort processing.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAborting : BOOL //! Reports explicit or error-driven abort processing.]]></Declaration>
+      <Get Name="Get" Id="{a0d4a537-d865-498d-8b46-c48d723834c2}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAborting := (FState = E_State.Aborting) OR (FState = E_State.AbortingFromError);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsComplete" Id="{28ca1620-d52a-4488-8950-a7a7a4d606dc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports terminal completion independently of the result.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsComplete : BOOL //! Reports terminal completion independently of the result.]]></Declaration>
+      <Get Name="Get" Id="{6578e03c-9dfa-4c60-b46e-5929a2f0ec2a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsComplete := FState = E_State.Completed;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsIdle" Id="{30b57694-7e7b-49c8-bcf9-00fe237eafa4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports Idle state independently of readiness.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsIdle : BOOL //! Reports Idle state independently of readiness.]]></Declaration>
+      <Get Name="Get" Id="{7366386b-e543-4b3c-975f-ac6a0b93deb8}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsIdle := FState = E_State.Idle;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{8de04807-1964-4264-bc83-ec9116beafa2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports successful explicit identity, composition and configuration validation.</summary>
+<description>
+TRUE does not imply Idle or Ready. Successful Initialize still waits in Uninitialized for the
+parent's capacity-admitted Reset.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsInitialized : BOOL //! Reports successful explicit identity, composition and configuration validation.]]></Declaration>
+      <Get Name="Get" Id="{13527564-68f6-4391-b8e3-e078e4cdf229}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsInitialized := FInitialized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{79900c3b-1a0e-4781-982c-4fd34fa3867c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports whether this owner can accept Start in Idle.</summary>
+<description>
+Requires successful initialization, valid configuration and collection, no owner Error, and
+Orchestrator readiness with a neutral NotEvaluated helper result. The Orchestrator supplies the
+child-readiness summary; IsInitialized or IsIdle alone is insufficient.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Reports whether this owner can accept Start in Idle.]]></Declaration>
+      <Get Name="Get" Id="{0f6032d6-664d-45d2-b92c-5f9baa49ff4b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := FALSE;
+IF NOT FInitialized OR FConfigError OR (FResult = E_Result.Error) OR (FState <> E_State.Idle)
+    OR NOT FCollectionValid THEN
+    RETURN;
+END_IF;
+IsReady := FOrchestrator.IsReady
+    AND (FOrchestrator.Result = E_Result.NotEvaluated);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsResetting" Id="{946f62aa-7628-4483-a580-ec31dce9beaa}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports active Reset processing.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsResetting : BOOL //! Reports active Reset processing.]]></Declaration>
+      <Get Name="Get" Id="{5dfcdccb-2692-44e9-a839-6a159e319524}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsResetting := FState = E_State.Reset;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="IsStateTransitionAllowed" Id="{0156c02a-c583-4eab-be5c-29c090c10ef8}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks a Suite transition without changing state or producing diagnostics.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsStateTransitionAllowed : BOOL //! TRUE when the requested state satisfies the current initialization, readiness, lifecycle and completion prerequisites.
+VAR_INPUT
+    NewState : E_State; //! Requested destination checked without changing state, result, timers or events.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NewState = E_State.Uninitialized THEN
+    IsStateTransitionAllowed := TRUE;
+    RETURN;
+END_IF;
+IF NOT FInitialized THEN
+    IsStateTransitionAllowed := FALSE;
+    RETURN;
+END_IF;
+
+CASE NewState OF
+    E_State.Reset:
+        IsStateTransitionAllowed := TRUE;
+    E_State.Idle:
+        IsStateTransitionAllowed := (FState = E_State.Reset) AND NOT FConfigError
+            AND (FResult <> E_Result.Error) AND FCollectionValid
+            AND FOrchestrator.IsResetFinished
+            AND (FOrchestrator.Result = E_Result.NotEvaluated);
+    E_State.Starting:
+        IsStateTransitionAllowed := IsReady;
+    E_State.Running:
+        IsStateTransitionAllowed := (FState = E_State.Starting) AND (FResult <> E_Result.Error);
+    E_State.Completing:
+        CASE FState OF
+            E_State.Uninitialized, E_State.Starting, E_State.Completed:
+                IsStateTransitionAllowed := FALSE;
+            E_State.Reset, E_State.Idle:
+                IsStateTransitionAllowed := FResult = E_Result.Error;
+            E_State.Running:
+                IsStateTransitionAllowed := FChildrenCompleted AND (FResult <> E_Result.Error)
+                    AND FOrchestrator.IsExecutionFinished;
+            E_State.Aborting, E_State.AbortingFromError:
+                IsStateTransitionAllowed := TRUE;
+        ELSE
+            IsStateTransitionAllowed := FResult = E_Result.Error;
+        END_CASE;
+    E_State.Completed:
+        IsStateTransitionAllowed := FState = E_State.Completing;
+    E_State.Aborting:
+        IsStateTransitionAllowed := ((FState = E_State.Starting) OR (FState = E_State.Running))
+            AND (FResult <> E_Result.Error);
+    E_State.AbortingFromError:
+        IsStateTransitionAllowed := ((FState = E_State.Starting) OR (FState = E_State.Running)
+            OR (FState = E_State.Aborting)) AND (FResult = E_Result.Error);
+ELSE
+    IsStateTransitionAllowed := FALSE;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsTestSuiteActive" Id="{dd4417e1-7da2-4c14-97e2-8f652219add2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the active lifecycle, including finalization and abort processing.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsTestSuiteActive : BOOL //! Reports the active lifecycle, including finalization and abort processing.]]></Declaration>
+      <Get Name="Get" Id="{cc559823-3e0b-4082-936a-7a91e159f361}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsTestSuiteActive := (FState = E_State.Starting) OR (FState = E_State.Running)
+    OR (FState = E_State.Completing) OR IsAborting;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="MapOrchestratorTask" Id="{18e5a98e-68bb-4f42-95f2-9acf88efcc04}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Maps owner state and the current helper task; Reset finalization never selects Abort.</summary>
+*)
+{endregion}
+METHOD PRIVATE MapOrchestratorTask : E_OrchestratorTask //! Helper task selected from State; Completing retains Execution/Abort, otherwise selects Idle.
+VAR_INPUT
+    State : E_State; //! Current owner lifecycle state after sequencing.
+    CurrentTask : E_OrchestratorTask; //! Previously assigned helper task, retained during Completing only for Execution or Abort.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE State OF
+    E_State.Reset:
+        MapOrchestratorTask := E_OrchestratorTask.Reset;
+    E_State.Starting, E_State.Running:
+        MapOrchestratorTask := E_OrchestratorTask.Execution;
+    E_State.Aborting, E_State.AbortingFromError:
+        MapOrchestratorTask := E_OrchestratorTask.Abort;
+    E_State.Completing:
+        IF (CurrentTask = E_OrchestratorTask.Execution) OR (CurrentTask = E_OrchestratorTask.Abort) THEN
+            MapOrchestratorTask := CurrentTask;
+        ELSE
+            MapOrchestratorTask := E_OrchestratorTask.Idle;
+        END_IF;
+ELSE
+    MapOrchestratorTask := E_OrchestratorTask.Idle;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Name" Id="{08df39d6-094d-4e2c-83cc-a25474766a28}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Hierarchical identity retained for diagnostics, including rejected names.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Name : STRING(GVL_Constants.NameLength) //! Hierarchical identity retained for diagnostics, including rejected names.]]></Declaration>
+      <Get Name="Get" Id="{372d19ba-96de-4b6e-844c-a2c837640293}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := FName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ObserveTestCase" Id="{84328175-9694-4371-b2ea-79a190f36393}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reads one child snapshot and accumulates lifecycle observations; invalid bindings invalidate the collection.</summary>
+*)
+{endregion}
+METHOD PRIVATE ObserveTestCase : BOOL //! TRUE after reading an initialized child snapshot; FALSE clears ChildStatus and invalidates collection observations.
+VAR_INPUT
+    Child : I_TestCase; //! Borrowed Test Case interface; zero or uninitialized children invalidate collection observations.
+END_VAR
+VAR_OUTPUT
+    ChildStatus : ST_TestCaseStatus; //! One child snapshot by value; empty on invalid binding. TRUE indicates binding validity rather than a successful verdict.
+END_VAR
+VAR
+    ChildValid : BOOL;
+    EmptyStatus : ST_TestCaseStatus;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ObserveTestCase := FALSE;
+ChildValid := FALSE;
+IF Child <> 0 THEN
+    ChildValid := Child.IsInitialized;
+END_IF;
+IF NOT ChildValid THEN
+    ChildStatus := EmptyStatus;
+    FCollectionValid := FALSE;
+    FChildrenCompleted := FALSE;
+    FChildrenAbortFinished := FALSE;
+    FChildrenError := TRUE;
+    RETURN;
+END_IF;
+
+ChildStatus := Child.Status;
+CASE ChildStatus.Execution.Result OF
+    E_Result.NotEvaluated, E_Result.Passed, E_Result.Failed, E_Result.Abort, E_Result.Error:
+        FChildrenError := FChildrenError OR (ChildStatus.Execution.Result = E_Result.Error);
+ELSE
+    FChildrenError := TRUE;
+END_CASE;
+FChildrenError := FChildrenError OR ChildStatus.Execution.Error OR ChildStatus.Execution.ConfigError
+    OR (ChildStatus.Execution.ExecutionStatus = E_ExecutionStatus.Error);
+FChildrenAborted := FChildrenAborted OR (ChildStatus.Execution.Result = E_Result.Abort);
+FChildrenCompleted := FChildrenCompleted AND ChildStatus.Execution.Completed;
+FChildrenAbortFinished := FChildrenAbortFinished
+    AND (ChildStatus.Execution.Ready OR ChildStatus.Execution.Completed);
+ObserveTestCase := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessRequests" Id="{c212d4a3-30d2-444e-92c0-0fca3f7b0f0f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumes same-task requests, reports each received request and prioritizes Reset &gt; Abort &gt; Start.</summary>
+<description>
+Discards requests before initialization; never changes lifecycle state.
+</description>
+*)
+{endregion}
+METHOD PRIVATE ProcessRequests
+VAR_IN_OUT
+    InputRequests : ST_Command; //! Same-task request mailbox consumed and cleared, including before successful initialization.
+END_VAR
+VAR_OUTPUT
+    Requests : ST_Command; //! Qualified request snapshot with Reset over Abort over Start; all FALSE before initialization.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Requests.Reset := FALSE;
+Requests.Abort := FALSE;
+Requests.Start := FALSE;
+
+IF NOT FInitialized THEN
+    InputRequests.Reset := FALSE;
+    InputRequests.Abort := FALSE;
+    InputRequests.Start := FALSE;
+    RETURN;
+END_IF;
+
+Requests.Reset := InputRequests.Reset;
+Requests.Abort := InputRequests.Abort AND NOT InputRequests.Reset;
+Requests.Start := InputRequests.Start AND NOT InputRequests.Abort AND NOT InputRequests.Reset;
+
+IF InputRequests.Reset THEN
+    PublishEvent(Event := CreateResetEvent(OwnerScope := E_OwnerScope.TestSuite,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+IF InputRequests.Abort THEN
+    PublishEvent(Event := CreateAbortEvent(OwnerScope := E_OwnerScope.TestSuite,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+IF InputRequests.Start THEN
+    PublishEvent(Event := CreateStartEvent(OwnerScope := E_OwnerScope.TestSuite,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+InputRequests.Reset := FALSE;
+InputRequests.Abort := FALSE;
+InputRequests.Start := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{c47f80ae-9903-40e0-a198-d185e03e41d1}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls every owned Test Case exactly once per initialized cycle, including
+Completed.</summary>
+<description>
+Do not gate child calls by parent state; child requests and lifecycle control their
+work.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: call every owned Test Case, including children not currently selected.
+FTestCaseA();
+FTestCaseB();
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishEvent" Id="{3ce532c6-06d4-4358-bc0b-110f93b4247d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes through the selected instance publisher without owning buffer loss accounting.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishEvent
+VAR_INPUT
+    Event : ST_Event; //! Payload forwarded once to the selected usable publisher, which assigns identity/time and accounts for loss.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EventPublisher.PublishEvent(Event := Event);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishInitializationError" Id="{99946a35-6086-4873-b5d0-8e4f1092e56d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Emits a setup diagnostic without advancing lifecycle or changing the owner result.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishInitializationError
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Setup diagnostic text sent through the required usable selected publisher without changing lifecycle or result.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+    ResourceName := FResourceName,
+    State := E_State.Uninitialized,
+    Severity := E_EventSeverity.Error,
+    Message := Message));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestAbort" Id="{28d4340a-b59c-4dde-ada1-4d2a0ad98bbb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records an Abort request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Abort requests controlled termination of execution, not Reset cancellation. The owner
+lifecycle determines whether the request applies.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestAbort]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Abort := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestReset" Id="{ed591d9f-f633-467f-bdbc-2486bf2eacea}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Reset request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Lifecycle Reset preserves configuration and publisher binding. It is not reinitialization or
+Event Buffer Reset; capacity admission belongs to the parent when this object is a child.
+
+A new Reset entry returns from sequencing so the helper can initialize its Reset task before owner supervision reads its result. Further requests while Reset is active retain the deadline, held errors and dispatch progress and continue the regular clock, timeout and completion checks.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Reset := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestStart" Id="{dda6485e-e266-421e-9b76-62140cd8f02c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Start request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Start is accepted by the lifecycle only in ready Idle. Recording the request does not start
+execution synchronously.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestStart]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Start := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{385a23a3-fb9a-4006-9897-414353cf1f34}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Own Suite reservation only; child contributions are not included.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReservedEntryCount : UINT //! Own Suite reservation only; child contributions are not included.]]></Declaration>
+      <Get Name="Get" Id="{61c31b94-e326-4b71-a454-077b4e33b32f}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReservedEntryCount := FReservedEntryCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ReserveExecutionEvents" Id="{ef41d7fd-8ce4-49c4-9c08-30f04e4cad45}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adjusts this owner's reservation to its execution budget immediately.</summary>
+<description>
+Only this owner's contribution is reserved; child budgets are separate. Local contribution and
+publisher accounting are updated together without a lifecycle transition.
+
+Accepted permits dispatch; WaitingForCapacity is retryable under the owner's timeout; Error
+denotes invalid setup or an impossible budget. Calling before initialization reports a Framework
+error. Repeated success aligns the total rather than adding a second budget.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL ReserveExecutionEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReserveExecutionEvents := E_EventReservationResult.Error;
+IF NOT FInitialized THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'ReserveExecutionEvents requires an initialized Test Suite.'));
+    RETURN;
+END_IF;
+
+ReserveExecutionEvents := UpdateEventReservation(EntryCount := GVL_Constants.TestSuiteExecutionEventCount,
+    HeadroomEntryCount := Param_EventBuffer.EventBufferExecutionHeadroom,
+    ChildEntryCount := 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReserveResetEvents" Id="{fd22371d-c630-4c22-8d16-8445b1186c2a}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adjusts this owner's reservation for capacity-admitted Reset immediately.</summary>
+<description>
+Does not dispatch Reset or clear existing events. Shared headroom and one Test Case Reset
+allowance participate in admission, not this owner's stored contribution.
+
+Accepted, WaitingForCapacity and Error distinguish success, temporary pressure and invalid
+setup. An uninitialized call reports a Framework error. Lifecycle Reset must not silently clear the
+reservation.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL ReserveResetEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReserveResetEvents := E_EventReservationResult.Error;
+IF NOT FInitialized THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'ReserveResetEvents requires an initialized Test Suite.'));
+    RETURN;
+END_IF;
+
+ReserveResetEvents := UpdateEventReservation(EntryCount := GVL_Constants.TestSuiteResetEventCount,
+    HeadroomEntryCount := Param_EventBuffer.EventBufferResetHeadroom,
+    ChildEntryCount := GVL_Constants.TestCaseResetEventCount);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Result" Id="{3784372c-daf9-4e11-a97b-1a404f54d92e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the owner result retained by the Suite lifecycle.</summary>
+<description>
+Ordinary execution remains NotEvaluated until finalization, while errors can be raised
+earlier. Completed holds the final owner result even though child aggregation and status counters
+continue refreshing. A new Reset clears the result.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Returns the owner result retained by the Suite lifecycle.]]></Declaration>
+      <Get Name="Get" Id="{97298767-5e1a-408d-90a8-02aa3a5edb78}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Sequencer" Id="{2fe44f77-6e04-4658-bae7-fd8bb4a00568}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owns Suite transition decisions and timeout supervision; child request dispatch belongs to the shared Orchestrator.</summary>
+<description>
+A new Reset entry returns from sequencing so the helper can initialize its Reset task before owner supervision reads its result. Further requests while Reset is active retain the deadline, held errors and dispatch progress and continue the regular clock, timeout and completion checks.
+</description>
+*)
+{endregion}
+METHOD PRIVATE Sequencer
+VAR_INPUT
+    Requests : ST_Command; //! Consumed lifecycle request snapshot; only a new Reset entry returns before state-specific supervision.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FInitialized THEN
+    IF FState <> E_State.Uninitialized THEN
+        ChangeState(NewState := E_State.Uninitialized);
+    END_IF;
+    RETURN;
+END_IF;
+IF Requests.Reset AND (FState <> E_State.Reset) THEN
+    ChangeState(NewState := E_State.Reset);
+    RETURN;
+END_IF;
+
+CASE FState OF
+    E_State.Uninitialized:
+        RETURN;
+
+    E_State.Reset:
+        IF NOT FCollectionValid THEN
+            Error(Message := 'Registered Test Case collection is no longer valid.');
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF NOT FStateTimer.IsValid THEN
+            Error(Message := 'Task clock error during Test Suite reset.');
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.ResetTimeout) THEN
+            FHasResetTimeout := TRUE;
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Test Suite reset timeout reached.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FOrchestrator.Result <> E_Result.NotEvaluated THEN
+            Error(Message := 'Orchestrator failed during Test Suite reset.');
+        END_IF;
+        IF (FResult = E_Result.Error) AND FOrchestrator.IsResetFinished THEN
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FOrchestrator.IsResetFinished THEN
+            ChangeState(NewState := E_State.Idle);
+        END_IF;
+        RETURN;
+
+    E_State.Idle:
+        IF NOT FCollectionValid THEN
+            Error(Message := 'Registered Test Case collection is no longer valid.');
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FResult <> E_Result.Error THEN
+            IF FChildrenError THEN
+                Error(Message := 'A registered Test Case reported an error.');
+            ELSIF FChildrenAborted AND (FResult <> E_Result.Abort) THEN
+                Error(Message := 'Unexpected Test Case abort.');
+            END_IF;
+        END_IF;
+        IF FResult = E_Result.Error THEN
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FOrchestrator.Result <> E_Result.NotEvaluated THEN
+            Error(Message := 'Orchestrator is not ready for Test Suite start.');
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF Requests.Start AND IsReady THEN
+            ChangeState(NewState := E_State.Starting);
+        END_IF;
+        RETURN;
+
+    E_State.Starting, E_State.Running:
+        IF NOT FCollectionValid THEN
+            Error(Message := 'Registered Test Case collection is no longer valid.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FResult <> E_Result.Error THEN
+            IF FChildrenError THEN
+                Error(Message := 'A registered Test Case reported an error.');
+            ELSIF FChildrenAborted AND (FResult <> E_Result.Abort) THEN
+                Error(Message := 'Unexpected Test Case abort.');
+            END_IF;
+        END_IF;
+        IF FResult = E_Result.Error THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FOrchestrator.Result = E_Result.Error THEN
+            Error(Message := 'Orchestrator reported an execution error.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF NOT FExecutionTimer.IsValid THEN
+            Error(Message := 'Task clock error during Test Suite execution.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FExecutionTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.Timeout) THEN
+            FHasTimeout := TRUE;
+            Error(Message := 'Test Suite timeout reached.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF Requests.Abort THEN
+            ChangeState(NewState := E_State.Aborting);
+            RETURN;
+        END_IF;
+        IF FState = E_State.Starting THEN
+            ChangeState(NewState := E_State.Running);
+            RETURN;
+        END_IF;
+        IF FChildrenCompleted AND FOrchestrator.IsExecutionFinished THEN
+            ChangeState(NewState := E_State.Completing);
+        END_IF;
+        RETURN;
+
+    E_State.Completing:
+        ChangeState(NewState := E_State.Completed);
+        RETURN;
+
+    E_State.Completed:
+        RETURN;
+
+    E_State.Aborting, E_State.AbortingFromError:
+        IF (FState = E_State.Aborting) AND NOT FCollectionValid THEN
+            Error(Message := 'Registered Test Case collection is no longer valid.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FResult <> E_Result.Error THEN
+            IF FChildrenError THEN
+                Error(Message := 'A registered Test Case reported an error.');
+            ELSIF FChildrenAborted AND (FResult <> E_Result.Abort) AND (FState <> E_State.Aborting) THEN
+                Error(Message := 'Unexpected Test Case abort.');
+            END_IF;
+        END_IF;
+        IF NOT FStateTimer.IsValid THEN
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Task clock error during Test Suite abort.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.AbortTimeout) THEN
+            FHasAbortTimeout := TRUE;
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Test Suite abort timeout reached.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF (FState = E_State.Aborting) AND (FResult = E_Result.Error) THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF (FState = E_State.Aborting)
+            AND (FOrchestrator.Result = E_Result.Error) THEN
+            Error(Message := 'Orchestrator failed during Test Suite abort.');
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FChildrenAbortFinished AND FOrchestrator.IsAbortFinished THEN
+            ChangeState(NewState := E_State.Completing);
+        END_IF;
+        RETURN;
+ELSE
+    IF NOT FCollectionValid THEN
+        Error(Message := 'Registered Test Case collection is no longer valid.');
+        ChangeState(NewState := E_State.Completing);
+        RETURN;
+    END_IF;
+    IF FResult <> E_Result.Error THEN
+        IF FChildrenError THEN
+            Error(Message := 'A registered Test Case reported an error.');
+        ELSIF FChildrenAborted AND (FResult <> E_Result.Abort) THEN
+            Error(Message := 'Unexpected Test Case abort.');
+        END_IF;
+    END_IF;
+    Error(Message := 'Unhandled Test Suite lifecycle state.');
+    ChangeState(NewState := E_State.Completing);
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="State" Id="{80fee34b-bbd5-48c3-a5c4-0ea64f79695a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Suite lifecycle state.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC State : E_State //! Current Suite lifecycle state.]]></Declaration>
+      <Get Name="Get" Id="{4adba417-ea8c-41b3-b79e-9f74ad41d65a}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[State := FState;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Status" Id="{f2b35cc4-e12d-43b1-b764-34bda11a9e00}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the latest cyclic owner-status snapshot.</summary>
+<description>
+Status is refreshed on every FB call, including Uninitialized and Completed. Runtime uses
+TIME; child counters may continue changing after final event publication. Reading this property
+performs no child processing and does not republish final events.
+</description>
+*)
+{endregion}
+PROPERTY PUBLIC Status : ST_TestSuiteStatus //! Returns the latest cyclic owner-status snapshot.]]></Declaration>
+      <Get Name="Get" Id="{ad33fe43-6382-4647-a376-19b2c3d7a4d9}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status := FStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="UpdateEventReservation" Id="{7ea8fb3d-fdcc-4e6a-a0ca-07f4f131d4a0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks own budget plus unreserved child allowance before changing either count.</summary>
+<description>
+Zero releases without capacity gating.
+
+A zero target with no held contribution succeeds without publisher access. A nonzero held contribution is released through FreeReservedSpace without free-capacity gating. Positive targets check actual publisher validity/accounting and permanent capacity for target plus child allowance plus headroom. Temporary free capacity uses aggregate minus old own contribution plus target plus child allowance plus headroom. Even unchanged or reduced positive targets must pass this check. Only the Suite contribution changes; child allowance remains shared unreserved capacity. Failure leaves both ledgers unchanged.
+</description>
+*)
+{endregion}
+METHOD PRIVATE UpdateEventReservation : E_EventReservationResult //! Accepted after aligning the own contribution, WaitingForCapacity for temporary pressure, Error for invalid prerequisites or an impossible budget.
+VAR_INPUT
+    EntryCount : UINT; //! Target total own reservation, not an additional delta; zero releases the entire own contribution.
+    HeadroomEntryCount : UINT; //! Shared unreserved producer headroom used in permanent and temporary capacity checks for positive targets.
+    ChildEntryCount : UINT; //! Unreserved child allowance used in both permanent and temporary capacity checks; never added to the Suite's own ledger.
+END_VAR
+VAR
+    Publisher : I_EventPublisher;
+    RequiredCapacity : UDINT;
+    RequiredFreeEntries : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[UpdateEventReservation := E_EventReservationResult.Error;
+IF (EntryCount = 0) AND (FReservedEntryCount = 0) THEN
+    UpdateEventReservation := E_EventReservationResult.Accepted;
+    RETURN;
+END_IF;
+
+Publisher := EventPublisher;
+
+IF EntryCount = 0 THEN
+    IF Publisher.FreeReservedSpace(EntryCount := FReservedEntryCount,
+        OwnerReservedEntryCount := FReservedEntryCount) THEN
+        UpdateEventReservation := E_EventReservationResult.Accepted;
+    END_IF;
+    RETURN;
+END_IF;
+
+IF NOT Publisher.IsValid THEN
+    RETURN;
+END_IF;
+RequiredCapacity := UINT_TO_UDINT(EntryCount)
+    + UINT_TO_UDINT(ChildEntryCount)
+    + UINT_TO_UDINT(HeadroomEntryCount);
+IF RequiredCapacity > UINT_TO_UDINT(Publisher.Capacity) THEN
+    RETURN;
+END_IF;
+IF FReservedEntryCount > Publisher.ReservedEntryCount THEN
+    RETURN;
+END_IF;
+
+RequiredFreeEntries := UINT_TO_UDINT(Publisher.ReservedEntryCount)
+    - UINT_TO_UDINT(FReservedEntryCount)
+    + UINT_TO_UDINT(EntryCount)
+    + UINT_TO_UDINT(ChildEntryCount)
+    + UINT_TO_UDINT(HeadroomEntryCount);
+IF RequiredFreeEntries > UINT_TO_UDINT(Publisher.FreeEntryCount) THEN
+    UpdateEventReservation := E_EventReservationResult.WaitingForCapacity;
+    RETURN;
+END_IF;
+
+IF EntryCount < FReservedEntryCount THEN
+    IF Publisher.FreeReservedSpace(EntryCount := FReservedEntryCount - EntryCount,
+        OwnerReservedEntryCount := FReservedEntryCount) THEN
+        UpdateEventReservation := E_EventReservationResult.Accepted;
+    END_IF;
+    RETURN;
+END_IF;
+
+IF Publisher.ReserveSpace(EntryCount := EntryCount - FReservedEntryCount,
+    HeadroomEntryCount := HeadroomEntryCount,
+    OwnerReservedEntryCount := FReservedEntryCount) THEN
+    UpdateEventReservation := E_EventReservationResult.Accepted;
+ELSE
+    UpdateEventReservation := E_EventReservationResult.WaitingForCapacity;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateResult" Id="{b738622f-dc4b-43f9-8182-26665043f78c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies owner result semantics to the current child aggregate without changing lifecycle state.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateResult
+VAR
+    OrchestratorResult : E_Result;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FState = E_State.Uninitialized THEN
+    FResult := E_Result.NotEvaluated;
+    RETURN;
+END_IF;
+IF (FState = E_State.Reset) OR (FState = E_State.Completed) OR (FResult = E_Result.Error) THEN
+    RETURN;
+END_IF;
+
+IF NOT FCollectionValid THEN
+    Error(Message := 'Registered Test Case collection is no longer valid.');
+    RETURN;
+END_IF;
+IF FChildrenError OR (FAggregator.Result = E_Result.Error) THEN
+    Error(Message := 'A registered Test Case reported an error.');
+    RETURN;
+END_IF;
+OrchestratorResult := FOrchestrator.Result;
+IF OrchestratorResult = E_Result.Error THEN
+    Error(Message := 'Orchestrator reported an error.');
+    RETURN;
+END_IF;
+IF (FAggregator.Result = E_Result.Abort)
+    AND (FResult <> E_Result.Abort) AND (FState <> E_State.Aborting) THEN
+    Error(Message := 'Unexpected Test Case abort.');
+    RETURN;
+END_IF;
+
+CASE FState OF
+    E_State.Idle, E_State.Starting, E_State.Running:
+        FResult := E_Result.NotEvaluated;
+    E_State.Aborting:
+        FResult := E_Result.Abort;
+    E_State.AbortingFromError:
+        FResult := E_Result.Error;
+    E_State.Completing:
+        IF FResult = E_Result.Abort THEN
+            RETURN;
+        END_IF;
+        IF (FResult = E_Result.Failed) OR (FAggregator.Result = E_Result.Failed) THEN
+            FResult := E_Result.Failed;
+            RETURN;
+        END_IF;
+        FResult := E_Result.Passed;
+ELSE
+    Error(Message := 'Unhandled Test Suite lifecycle state.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateStatus" Id="{e3b8b45e-cb20-48c0-8c4e-4b37b62ced51}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Projects lifecycle, runtime and internally collected counters on every FB call, including Completed.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateStatus
+VAR
+    Execution : ST_ExecutionStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Execution.State := FState;
+Execution.Result := FResult;
+Execution.ConfigError := FConfigError;
+CASE FState OF
+    E_State.Uninitialized:
+        Execution.ExecutionStatus := E_ExecutionStatus.NotReady;
+        Execution.Uninitialized := TRUE;
+    E_State.Reset:
+        Execution.ExecutionStatus := E_ExecutionStatus.Reset;
+    E_State.Idle:
+        Execution.ExecutionStatus := E_ExecutionStatus.Idle;
+        Execution.Ready := IsReady;
+    E_State.Starting:
+        Execution.ExecutionStatus := E_ExecutionStatus.Starting;
+    E_State.Running:
+        Execution.ExecutionStatus := E_ExecutionStatus.Running;
+        Execution.Running := TRUE;
+    E_State.Completing:
+        Execution.ExecutionStatus := E_ExecutionStatus.Completing;
+    E_State.Completed:
+        Execution.ExecutionStatus := E_ExecutionStatus.Completed;
+        Execution.Completed := TRUE;
+        Execution.Aborted := FResult = E_Result.Abort;
+    E_State.Aborting, E_State.AbortingFromError:
+        Execution.ExecutionStatus := E_ExecutionStatus.Aborting;
+ELSE
+    Execution.ExecutionStatus := E_ExecutionStatus.Error;
+END_CASE;
+Execution.Error := HasError;
+FStatus.Execution := Execution;
+FStatus.Runtime := FExecutionTimer.ElapsedTime;
+FStatus.TestCaseCountTotal := ChildCount;
+FStatus.TestCaseCountInactive := FTestCaseCountInactive;
+FStatus.TestCaseCountIdle := FTestCaseCountIdle;
+FStatus.TestCaseCountRunning := FTestCaseCountRunning;
+FStatus.TestCaseCountCompleted := FTestCaseCountCompleted;
+FStatus.TestCaseCountError := FTestCaseCountError;
+FStatus.TestCaseCountPassed := FAggregator.PassedCount;
+FStatus.TestCaseCountFailed := FAggregator.FailedCount;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,265 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuiteLifecycleProbe" Id="{1339857b-5a9a-449d-bf48-ba5fe9b390c2}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Thin TestSuiteBase subject with a typed child array and isolated dependencies.</summary>
+<description>
+Bind is called before Initialize. Production initialization, sequencing, aggregation and
+publication remain inherited. Configure records its context and builds a small real collection.
+The uninitialized-child option uses a separate never-initialized double, not mutated base state.
+ProcessTestCases applies the scenario's child view only after the base has called its helper.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuiteLifecycleProbe EXTENDS TestSuiteBase
+VAR
+    FChildA : SuiteLifecycleChildDouble;
+    FChildB : SuiteLifecycleChildDouble;
+    FUninitializedChild : SuiteLifecycleChildDouble;
+    FTestCases : ARRAY[4..6] OF I_TestCase;
+    FChildObservation : ST_OrchestrationObservation;
+    FSecondChildObservation : ST_OrchestrationObservation;
+    FRegisterChildren : BOOL := TRUE;
+    FIncludeUninitializedChild : BOOL;
+    FConfigureCount : UINT;
+    FConfigureContextValid : BOOL;
+    FChildCallCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{d548c392-2496-4357-bbef-6bfe9477e753}" />
+    <Method Name="Bind" Id="{9605a89f-f2db-476b-8f6e-0085dc959049}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds isolated dependencies before Initialize and selects the concrete setup to exercise.</summary>
+*)
+{endregion}
+METHOD PUBLIC Bind
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+    Helper : I_Orchestrator; //! Nonzero injected orchestration helper retained before owner initialization; keep it alive through subject use.
+    RegisterChildren : BOOL := TRUE; //! TRUE registers the two controlled children; FALSE exercises empty configuration.
+    IncludeUninitializedChild : BOOL := FALSE; //! TRUE leaves a registered controlled child uninitialized to exercise rejection.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;
+FOrchestrator := Helper;
+FRegisterChildren := RegisterChildren;
+FIncludeUninitializedChild := IncludeUninitializedChild;
+FChildA.SetReleaseResponse();
+FChildB.SetReleaseResponse();
+FConfigureCount := 0;
+FChildCallCount := 0;
+FConfigureContextValid := FALSE;
+FChildObservation.State := E_State.Uninitialized;
+FChildObservation.Result := E_Result.NotEvaluated;
+FChildObservation.Ready := FALSE;
+FChildObservation.Complete := FALSE;
+FSecondChildObservation := FChildObservation;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ChildBodyCallsMatch" Id="{dbff5695-7453-497c-83dd-a070f1599c9c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Both concrete child bodies have executed exactly once per ProcessTestCases invocation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildBodyCallsMatch : BOOL //! Both concrete child bodies have executed exactly once per ProcessTestCases invocation.]]></Declaration>
+      <Get Name="Get" Id="{d82d9e20-d9c7-400d-a12a-d81ac934fdf8}">
+        <Declaration><![CDATA[VAR
+    FirstCalls : ST_OrchestrationCalls;
+    SecondCalls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FirstCalls := FChildA.Calls;
+SecondCalls := FChildB.Calls;
+ChildBodyCallsMatch := (FirstCalls.BodyCount = FChildCallCount) AND (SecondCalls.BodyCount = FChildCallCount);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ChildCallCount" Id="{49f458d4-d6f4-4732-a608-8b03e7b59f18}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of ProcessTestCases invocations since binding.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildCallCount : UINT //! Number of ProcessTestCases invocations since binding.]]></Declaration>
+      <Get Name="Get" Id="{96d2f627-cf97-48fb-b6c1-79d4eef450c9}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildCallCount := FChildCallCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Configure" Id="{fb535502-d727-4a1a-93bb-9614d0b00dc0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registers two controlled typed children in a shifted array with spare capacity; records base context.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed setup builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigureCount := FConfigureCount + 1;
+FConfigureContextValid := (State = E_State.Uninitialized) AND NOT IsInitialized AND (Name <> '');
+Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FChildA.Initialize(Name := CONCAT(Name, '.ChildA'),
+    Slot := 0);
+FChildB.Initialize(Name := CONCAT(Name, '.ChildB'),
+    Slot := 0);
+IF NOT FRegisterChildren THEN
+    RETURN;
+END_IF;
+Builder.Register(TestCase := FChildA);
+IF FIncludeUninitializedChild THEN
+    Builder.Register(TestCase := FUninitializedChild);
+ELSE
+    Builder.Register(TestCase := FChildB);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ConfigureContextValid" Id="{5e0365f3-d2b9-4872-9e7c-2d226659ec90}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configure saw the new identity before successful initialization.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ConfigureContextValid : BOOL //! Configure saw the new identity before successful initialization.]]></Declaration>
+      <Get Name="Get" Id="{bd8fc4cf-0353-4d4d-96f5-29634381d1f8}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ConfigureContextValid := FConfigureContextValid;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ConfigureCount" Id="{b2baff1e-491d-4e44-84ab-eab1715c44bb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of Configure calls since binding.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ConfigureCount : UINT //! Number of Configure calls since binding.]]></Declaration>
+      <Get Name="Get" Id="{700e0ffe-626e-428c-9799-3f7504c5a83d}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ConfigureCount := FConfigureCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="GetChildCalls" Id="{05e58dcd-281a-408a-a0f4-373bae016987}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the recorded calls of a registered controlled child; unknown indices return an empty observation.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetChildCalls : ST_OrchestrationCalls //! Retained call trace for the selected child; an empty trace for an unknown index or empty collection.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index; unknown indices return an empty trace.
+END_VAR
+VAR
+    EmptyCalls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetChildCalls := EmptyCalls;
+IF ChildCount = 0 THEN
+    RETURN;
+END_IF;
+IF Index = ChildArrayLowerBound THEN
+    GetChildCalls := FChildA.Calls;
+ELSIF (ChildCount > 1) AND (Index = ChildArrayLowerBound + 1) THEN
+    GetChildCalls := FChildB.Calls;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{75e2507a-9fa3-4b0a-83c5-5e2657fd1499}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered typed entry by actual array index; lookup never executes a child.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{4a2e09f3-f245-4564-9345-6e3a12fca529}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies the next scripted observation after the helper; counts calls without replacing owner processing.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildA(ObservationInput := FChildObservation);
+FChildB(ObservationInput := FSecondChildObservation);
+FChildCallCount := FChildCallCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetChildObservation" Id="{0b2b13bb-de11-49d2-b493-8861f578f990}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects the next child snapshot; it becomes visible only in ProcessTestCases, after helper execution.</summary>
+*)
+{endregion}
+METHOD PUBLIC SetChildObservation
+VAR_INPUT
+    Observation : ST_OrchestrationObservation; //! Scripted view copied to both children for acceptance on their next concrete body calls.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildObservation := Observation;
+FSecondChildObservation := Observation;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetChildObservations" Id="{2f7e846e-a703-4f3d-a22a-804758c912f4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies independent next snapshots; each child accepts its view only when the Suite calls its body.</summary>
+*)
+{endregion}
+METHOD PUBLIC SetChildObservations
+VAR_INPUT
+    FirstChild : ST_OrchestrationObservation; //! Scripted view for the first child, accepted on its next concrete body call.
+    SecondChild : ST_OrchestrationObservation; //! Scripted view for the second child, accepted on its next concrete body call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildObservation := FirstChild;
+FSecondChildObservation := SecondChild;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SetChildReleaseResponses" Id="{2596f085-faae-47f6-81f5-02b673fcc2fd}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controls only the child release boundary for delegation tests, without changing Suite accounting.</summary>
+*)
+{endregion}
+METHOD PUBLIC SetChildReleaseResponses
+VAR_INPUT
+    FirstSucceeds : BOOL := TRUE; //! Release response installed in the first controlled child.
+    SecondSucceeds : BOOL := TRUE; //! Release response installed in the second controlled child.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildA.SetReleaseResponse(Succeeds := FirstSucceeds);
+FChildB.SetReleaseResponse(Succeeds := SecondSucceeds);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

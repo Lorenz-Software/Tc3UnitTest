@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_Preparation" Id="{d9c504ce-c39f-43a6-9e95-f5b84a6bf3fe}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read-only Preparation view; querying does not execute resource actions.</summary>
+<description>
+This interface exposes only the last reported Status by value. The owner calls the concrete Preparation cyclically with Enable and its resource-specific bindings; the interface provides no generic activation, initialization or reset operation.
+</description>
+*)
+{endregion}
+INTERFACE I_Preparation]]></Declaration>
+    <Property Name="Status" Id="{b8e8978c-7034-47d9-a809-4b4af0330a0f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Preparation status by value; querying does not execute resource actions.</summary>
+*)
+{endregion}
+PROPERTY Status : ST_PreparationStatus //! Current Preparation status by value; querying does not execute resource actions.]]></Declaration>
+      <Get Name="Get" Id="{128d4400-cd74-4aed-91b6-4380b197bf16}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

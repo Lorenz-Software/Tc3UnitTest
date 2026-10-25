@@ -1,0 +1,127 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqualArray_USInt" Id="{41cd3e66-d26a-45d7-ac60-ab3f30ee3cad}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares the entire Expected array with IN starting at StartIndex.</summary>
+<description>
+
+StartIndex is an absolute declared IN index. The entire Expected array, starting at its
+own lower bound, determines the compared length and must fit IN. Invalid references or ranges
+report Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqualArray_USInt EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First compared index in IN; Expected starts at its own lower bound.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF USINT; //! Read-only actual data; the selected range must remain stable during the call.
+    Expected : ARRAY[*] OF USINT; //! Read-only expected sequence starting at its own lower bound; must fit the selected actual range.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{576165e2-6a04-432a-9562-a05da0165f7f}" />
+    <Method Name="Assert" Id="{611abf2f-c846-47c6-bf42-587e9d70efe2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate the selected range and expectations before comparing elements.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    ExpectedLowerIndex : DINT;
+    ExpectedUpperIndex : DINT;
+    ExpectedLength : LINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ExpectedIndex : DINT;
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+ExpectedLowerIndex := LOWER_BOUND(Expected, 1);
+ExpectedUpperIndex := UPPER_BOUND(Expected, 1);
+ExpectedLength := DINT_TO_LINT(ExpectedUpperIndex) - DINT_TO_LINT(ExpectedLowerIndex) + 1;
+EndIndex := DINT_TO_LINT(StartIndex) + ExpectedLength - 1;
+
+IF (ExpectedLength <= 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', EndIndex = ');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ', InLowerIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(InLowerIndex));
+    Message := CONCAT(Message, ', InUpperIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(InUpperIndex));
+    Message := CONCAT(Message, ', ExpectedLength = ');
+    Message := CONCAT(Message, LINT_TO_STRING(ExpectedLength));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO ExpectedLength - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    ExpectedIndex := LINT_TO_DINT(DINT_TO_LINT(ExpectedLowerIndex) + Offset);
+    IF IN[InIndex] <> Expected[ExpectedIndex] THEN
+        ExpectedText := USINT_TO_STRING(Expected[ExpectedIndex]);
+        ActualText := USINT_TO_STRING(IN[InIndex]);
+        Message := CONCAT('Assertion failed: array elements differ. Expected[',
+            DINT_TO_STRING(ExpectedIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ExpectedText);
+        Message := CONCAT(Message, ', IN[');
+        Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ActualText);
+        Message := CONCAT(Message, '.');
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+END_FOR;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

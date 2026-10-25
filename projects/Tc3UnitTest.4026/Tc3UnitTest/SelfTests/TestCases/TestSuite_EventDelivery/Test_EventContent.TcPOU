@@ -1,0 +1,321 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventContent" Id="{47381f58-70df-44d8-b0e7-1686ce518a5a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies representative event payloads and producer-assigned identity through real publication.</summary>
+<description>
+Publishes a state transition, a failed Assertion and a Test Case aggregation. Expectations
+state the required fields explicitly instead of constructing the expected event with the same FC.
+Sequence and timestamp sentinels verify that the publisher assigns identity to its value copy.
+Timestamp checks permit equal times; event ordering is determined only by SequenceId.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventContent EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FTransition : AssertTrue;
+    FTransitionMatches : BOOL;
+    FFinding : AssertTrue;
+    FFindingMatches : BOOL;
+    FAggregation : AssertTrue;
+    FAggregationMatches : BOOL;
+    FIdentity : AssertTrue;
+    FIdentityMatches : BOOL;
+    FValueCopy : AssertTrue;
+    FValueCopyMatches : BOOL;
+    FProjection : AssertTrue;
+    FProjectionMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 8;
+    InputSequenceSentinel : UDINT := 999;
+    InputTimestampSentinel : LINT := -1;
+    TimestampResolutionNanoseconds : LINT := 100;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500002-0050-4050-8050-000000000066}" />
+    <Method Name="AggregateResults" Id="{00500002-0050-4050-8050-000000000069}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FTransition);
+Aggregator.AddProvider(Provider := FFinding);
+Aggregator.AddProvider(Provider := FAggregation);
+Aggregator.AddProvider(Provider := FIdentity);
+Aggregator.AddProvider(Provider := FValueCopy);
+Aggregator.AddProvider(Provider := FProjection);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500002-0050-4050-8050-000000000068}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FTransition.IsInitialized
+    AND FFinding.IsInitialized
+    AND FAggregation.IsInitialized
+    AND FIdentity.IsInitialized
+    AND FValueCopy.IsInitialized
+    AND FProjection.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500002-0050-4050-8050-000000000067}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FTransition.Initialize(Parent := THIS^,
+    AssertionName := 'Transition');
+FFinding.Initialize(Parent := THIS^,
+    AssertionName := 'Finding');
+FAggregation.Initialize(Parent := THIS^,
+    AssertionName := 'Aggregation');
+FIdentity.Initialize(Parent := THIS^,
+    AssertionName := 'Identity');
+FValueCopy.Initialize(Parent := THIS^,
+    AssertionName := 'ValueCopy');
+FProjection.Initialize(Parent := THIS^,
+    AssertionName := 'Projection');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500002-0050-4050-8050-00000000006f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes three representative constructors and checks payload, identity and value-copy semantics.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer
+VAR
+    Event : ST_Event;
+    CaseStatus : ST_TestCaseStatus;
+    WriteResult : INT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+Event := CreateStateTransitionEvent(OwnerScope := E_OwnerScope.TestCase,
+    Name := 'Local.Suite.Case',
+    ResourceName := 'Valve',
+    StateOld := E_State.Idle,
+    StateNew := E_State.Starting);
+Event.SequenceId := InputSequenceSentinel;
+Event.Timestamp := InputTimestampSentinel;
+WriteResult := FSubject.PublishEvent(Event := Event);
+FTransitionMatches := (WriteResult = 1)
+    AND (FEvents[1].OwnerScope = E_OwnerScope.TestCase)
+    AND (FEvents[1].EventType = E_EventType.StateTransition)
+    AND (FEvents[1].Severity = E_EventSeverity.Info)
+    AND (FEvents[1].Name = 'Local.Suite.Case') AND (FEvents[1].ResourceName = 'Valve')
+    AND (FEvents[1].State = E_State.Starting) AND (FEvents[1].Result = E_Result.NotEvaluated)
+    AND (FEvents[1].Message = 'State transition 10 -> 11');
+FValueCopyMatches := (Event.SequenceId = InputSequenceSentinel)
+    AND (Event.Timestamp = InputTimestampSentinel);
+
+Event := CreateAssertionFailedEvent(Name := 'Local.Suite.Case.Position',
+    ResourceName := 'Valve',
+    State := E_State.Running,
+    Message := 'Expected open, observed closed.');
+WriteResult := FSubject.PublishEvent(Event := Event);
+FFindingMatches := (WriteResult = 2)
+    AND (FEvents[2].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[2].EventType = E_EventType.Result)
+    AND (FEvents[2].Severity = E_EventSeverity.Info)
+    AND (FEvents[2].Name = 'Local.Suite.Case.Position') AND (FEvents[2].ResourceName = 'Valve')
+    AND (FEvents[2].State = E_State.Running) AND (FEvents[2].Result = E_Result.Failed)
+    AND (FEvents[2].Message = 'Expected open, observed closed.');
+FValueCopyMatches := FValueCopyMatches AND (Event.SequenceId = 0) AND (Event.Timestamp = 0);
+
+CaseStatus.Execution.State := E_State.Completing;
+CaseStatus.Execution.Result := E_Result.Error;
+CaseStatus.AssertionCountTotal := 6;
+CaseStatus.AssertionCountPassed := 3;
+CaseStatus.AssertionCountFailed := 2;
+CaseStatus.AssertionCountError := 1;
+CaseStatus.Runtime := T#123ms;
+Event := CreateTestCaseAggregationEvent(Name := 'Local.Suite.Case',
+    ResourceName := 'Valve',
+    Status := CaseStatus);
+WriteResult := FSubject.PublishEvent(Event := Event);
+FAggregationMatches := (WriteResult = 3)
+    AND (FEvents[3].OwnerScope = E_OwnerScope.TestCase)
+    AND (FEvents[3].EventType = E_EventType.Aggregation)
+    AND (FEvents[3].Severity = E_EventSeverity.Error)
+    AND (FEvents[3].Name = 'Local.Suite.Case') AND (FEvents[3].ResourceName = 'Valve')
+    AND (FEvents[3].State = E_State.Completing) AND (FEvents[3].Result = E_Result.Error)
+    AND (FEvents[3].Message = '{"total":6,"passed":3,"failed":2,"error":1,"runtime":123}');
+FValueCopyMatches := FValueCopyMatches AND (Event.SequenceId = 0) AND (Event.Timestamp = 0);
+
+FIdentityMatches := TRUE;
+FOR Index := 1 TO 3 DO
+    FIdentityMatches := FIdentityMatches AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Timestamp > 0)
+        AND ((FEvents[Index].Timestamp MOD TimestampResolutionNanoseconds) = 0);
+END_FOR;
+FProjectionMatches := NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND NOT FFifo.BufferEmpty AND NOT FFifo.BufferFull AND NOT FFifo.BufferAlmostFull
+    AND (FFifo.BufferLength = BufferLength) AND (FFifo.ElementCount = 3)
+    AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = 4)
+    AND (FSubject.FreeEntryCount = 4)
+    AND (FBufferStatus.SequenceId = 3) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500002-0050-4050-8050-00000000006b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500002-0050-4050-8050-00000000006e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FTransition(Enable := Evaluate,
+    State := State,
+    IN := FTransitionMatches);
+FFinding(Enable := Evaluate,
+    State := State,
+    IN := FFindingMatches);
+FAggregation(Enable := Evaluate,
+    State := State,
+    IN := FAggregationMatches);
+FIdentity(Enable := Evaluate,
+    State := State,
+    IN := FIdentityMatches);
+FValueCopy(Enable := Evaluate,
+    State := State,
+    IN := FValueCopyMatches);
+FProjection(Enable := Evaluate,
+    State := State,
+    IN := FProjectionMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500002-0050-4050-8050-00000000006c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500002-0050-4050-8050-00000000006a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FTransition.Reset();
+FTransitionMatches := FALSE;
+FFinding.Reset();
+FFindingMatches := FALSE;
+FAggregation.Reset();
+FAggregationMatches := FALSE;
+FIdentity.Reset();
+FIdentityMatches := FALSE;
+FValueCopy.Reset();
+FValueCopyMatches := FALSE;
+FProjection.Reset();
+FProjectionMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500002-0050-4050-8050-00000000006d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

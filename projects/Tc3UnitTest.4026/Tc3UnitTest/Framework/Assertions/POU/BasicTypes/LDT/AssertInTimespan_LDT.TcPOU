@@ -1,0 +1,82 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertInTimespan_LDT" Id="{aa25318c-fb66-42b6-ae9b-6a6a88b228f3}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that IN is inside the inclusive StartTime..EndTime interval.</summary>
+<description>
+
+StartTime &gt; EndTime reports Error during active evaluation; equal bounds are
+valid.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertInTimespan_LDT EXTENDS AssertionBase
+VAR_INPUT
+    IN : LDT; //! Actual value checked or observed by this Assertion.
+    StartTime : LDT; //! Inclusive start of the time span; must not exceed EndTime.
+    EndTime : LDT; //! Inclusive end of the time span; must not precede StartTime.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{0bd6a91d-a1ec-44d3-9ceb-74d3168d9ff5}" />
+    <Method Name="Assert" Id="{c7199303-f139-4ba1-9251-cb17bd6b55bc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluate the typed temporal relation and report higher-priority errors first.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    StartTimeText : STRING(GVL_Constants.AssertionValueLength);
+    EndTimeText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF StartTime > EndTime THEN
+    StartTimeText := LDT_TO_STRING(StartTime);
+    EndTimeText := LDT_TO_STRING(EndTime);
+    Message := CONCAT('Assertion error: start time exceeds end time. StartTime = ',
+        StartTimeText);
+    Message := CONCAT(Message, ', EndTime = ');
+    Message := CONCAT(Message, EndTimeText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF (IN < StartTime) OR (IN > EndTime) THEN
+    StartTimeText := LDT_TO_STRING(StartTime);
+    EndTimeText := LDT_TO_STRING(EndTime);
+    ActualText := LDT_TO_STRING(IN);
+    Message := CONCAT('Assertion failed: value is outside allowed timespan. StartTime = ',
+        StartTimeText);
+    Message := CONCAT(Message, ', EndTime = ');
+    Message := CONCAT(Message, EndTimeText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

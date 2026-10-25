@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_Result" Id="{91b9e245-ad9c-4b27-ab1f-da47f385a883}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Stable evaluation result; numeric order is not severity order.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_Result :
+(
+    Error := -10, //! Execution or evaluation error; highest result severity.
+    NotEvaluated := 0, //! No evaluated outcome; neutral result after reset.
+    Passed := 10, //! Evaluated checks succeeded.
+    // SA0027: Qualified enum member; retained despite the analyzer's name-collision report.
+    {attribute 'analysis' := '-27'}
+    Failed := 20, //! An evaluated check failed; lower severity than Abort or Error.
+    Abort := 30 //! Execution aborted; lower severity than Error, higher than Failed.
+) INT := NotEvaluated;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

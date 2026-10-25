@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateResetWarningEvent" Id="{6e030a1c-d9ee-424e-bfd8-b0b1d523911c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Framework Warning diagnostic for Reset interrupting an active owner lifecycle.</summary>
+<description>
+State identifies the interrupted state. The function neither publishes the event nor performs Reset.
+</description>
+*)
+{endregion}
+FUNCTION CreateResetWarningEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+	Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+END_VAR
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CASE OwnerScope OF
+	E_OwnerScope.Preparation: Message := 'Reset interrupts an active Preparation lifecycle.';
+	E_OwnerScope.TestCase: Message := 'Reset interrupts an active Test Case lifecycle.';
+	E_OwnerScope.TestSuite: Message := 'Reset interrupts an active Test Suite lifecycle.';
+	E_OwnerScope.RunControl: Message := 'Reset interrupts an active Unit Test lifecycle.';
+	ELSE Message := 'Reset interrupts an active owner lifecycle.';
+END_CASE
+
+
+CreateResetWarningEvent.SequenceId := 0;
+CreateResetWarningEvent.Timestamp := 0;
+CreateResetWarningEvent.OwnerScope := OwnerScope;
+CreateResetWarningEvent.EventType := E_EventType.Framework;
+CreateResetWarningEvent.Severity := E_EventSeverity.Warning;
+CreateResetWarningEvent.Name := Name;
+CreateResetWarningEvent.ResourceName := ResourceName;
+CreateResetWarningEvent.State := State;
+CreateResetWarningEvent.Result := E_Result.NOTEVALUATED;
+CreateResetWarningEvent.Message := Message;
+]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,187 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestCaseMock" Id="{c7e2f0d8-1b35-4c1f-8084-e27ec40eb2ed}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Simple Test Case double using the real base lifecycle and one simulated Assertion
+result.</summary>
+<description>
+No Preparation or concrete Assertion instances are owned. Initialize through the inherited
+API; Ready gates Start and Completed plus MinimumTestDuration gate normal completion.
+
+MinimumTestDuration defaults to T#100ms and survives Initialize and Reset. Error, Abort and
+owner timeout are not delayed. ResultValue contributes one counted result; this is a lifecycle
+double, not evidence from real Assertions.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK TestCaseMock EXTENDS TestCaseBase
+VAR_INPUT
+    Ready : BOOL := TRUE; //! Application readiness gate for starting the mock; default TRUE.
+    Completed : BOOL := TRUE; //! Allows normal mock completion after MinimumTestDuration; default TRUE.
+    ResultValue : E_Result := E_Result.Passed; //! Simulated test outcome; default Passed. Lifecycle errors can still escalate the owner result.
+END_VAR
+VAR
+    FMinimumTestDuration : TIME := T#100ms;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ea4ce34e-d10c-4dbf-9f0d-36aa34e1247d}" />
+    <Method Name="AggregateResults" Id="{0c22456d-8df2-41e7-8aba-9fedfbe484fa}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes one simulated Assertion result.</summary>
+<description>
+Contributes NotEvaluated in Reset and Idle, otherwise ResultValue, including during Completed.
+The base retains its completed owner result independently of the refreshed counter snapshot.
+</description>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Owner-held contribution interface; add each child once without resetting or retaining this interface.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF IsResetting OR (State = E_State.Idle) THEN
+    Aggregator.AddResult(Result := E_Result.NotEvaluated);
+    RETURN;
+END_IF;
+Aggregator.AddResult(Result := ResultValue);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{7fbdfc58-aeb5-4625-b614-630d32180620}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures no Preparation phase and one Test state; retains caller settings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsReady" Id="{9ee5253d-5552-4c9d-8f18-cbf6ddd08507}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Combines base prerequisites with the externally controlled ready release.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Combines base prerequisites with the externally controlled ready release.]]></Declaration>
+      <Get Name="Get" Id="{ab20f615-d10c-48c0-95d3-4bf21469e23d}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := SUPER^.IsReady AND Ready;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="MinimumTestDuration" Id="{8c4dec56-0178-41d1-82e8-692605b37da6}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Minimum duration of the Test phase; zero permits immediate normal completion.</summary>
+<description>
+Does not delay Abort, Error or the owner timeout. Initialize and Reset retain this
+setting.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC MinimumTestDuration : TIME //! Minimum duration of the Test phase; zero permits immediate normal completion.]]></Declaration>
+      <Get Name="Get" Id="{e0b8a915-1234-4976-906c-51c60e6f02c1}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[MinimumTestDuration := FMinimumTestDuration;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{a90da5e8-6d9d-4acb-a5c6-ffb1ab7ddcc0}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FMinimumTestDuration := MinimumTestDuration;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="ProcessAbort" Id="{7f5c329d-e27f-4c94-87a0-4e053548f365}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Immediately completes the base-selected Abort/Error path when enabled.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{b1c5613c-24bf-4d35-ab09-6418ec7a2ce9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Intentionally executes no Assertions; AggregateResults supplies the injected child
+outcome.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    // SA0033: Required inherited hook; this mock owns no children for this phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{701a3e8c-3d15-4003-9885-3dcf2c778124}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparations are owned or executed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required inherited hook; this mock owns no children for this phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[RETURN;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{86d4bd89-0dce-4e43-b0f0-aa898b917e6f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes Reset immediately; base-owned state is reset by the base.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{54e25ca6-72ea-414f-821f-3a6b6ef3e1f7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes the enabled Test phase when released and its minimum duration has
+elapsed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF Completed AND (FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FMinimumTestDuration)) THEN
+    CompleteTests();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,116 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="ReservationChildProbe" Id="{6f70b8ac-9379-429f-acf4-02d8a19de581}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes reservation state at request entry on a real minimal Test Case.</summary>
+<description>
+Inherits the normal lifecycle and one real Assertion from SuiteIntegrationChild.
+Request overrides only count and observe before delegating to the production method.
+No reservation result, state, readiness or scheduling decision is simulated.
+ClearRequestTrace clears evidence only, before the isolated scenario begins.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ReservationChildProbe EXTENDS SuiteIntegrationChild
+VAR
+    FResetRequestCount : UINT;
+    FStartRequestCount : UINT;
+    FRequestsReserved : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    ExecutionBudget : UINT := 11;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Method Name="ClearRequestTrace" Id="{39159cf0-73f1-40ab-9808-95bb76672376}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears observations without changing production lifecycle state.</summary>
+*)
+{endregion}
+METHOD PUBLIC ClearRequestTrace]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetRequestCount := 0;
+FStartRequestCount := 0;
+FRequestsReserved := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestReset" Id="{7a6c365c-fff7-43b2-bf04-ba79acfcbd27}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes the held Reset budget before delegating the request.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetRequestCount := FResetRequestCount + 1;
+FRequestsReserved := FRequestsReserved
+    AND (ReservedEntryCount = GVL_Constants.TestCaseResetEventCount)
+    AND (EventPublisher.ReservedEntryCount >= ReservedEntryCount);
+SUPER^.RequestReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="RequestsReserved" Id="{3d2bc57a-0b86-4658-a51e-92f83f208a74}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Retained request-entry observation for the isolated scenario.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC RequestsReserved : BOOL //! Retained request-entry observation for the isolated scenario.]]></Declaration>
+      <Get Name="Get" Id="{073d4ed2-98ec-449d-aa7f-6a4b895abdf1}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[RequestsReserved := FRequestsReserved;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="RequestStart" Id="{ecaf3563-c763-4286-a91b-5d0673c5062c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes the complete single-Assertion execution budget before delegating.</summary>
+*)
+{endregion}
+METHOD PUBLIC RequestStart]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStartRequestCount := FStartRequestCount + 1;
+FRequestsReserved := FRequestsReserved
+    AND (ReservedEntryCount = ExecutionBudget)
+    AND (EventPublisher.ReservedEntryCount >= ReservedEntryCount);
+SUPER^.RequestStart();]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ResetRequestCount" Id="{2c364994-fc23-4618-a083-e7de72548e39}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Retained request-entry observation for the isolated scenario.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ResetRequestCount : UINT //! Retained request-entry observation for the isolated scenario.]]></Declaration>
+      <Get Name="Get" Id="{66e0ffb7-eb40-4b9d-86e6-2860ca64a087}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResetRequestCount := FResetRequestCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="StartRequestCount" Id="{8c1e8aa9-e3c9-409a-aa40-d1dfb4b64757}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Retained request-entry observation for the isolated scenario.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC StartRequestCount : UINT //! Retained request-entry observation for the isolated scenario.]]></Declaration>
+      <Get Name="Get" Id="{a38d8481-cdc5-4eb5-9968-907107e04474}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[StartRequestCount := FStartRequestCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SerialFailedResultContinues" Id="{0f69e3d6-3bcc-4f98-bd5f-db4d4a30ed31}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>A normal Failed result does not become a helper Error or prevent later serial children.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SerialFailedResultContinues EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1a746cf8-136e-4aa9-af45-af887628e063}" />
+    <Method Name="ConfigureScenario" Id="{a1f80f6b-e689-4363-8a5c-2f0aca956a3a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario
+VAR
+    Index : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ConfigureStandardSequence();
+// A completed Failed child remains a normal execution outcome, not a helper Error.
+FOR Index := 4 TO FStepCount DO
+    FSteps[Index].Children[1].Result := E_Result.Failed;
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

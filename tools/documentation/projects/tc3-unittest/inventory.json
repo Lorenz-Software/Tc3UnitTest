@@ -1,0 +1,17 @@
+{
+  "areas": [
+    { "prefix": "Framework/Assertions", "name": "Framework/Assertions", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/Common", "name": "Framework/Common", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/EventBuffer", "name": "Framework/EventBuffer", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/Preparation", "name": "Framework/Preparation", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/RunControl", "name": "Framework/RunControl", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/TestCases", "name": "Framework/TestCases", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Framework/TestSuites", "name": "Framework/TestSuites", "role": "Library source; consumer-help eligibility requires visibility/role review" },
+    { "prefix": "Runtime", "name": "Runtime", "role": "Runtime composition; outside consumer-help scope" },
+    { "prefix": "SelfTests", "name": "SelfTests", "role": "Selftest source; outside consumer-help scope" }
+  ],
+  "excludedDirectories": [
+    { "path": "_CompileInfo", "reason": "Generated compiler output; not project-authored PLC source" },
+    { "path": "_Libraries", "reason": "Generated dependency cache; declared library dependencies are inventoried from the PLC project" }
+  ]
+}

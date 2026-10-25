@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="PreparationMock" Id="{dc99753f-69d9-44f5-9587-85f9bacfe8ea}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controllable Preparation double without resource actions or automatic
+progression.</summary>
+<description>
+On each call, Error takes priority over Completed, then Enabled AND Ready selects Running;
+otherwise Ready selects Idle or NotReady. Completion is observed independently of Enable and is not
+latched.
+
+Defaults Ready=TRUE, Completed=TRUE and Error=FALSE report a reached target after the first
+call. Before that call, Status retains its uninitialized defaults.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK PreparationMock EXTENDS PreparationBase
+VAR_INPUT
+    Ready : BOOL := TRUE; //! Simulated resource readiness; the reported status suppresses Ready while Running. Does not mean target reached.
+    Completed : BOOL := TRUE; //! Preparation target is currently reached; observation is not latched.
+    Error : BOOL := FALSE; //! Preparation cannot continue meaningfully; reported as an error observation.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{8639391d-f678-4e08-b66b-495d86f95e6d}" />
+    <Method Name="Prepare" Id="{ea313220-f693-4268-837e-07e99eca09c9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reflect inputs on every call; Error overrides Completed, then active work; otherwise Ready
+selects Idle or NotReady.</summary>
+*)
+{endregion}
+METHOD PROTECTED Prepare]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Error THEN
+    UpdateStatus(State := E_State.Error,
+        ExecutionStatus := E_ExecutionStatus.Error,
+        Ready := Ready);
+    RETURN;
+END_IF;
+
+IF Completed THEN
+    UpdateStatus(State := E_State.Completed,
+        ExecutionStatus := E_ExecutionStatus.Completed,
+        Ready := Ready);
+    RETURN;
+END_IF;
+
+IF Enabled AND Ready THEN
+    UpdateStatus(State := E_State.Running,
+        ExecutionStatus := E_ExecutionStatus.Running,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF NOT Ready THEN
+    UpdateStatus(State := E_State.Idle,
+        ExecutionStatus := E_ExecutionStatus.NotReady,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+UpdateStatus(State := E_State.Idle,
+    ExecutionStatus := E_ExecutionStatus.Idle,
+    Ready := Ready);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

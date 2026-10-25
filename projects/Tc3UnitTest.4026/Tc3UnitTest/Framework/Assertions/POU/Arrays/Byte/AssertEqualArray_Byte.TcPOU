@@ -1,0 +1,139 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEqualArray_Byte" Id="{782c2496-0b75-4829-91e1-a6623257aded}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Compares the entire Expected array with IN starting at StartIndex.</summary>
+<description>
+
+StartIndex is an absolute declared IN index. The entire Expected array, starting at its
+own lower bound, determines the compared length and must fit IN. Invalid references or ranges
+report Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Comparison applies Mask to both values; bits outside it are ignored. The default mask
+selects all bits.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEqualArray_Byte EXTENDS AssertionBase
+VAR_INPUT
+    Mask : BYTE := BYTE#16#FF; //! Bits included in each element comparison.
+    StartIndex : DINT; //! First compared index in IN; Expected starts at its own lower bound.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF BYTE; //! Read-only actual data; the selected range must remain stable during the call.
+    Expected : ARRAY[*] OF BYTE; //! Read-only expected sequence starting at its own lower bound; must fit the selected actual range.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{1a43c26d-627a-4128-995a-cfb7d422dd12}" />
+    <Method Name="Assert" Id="{7ae6e52a-d26d-42e2-b916-7fb6ca4a5549}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate the selected range and expectations before comparing elements.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    ExpectedLowerIndex : DINT;
+    ExpectedUpperIndex : DINT;
+    ExpectedLength : LINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    ExpectedIndex : DINT;
+    Message : STRING(GVL_Constants.MessageLength);
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    HexDigitCount : USINT := 2;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+ExpectedLowerIndex := LOWER_BOUND(Expected, 1);
+ExpectedUpperIndex := UPPER_BOUND(Expected, 1);
+ExpectedLength := DINT_TO_LINT(ExpectedUpperIndex) - DINT_TO_LINT(ExpectedLowerIndex) + 1;
+EndIndex := DINT_TO_LINT(StartIndex) + ExpectedLength - 1;
+
+IF (ExpectedLength <= 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', EndIndex = ');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ', InLowerIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(InLowerIndex));
+    Message := CONCAT(Message, ', InUpperIndex = ');
+    Message := CONCAT(Message, DINT_TO_STRING(InUpperIndex));
+    Message := CONCAT(Message, ', ExpectedLength = ');
+    Message := CONCAT(Message, LINT_TO_STRING(ExpectedLength));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO ExpectedLength - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    ExpectedIndex := LINT_TO_DINT(DINT_TO_LINT(ExpectedLowerIndex) + Offset);
+    IF (IN[InIndex] AND Mask) <> (Expected[ExpectedIndex] AND Mask) THEN
+        ExpectedText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Expected[ExpectedIndex]),
+            DigitCount := HexDigitCount);
+        ActualText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(IN[InIndex]),
+            DigitCount := HexDigitCount);
+        Message := CONCAT('Assertion failed: array elements differ. Expected[',
+            DINT_TO_STRING(ExpectedIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ExpectedText);
+        Message := CONCAT(Message, ', IN[');
+        Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ActualText);
+        Message := CONCAT(Message, '.');
+        Message := CONCAT(Message, ' Mask = ');
+        Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Mask),
+            DigitCount := HexDigitCount));
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+END_FOR;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

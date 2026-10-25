@@ -1,0 +1,1152 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionScalarObservation" Id="{6b8135b6-db7d-4b50-9366-55ac8c7ca757}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks consecutive scalar observations, copied text history and non-finite baselines.</summary>
+<description>
+DINT, STRING and WSTRING share the finite trace, including a changed mutable text
+buffer. REAL/LREAL additionally reject NaN and either infinity on the first active
+observation, before a comparison exists. Re-enable replaces scalar observation
+history; Reset also clears the held result.
+Each named step calls each subject once and checks public gates, result and local
+findings before advancing in the next cycle. Outer Assertions collect checkpoints
+per trace; subjects never contribute their intentional failures to the test result.
+FirstFailedStep retains the first mismatch. No timed stimulus or expected-result
+algorithm is used.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionScalarObservation EXTENDS TestCaseBase
+VAR
+    FInteger : AssertNoValueChange_DInt;
+    FText : AssertNoValueChange_String;
+    FWideText : AssertNoValueChange_WString;
+    FReal : AssertNoValueChange_Real;
+    FLReal : AssertNoValueChange_LReal;
+    FSample : DINT;
+    FTextSample : STRING(Param_Assertions.AssertionStringLength);
+    FWideTextSample : WSTRING(Param_Assertions.AssertionWStringLength);
+    FRealSample : AssertionRealRepresentation;
+    FLRealSample : AssertionLRealRepresentation;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FStep : UINT;
+    FTrace : UINT;
+    FFirstFailedStep : UINT;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FStepMatches : BOOL;
+    FResultsMatch : BOOL;
+    FActivityMatches : BOOL;
+    FFindingsMatch : BOOL;
+    FMemoryMatches : BOOL;
+    FResetSubjects : BOOL;
+    FIntegerEnable : BOOL;
+    FIntegerResult : E_Result;
+    FIntegerObservation : BOOL;
+    FIntegerEvaluation : BOOL;
+    FIntegerFinding : E_Result;
+    FTextEnable : BOOL;
+    FTextResult : E_Result;
+    FTextObservation : BOOL;
+    FTextEvaluation : BOOL;
+    FTextFinding : E_Result;
+    FWideTextEnable : BOOL;
+    FWideTextResult : E_Result;
+    FWideTextObservation : BOOL;
+    FWideTextEvaluation : BOOL;
+    FWideTextFinding : E_Result;
+    FRealEnable : BOOL;
+    FRealResult : E_Result;
+    FRealObservation : BOOL;
+    FRealEvaluation : BOOL;
+    FRealFinding : E_Result;
+    FLRealEnable : BOOL;
+    FLRealResult : E_Result;
+    FLRealObservation : BOOL;
+    FLRealEvaluation : BOOL;
+    FLRealFinding : E_Result;
+    FScalarHistory : AssertTrue;
+    FReenableBaseline : AssertTrue;
+    FResetBaseline : AssertTrue;
+    FScalarNonFinite : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    StepInitialReset : UINT := 1;
+    StepInitialObservation : UINT := 2;
+    StepEqualObservation : UINT := 3;
+    StepChangedObservation : UINT := 4;
+    StepReturnToInitial : UINT := 5;
+    StepReenableReset : UINT := 6;
+    StepReenableBaseline : UINT := 7;
+    StepBeforeDisable : UINT := 8;
+    StepDisabledChange : UINT := 9;
+    StepReenabledCapture : UINT := 10;
+    StepReenabledComparison : UINT := 11;
+    StepResetNewBaseline : UINT := 12;
+    StepNewBaselineCapture : UINT := 13;
+    StepNewBaselineComparison : UINT := 14;
+    StepNaNReset : UINT := 15;
+    StepNaNCapture : UINT := 16;
+    StepNaNRepeated : UINT := 17;
+    StepPositiveInfinityReset : UINT := 18;
+    StepPositiveInfinityCapture : UINT := 19;
+    StepPositiveInfinityRepeated : UINT := 20;
+    StepNegativeInfinityReset : UINT := 21;
+    StepNegativeInfinityCapture : UINT := 22;
+    StepNegativeInfinityRepeated : UINT := 23;
+    LastStep : UINT := StepNegativeInfinityRepeated;
+    TraceScalarHistory : UINT := 1;
+    TraceReenableBaseline : UINT := 2;
+    TraceResetBaseline : UINT := 3;
+    TraceScalarNonFinite : UINT := 4;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6aae4c01-3cbf-4c88-a849-515744264a17}" />
+    <Method Name="AggregateResults" Id="{efd1e580-a5c2-4062-87f6-6f728b32afd7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only the outer checks, not the intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FScalarHistory);
+Aggregator.AddProvider(Provider := FReenableBaseline);
+Aggregator.AddProvider(Provider := FResetBaseline);
+Aggregator.AddProvider(Provider := FScalarNonFinite);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{b1666d55-79ca-495e-bf79-6fd324be96e3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each production subject with stable bindings and the selected stimulus.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInteger(Enable := FIntegerEnable,
+    State := E_State.Running,
+    IN := FSample);
+FText(Enable := FTextEnable,
+    State := E_State.Running,
+    IN := FTextSample);
+FWideText(Enable := FWideTextEnable,
+    State := E_State.Running,
+    IN := FWideTextSample);
+FReal(Enable := FRealEnable,
+    State := E_State.Running,
+    IN := FRealSample.Value);
+FLReal(Enable := FLRealEnable,
+    State := E_State.Running,
+    IN := FLRealSample.Value);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{8c9a9d9e-0e0a-486b-ae8f-7e27d0331e02}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks finding order, identities and exact count without retaining prior events.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    FindingMatches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+IF FIntegerFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FInteger.Name,
+        ExpectedResult := FIntegerFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FTextFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FText.Name,
+        ExpectedResult := FTextFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FWideTextFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FWideText.Name,
+        ExpectedResult := FWideTextFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FRealFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FReal.Name,
+        ExpectedResult := FRealFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+IF FLRealFinding <> E_Result.NotEvaluated THEN
+    FindingMatches := IsFindingValid(Index := Index,
+        ExpectedName := FLReal.Name,
+        ExpectedResult := FLRealFinding);
+    FFindingsMatch := FFindingsMatch AND FindingMatches;
+    Index := Index + 1;
+END_IF;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{b5d26a9f-0a69-4bb1-819c-adfce0af2bd4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an incomplete capture or subject setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FScalarHistory.IsInitialized
+    AND FReenableBaseline.IsInitialized
+    AND FResetBaseline.IsInitialized
+    AND FScalarNonFinite.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Observation selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckMemory" Id="{1e0dde76-a714-40a3-9169-a231c543be7a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that the read-only mutable text inputs were not modified by observation.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckMemory]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMemoryMatches := (FTextSample = DINT_TO_STRING(FSample))
+    AND (FWideTextSample = DINT_TO_WSTRING(FSample));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{74ba1036-85ca-4d02-b25b-a43456ba35c1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal result and observation/evaluation expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResultsMatch := (FInteger.Result = FIntegerResult)
+    AND (FText.Result = FTextResult)
+    AND (FWideText.Result = FWideTextResult)
+    AND (FReal.Result = FRealResult)
+    AND (FLReal.Result = FLRealResult);
+FActivityMatches := (FInteger.Enabled = FIntegerEnable)
+    AND (FInteger.ObservationActive = FIntegerObservation)
+    AND (FInteger.EvaluationActive = FIntegerEvaluation)
+    AND (FText.Enabled = FTextEnable)
+    AND (FText.ObservationActive = FTextObservation)
+    AND (FText.EvaluationActive = FTextEvaluation)
+    AND (FWideText.Enabled = FWideTextEnable)
+    AND (FWideText.ObservationActive = FWideTextObservation)
+    AND (FWideText.EvaluationActive = FWideTextEvaluation)
+    AND (FReal.Enabled = FRealEnable)
+    AND (FReal.ObservationActive = FRealObservation)
+    AND (FReal.EvaluationActive = FRealEvaluation)
+    AND (FLReal.Enabled = FLRealEnable)
+    AND (FLReal.ObservationActive = FLRealObservation)
+    AND (FLReal.EvaluationActive = FLRealEvaluation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{0b3b0d5f-eb8f-4e76-8a21-59e7bafaf57c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FScalarHistory.Initialize(Parent := THIS^,
+    AssertionName := 'ScalarHistory');
+FReenableBaseline.Initialize(Parent := THIS^,
+    AssertionName := 'ReenableBaseline');
+FResetBaseline.Initialize(Parent := THIS^,
+    AssertionName := 'ResetBaseline');
+FScalarNonFinite.Initialize(Parent := THIS^,
+    AssertionName := 'ScalarNonFinite');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FInteger.BindPublisher(Publisher := FCapture);
+Initialized := FInteger.Initialize(Parent := THIS^,
+    AssertionName := 'Integer',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FText.BindPublisher(Publisher := FCapture);
+Initialized := FText.Initialize(Parent := THIS^,
+    AssertionName := 'Text',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FWideText.BindPublisher(Publisher := FCapture);
+Initialized := FWideText.Initialize(Parent := THIS^,
+    AssertionName := 'WideText',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FReal.BindPublisher(Publisher := FCapture);
+Initialized := FReal.Initialize(Parent := THIS^,
+    AssertionName := 'Real',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;
+FLReal.BindPublisher(Publisher := FCapture);
+Initialized := FLReal.Initialize(Parent := THIS^,
+    AssertionName := 'LReal',
+    ObserveFirstCycle := TRUE);
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{582c23f2-e644-41d2-a0f2-51b0951d1beb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one expected Failed or Error finding from the bounded local capture.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{fa4a4e61-ecbb-45a4-a9b3-a46a36d63813}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{dd07885d-c98b-4dc0-be24-0c17468f795c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks this checkpoint before the next cycle advances the trace.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FScalarHistory(Enable := Check AND (FTrace = TraceScalarHistory),
+    State := State,
+    IN := FStepMatches);
+FReenableBaseline(Enable := Check AND (FTrace = TraceReenableBaseline),
+    State := State,
+    IN := FStepMatches);
+FResetBaseline(Enable := Check AND (FTrace = TraceResetBaseline),
+    State := State,
+    IN := FStepMatches);
+FScalarNonFinite(Enable := Check AND (FTrace = TraceScalarNonFinite),
+    State := State,
+    IN := FStepMatches);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{7e722b4d-8be2-43c8-a6bf-a6c52bb63835}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{694a608d-dc18-4e7d-badb-a9c42848c866}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets checkpoint bookkeeping and queues each subject reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := StepInitialReset;
+FTrace := 0;
+FFirstFailedStep := 0;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FScalarHistory.Reset();
+FReenableBaseline.Reset();
+FResetBaseline.Reset();
+FScalarNonFinite.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{c8d61f7e-149f-43b5-a42b-1d2fa39b1c75}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes exactly one named checkpoint per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = LastStep THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+
+IF NOT SelectStep() THEN
+    RETURN;
+END_IF;
+FCapture.Reset();
+IF FResetSubjects THEN
+    ResetSubjects();
+END_IF;
+CallSubjects();
+CheckResults();
+CheckMemory();
+CheckFindings();
+FStepMatches := FResultsMatch AND FActivityMatches AND FMemoryMatches AND FFindingsMatch;
+IF NOT FStepMatches AND (FFirstFailedStep = 0) THEN
+    FFirstFailedStep := FStep;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{f0a59d0f-67fa-45b5-88f7-f18a50d48fc9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues subject reset; the next bound call consumes it.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInteger.Reset();
+FText.Reset();
+FWideText.Reset();
+FReal.Reset();
+FLReal.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectStep" Id="{637b13a1-536a-47d6-a060-73e10dca380a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal stimuli, gates and findings for a named checkpoint.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectStep : BOOL //! TRUE after selecting a supported script step and its literal expectations; FALSE reports an unknown step.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectStep := FALSE;
+FIntegerFinding := E_Result.NotEvaluated;
+FTextFinding := E_Result.NotEvaluated;
+FWideTextFinding := E_Result.NotEvaluated;
+FRealFinding := E_Result.NotEvaluated;
+FLRealFinding := E_Result.NotEvaluated;
+CASE FStep OF
+    StepInitialReset:
+        FTrace := TraceScalarHistory;
+        FResetSubjects := TRUE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepInitialObservation:
+        FTrace := TraceScalarHistory;
+        FResetSubjects := FALSE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := TRUE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepEqualObservation:
+        FTrace := TraceScalarHistory;
+        FResetSubjects := FALSE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepChangedObservation:
+        FTrace := TraceScalarHistory;
+        FResetSubjects := FALSE;
+        FSample := 11;
+        FTextSample := '11';
+        FWideTextSample := "11";
+        FRealSample.Value := 11.0;
+        FLRealSample.Value := 11.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Failed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FIntegerFinding := E_Result.Failed;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Failed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FTextFinding := E_Result.Failed;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Failed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FWideTextFinding := E_Result.Failed;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FRealFinding := E_Result.Failed;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+        FLRealFinding := E_Result.Failed;
+    StepReturnToInitial:
+        FTrace := TraceScalarHistory;
+        FResetSubjects := FALSE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Failed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Failed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Failed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Failed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Failed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepReenableReset:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := TRUE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepReenableBaseline:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := FALSE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := TRUE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepBeforeDisable:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := FALSE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepDisabledChange:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := FALSE;
+        FSample := 20;
+        FTextSample := '20';
+        FWideTextSample := "20";
+        FRealSample.Value := 20.0;
+        FLRealSample.Value := 20.0;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := FALSE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := FALSE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepReenabledCapture:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := FALSE;
+        FSample := 20;
+        FTextSample := '20';
+        FWideTextSample := "20";
+        FRealSample.Value := 20.0;
+        FLRealSample.Value := 20.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := TRUE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepReenabledComparison:
+        FTrace := TraceReenableBaseline;
+        FResetSubjects := FALSE;
+        FSample := 20;
+        FTextSample := '20';
+        FWideTextSample := "20";
+        FRealSample.Value := 20.0;
+        FLRealSample.Value := 20.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepResetNewBaseline:
+        FTrace := TraceResetBaseline;
+        FResetSubjects := TRUE;
+        FSample := 30;
+        FTextSample := '30';
+        FWideTextSample := "30";
+        FRealSample.Value := 30.0;
+        FLRealSample.Value := 30.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepNewBaselineCapture:
+        FTrace := TraceResetBaseline;
+        FResetSubjects := FALSE;
+        FSample := 30;
+        FTextSample := '30';
+        FWideTextSample := "30";
+        FRealSample.Value := 30.0;
+        FLRealSample.Value := 30.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := TRUE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+    StepNewBaselineComparison:
+        FTrace := TraceResetBaseline;
+        FResetSubjects := FALSE;
+        FSample := 30;
+        FTextSample := '30';
+        FWideTextSample := "30";
+        FRealSample.Value := 30.0;
+        FLRealSample.Value := 30.0;
+        FIntegerEnable := TRUE;
+        FIntegerResult := E_Result.Passed;
+        FIntegerObservation := TRUE;
+        FIntegerEvaluation := TRUE;
+        FTextEnable := TRUE;
+        FTextResult := E_Result.Passed;
+        FTextObservation := TRUE;
+        FTextEvaluation := TRUE;
+        FWideTextEnable := TRUE;
+        FWideTextResult := E_Result.Passed;
+        FWideTextObservation := TRUE;
+        FWideTextEvaluation := TRUE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Passed;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Passed;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepNaNReset:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := TRUE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := FALSE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := FALSE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepNaNCapture:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        FRealSample.Bits := DWORD#16#7FC00000;
+        FLRealSample.Bits := LWORD#16#7FF8000000000000;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FRealFinding := E_Result.Error;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+        FLRealFinding := E_Result.Error;
+    StepNaNRepeated:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        // The same non-finite input must not produce duplicate findings.
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepPositiveInfinityReset:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := TRUE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := FALSE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := FALSE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepPositiveInfinityCapture:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        FRealSample.Bits := DWORD#16#7F800000;
+        FLRealSample.Bits := LWORD#16#7FF0000000000000;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FRealFinding := E_Result.Error;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+        FLRealFinding := E_Result.Error;
+    StepPositiveInfinityRepeated:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        // The same non-finite input must not produce duplicate findings.
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+    StepNegativeInfinityReset:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := TRUE;
+        FSample := 10;
+        FTextSample := '10';
+        FWideTextSample := "10";
+        FRealSample.Value := 10.0;
+        FLRealSample.Value := 10.0;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := FALSE;
+        FRealResult := E_Result.NotEvaluated;
+        FRealObservation := FALSE;
+        FRealEvaluation := FALSE;
+        FLRealEnable := FALSE;
+        FLRealResult := E_Result.NotEvaluated;
+        FLRealObservation := FALSE;
+        FLRealEvaluation := FALSE;
+    StepNegativeInfinityCapture:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        FRealSample.Bits := DWORD#16#FF800000;
+        FLRealSample.Bits := LWORD#16#FFF0000000000000;
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := FALSE;
+        FRealFinding := E_Result.Error;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := FALSE;
+        FLRealFinding := E_Result.Error;
+    StepNegativeInfinityRepeated:
+        FTrace := TraceScalarNonFinite;
+        FResetSubjects := FALSE;
+        // The same non-finite input must not produce duplicate findings.
+        FIntegerEnable := FALSE;
+        FIntegerResult := E_Result.NotEvaluated;
+        FIntegerObservation := FALSE;
+        FIntegerEvaluation := FALSE;
+        FTextEnable := FALSE;
+        FTextResult := E_Result.NotEvaluated;
+        FTextObservation := FALSE;
+        FTextEvaluation := FALSE;
+        FWideTextEnable := FALSE;
+        FWideTextResult := E_Result.NotEvaluated;
+        FWideTextObservation := FALSE;
+        FWideTextEvaluation := FALSE;
+        FRealEnable := TRUE;
+        FRealResult := E_Result.Error;
+        FRealObservation := TRUE;
+        FRealEvaluation := TRUE;
+        FLRealEnable := TRUE;
+        FLRealResult := E_Result.Error;
+        FLRealObservation := TRUE;
+        FLRealEvaluation := TRUE;
+ELSE
+    Error(Message := 'Unknown observation checkpoint.');
+    RETURN;
+END_CASE;
+SelectStep := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,24 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_OrchestrationCalls" Id="{45caae1a-a09f-4a2f-9260-268a722664dd}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Per-cycle child interface calls; resource release counts only nonempty contributions separately.</summary>
+*)
+{endregion}
+TYPE ST_OrchestrationCalls :
+STRUCT
+    StartCount : UINT; //! Start requests received during this fixture cycle.
+    ResetCount : UINT; //! Reset requests received during this fixture cycle.
+    AbortCount : UINT; //! Abort requests received during this fixture cycle.
+    ExecutionReservationCount : UINT; //! Execution admission attempts during this fixture cycle, including rejected attempts.
+    ResetReservationCount : UINT; //! Reset admission attempts during this fixture cycle, including rejected attempts.
+    FreeCount : UINT; //! Reservation-release calls during this fixture cycle, including repeated empty releases.
+    ReleasedEntryCount : UINT; //! Sum of local reservation markers cleared during this fixture cycle.
+    BodyCount : UINT; //! Concrete child-body calls during this fixture cycle.
+    StartWithoutReservation : BOOL; //! TRUE if Start was requested without the local admission marker.
+    ResetWithoutReservation : BOOL; //! TRUE if Reset was requested without the local admission marker.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

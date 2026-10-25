@@ -1,0 +1,500 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionNarrowIntegers" Id="{e1f4575e-e9ee-40f8-87bc-cce89dd66d86}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks narrow integers with isolated production subjects.</summary>
+<description>
+Each independent scenario consumes a bound reset call before its evaluation call.
+ProcessAssertions checks the observation before ProcessTests advances.
+SelectScenario holds explicit expected results; no production algorithm is mirrored.
+Expected findings remain in the local capture; only outer checks affect the test result.
+FirstFailedScenario and FailedDuringEvaluation retain the first mismatch.
+Each scenario uses literal typed inputs at the declared operand widths.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionNarrowIntegers EXTENDS TestCaseBase
+VAR
+    FSigned : AssertGreaterThan_SInt;
+    FSignedExpectedResult : E_Result;
+    FSignedExpectedFinding : BOOL;
+    FUnsigned : AssertInRange_USInt;
+    FUnsignedExpectedResult : E_Result;
+    FUnsignedExpectedFinding : BOOL;
+
+    FSignedValue : SINT;
+    FSignedMinimum : SINT;
+    FUnsignedValue : USINT;
+    FUnsignedMinimum : USINT;
+    FUnsignedMaximum : USINT;
+    FSubjectEnable : BOOL;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FScenario : UINT;
+    FChecked : BOOL;
+    FEvaluateSubjects : BOOL;
+    FObservationReady : BOOL;
+    FFirstFailedScenario : UINT;
+    FFailedDuringEvaluation : BOOL;
+    FResultsMatch : BOOL;
+    FResults : AssertTrue;
+    FActivityMatch : BOOL;
+    FActivity : AssertTrue;
+    FInputsMatch : BOOL;
+    FInputs : AssertTrue;
+    FFindingsMatch : BOOL;
+    FFindings : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    ScenarioLowerLimits : UINT := 1;
+    ScenarioUpperLimits : UINT := 2;
+    ScenarioEqualSignedMinimum : UINT := 3;
+    ScenarioOutsideRange : UINT := 4;
+    ScenarioAboveMaximum : UINT := 5;
+    ScenarioSingleValue : UINT := 6;
+    ScenarioReversedRange : UINT := 7;
+    LastScenario : UINT := ScenarioReversedRange;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{c93f74d3-9d34-426c-94c5-e82d05811f9d}" />
+    <Method Name="AggregateResults" Id="{79634ee8-6a7f-4c59-9421-dfc067b47d53}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only outer checks, not intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FResults);
+Aggregator.AddProvider(Provider := FActivity);
+Aggregator.AddProvider(Provider := FInputs);
+Aggregator.AddProvider(Provider := FFindings);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{33391dd3-43aa-4195-86f9-d528a0d05578}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production subject once with caller-owned input storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSigned(Enable := FSubjectEnable,
+    State := E_State.Running,
+    IN := FSignedValue,
+    Minimum := FSignedMinimum);
+FUnsigned(Enable := FSubjectEnable,
+    State := E_State.Running,
+    IN := FUnsignedValue,
+    Minimum := FUnsignedMinimum,
+    Maximum := FUnsignedMaximum);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFinding" Id="{fadb9547-90f9-4c01-a156-c9deee4f30ca}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one subject finding in call order; expected outcomes come from the scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFinding : BOOL //! TRUE when the required finding checks pass; calls requiring no finding also succeed.
+VAR_INPUT
+    Subject : I_Assertion; //! Assertion interface supplying the expected finding identity.
+    ExpectedResult : E_Result; //! Independently authored result expected in the captured finding.
+    ExpectedFinding : BOOL; //! TRUE when this scenario requires a finding during active evaluation.
+END_VAR
+VAR_IN_OUT
+    Index : UINT; //! One-based next finding index; advanced when this call checks a required finding.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckFinding := TRUE;
+IF FEvaluateSubjects AND ExpectedFinding THEN
+    CheckFinding := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Name = Subject.Name)
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+        AND (FEvents[Index].EventType = E_EventType.Result)
+        AND (FEvents[Index].State = E_State.Running)
+        AND (FEvents[Index].Result = ExpectedResult)
+        AND (FEvents[Index].Message <> '');
+    Index := Index + 1;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{0f9dd002-4db5-4e0e-9d7c-9d7d941a6f6e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact finding count and identities; at most one finding per subject.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    Matches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+Matches := CheckFinding(Subject := FSigned,
+    ExpectedResult := FSignedExpectedResult,
+    ExpectedFinding := FSignedExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+Matches := CheckFinding(Subject := FUnsigned,
+    ExpectedResult := FUnsignedExpectedResult,
+    ExpectedFinding := FUnsignedExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);
+IF FEvaluateSubjects AND (FScenario = ScenarioOutsideRange) THEN
+    // SA0175: Fixed byte-substring checks of bounded diagnostic messages; no character offsets.
+    {analysis -175}
+    FFindingsMatch := FFindingsMatch
+        AND (FIND(FEvents[1].Message, 'Minimum = -127') > 0)
+        AND (FIND(FEvents[1].Message, 'Actual = -128') > 0)
+        AND (FIND(FEvents[2].Message, 'Minimum = 128') > 0)
+        AND (FIND(FEvents[2].Message, 'Maximum = 255') > 0)
+        AND (FIND(FEvents[2].Message, 'Actual = 127') > 0);
+    {analysis +175}
+END_IF;
+IF FEvaluateSubjects AND (FScenario = ScenarioAboveMaximum) THEN
+    // SA0175: Fixed byte-substring checks of bounded diagnostic messages; no character offsets.
+    {analysis -175}
+    FFindingsMatch := FFindingsMatch
+        AND (FIND(FEvents[1].Message, 'Maximum = 254') > 0)
+        AND (FIND(FEvents[1].Message, 'Actual = 255') > 0);
+    {analysis +175}
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{b5b70a8d-b676-4881-ae5c-05ce89967d0e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects incomplete subject, capture or outer Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FResults.IsInitialized
+    AND FActivity.IsInitialized
+    AND FInputs.IsInitialized
+    AND FFindings.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Variant selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInputs" Id="{993ee1ef-2d42-45c2-8406-c4beac6d2303}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies input preservation without using the tested comparison algorithm.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckInputs]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInputsMatch := (FSigned.IN = FSignedValue)
+    AND (FSigned.Minimum = FSignedMinimum)
+    AND (FUnsigned.IN = FUnsignedValue)
+    AND (FUnsigned.Minimum = FUnsignedMinimum)
+    AND (FUnsigned.Maximum = FUnsignedMaximum);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{e2a42da2-ae4f-4ad4-a912-272fa74367c8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal evaluation results, or NotEvaluated on the reset call.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FEvaluateSubjects THEN
+    FResultsMatch := (FSigned.Result = FSignedExpectedResult)
+        AND (FUnsigned.Result = FUnsignedExpectedResult);
+ELSE
+    FResultsMatch := (FSigned.Result = E_Result.NotEvaluated)
+        AND (FUnsigned.Result = E_Result.NotEvaluated);
+END_IF;
+FActivityMatch := (FSigned.Enabled = FSubjectEnable)
+    AND (FSigned.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FSigned.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FUnsigned.Enabled = FSubjectEnable)
+    AND (FUnsigned.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FUnsigned.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{06341b6f-f889-4773-b63e-763de136a1e1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FResults.Initialize(Parent := THIS^,
+    AssertionName := 'Results');
+FActivity.Initialize(Parent := THIS^,
+    AssertionName := 'Activity');
+FInputs.Initialize(Parent := THIS^,
+    AssertionName := 'Inputs');
+FFindings.Initialize(Parent := THIS^,
+    AssertionName := 'Findings');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FSigned.BindPublisher(Publisher := FCapture);
+Initialized := FSigned.Initialize(Parent := THIS^,
+    AssertionName := 'Signed');
+FSetupValid := FSetupValid AND Initialized;
+FUnsigned.BindPublisher(Publisher := FCapture);
+Initialized := FUnsigned.Initialize(Parent := THIS^,
+    AssertionName := 'Unsigned');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{3e156e60-081e-42e6-bda3-6853affb18a7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort; no asynchronous resource is owned.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{84cbcafe-e01f-4fbf-8cfb-550345b43f26}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches this call's checks before progression is permitted.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FResults(Enable := Check,
+    State := State,
+    IN := FResultsMatch);
+FActivity(Enable := Check,
+    State := State,
+    IN := FActivityMatch);
+FInputs(Enable := Check,
+    State := State,
+    IN := FInputsMatch);
+FFindings(Enable := Check,
+    State := State,
+    IN := FFindingsMatch);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{1f719ad7-2000-4f5d-b771-3d73b136029b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{47134c38-adbd-4e10-bf7a-0ecd07ffd23b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the scenario sequence and outer checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FScenario := ScenarioLowerLimits;
+FChecked := FALSE;
+FSubjectEnable := FALSE;
+FEvaluateSubjects := FALSE;
+FObservationReady := FALSE;
+FFirstFailedScenario := 0;
+FFailedDuringEvaluation := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FResults.Reset();
+FActivity.Reset();
+FInputs.Reset();
+FFindings.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{eb5c1f11-b09c-438f-aae6-85987e53c45a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumes reset, evaluates, then waits for the outer checks before advancing.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FEvaluateSubjects THEN
+        IF FScenario = LastScenario THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FScenario := FScenario + 1;
+    END_IF;
+    FEvaluateSubjects := NOT FEvaluateSubjects;
+END_IF;
+
+IF NOT SelectScenario() THEN
+    RETURN;
+END_IF;
+FCapture.Reset();
+IF NOT FEvaluateSubjects THEN
+    ResetSubjects();
+END_IF;
+
+CallSubjects();
+CheckResults();
+CheckInputs();
+CheckFindings();
+IF (FFirstFailedScenario = 0)
+    AND NOT (FResultsMatch AND FActivityMatch AND FInputsMatch AND FFindingsMatch) THEN
+    FFirstFailedScenario := FScenario;
+    FFailedDuringEvaluation := FEvaluateSubjects;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{b966b41b-0860-43f3-b72f-ec7434188820}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues reset; the next bound FB call consumes it without evaluating.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSigned.Reset();
+FUnsigned.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectScenario" Id="{92d16e3e-8d78-4400-a233-0c78e9eafbad}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects explicit stimuli and expected results for one scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectScenario : BOOL //! TRUE after selecting a supported scenario and its literal expectations; FALSE reports an unknown scenario.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectScenario := FALSE;
+FSubjectEnable := TRUE;
+FSignedValue := -127;
+FSignedMinimum := -128;
+FUnsignedValue := 128;
+FUnsignedMinimum := 128;
+FUnsignedMaximum := 255;
+CASE FScenario OF
+    ScenarioLowerLimits:
+        FSignedExpectedResult := E_Result.Passed;
+        FSignedExpectedFinding := FALSE;
+        FUnsignedExpectedResult := E_Result.Passed;
+        FUnsignedExpectedFinding := FALSE;
+    ScenarioUpperLimits:
+        FSignedValue := 127;
+        FUnsignedValue := 255;
+        FSignedExpectedResult := E_Result.Passed;
+        FSignedExpectedFinding := FALSE;
+        FUnsignedExpectedResult := E_Result.Passed;
+        FUnsignedExpectedFinding := FALSE;
+    ScenarioEqualSignedMinimum:
+        FSignedValue := -128;
+        FSignedExpectedResult := E_Result.Failed;
+        FSignedExpectedFinding := TRUE;
+        FUnsignedExpectedResult := E_Result.Passed;
+        FUnsignedExpectedFinding := FALSE;
+    ScenarioOutsideRange:
+        FSignedValue := -128;
+        FSignedMinimum := -127;
+        FUnsignedValue := 127;
+        FSignedExpectedResult := E_Result.Failed;
+        FSignedExpectedFinding := TRUE;
+        FUnsignedExpectedResult := E_Result.Failed;
+        FUnsignedExpectedFinding := TRUE;
+    ScenarioAboveMaximum:
+        FUnsignedValue := 255;
+        FUnsignedMaximum := 254;
+        FSignedExpectedResult := E_Result.Passed;
+        FSignedExpectedFinding := FALSE;
+        FUnsignedExpectedResult := E_Result.Failed;
+        FUnsignedExpectedFinding := TRUE;
+    ScenarioSingleValue:
+        FUnsignedMinimum := 255;
+        FUnsignedMaximum := 255;
+        FUnsignedValue := 255;
+        FSignedExpectedResult := E_Result.Passed;
+        FSignedExpectedFinding := FALSE;
+        FUnsignedExpectedResult := E_Result.Passed;
+        FUnsignedExpectedFinding := FALSE;
+    ScenarioReversedRange:
+        FUnsignedMinimum := 255;
+        FUnsignedMaximum := 128;
+        FSignedExpectedResult := E_Result.Passed;
+        FSignedExpectedFinding := FALSE;
+        FUnsignedExpectedResult := E_Result.Error;
+        FUnsignedExpectedFinding := TRUE;
+ELSE
+    Error(Message := 'Unknown variant Assertion scenario.');
+    RETURN;
+END_CASE;
+
+SelectScenario := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

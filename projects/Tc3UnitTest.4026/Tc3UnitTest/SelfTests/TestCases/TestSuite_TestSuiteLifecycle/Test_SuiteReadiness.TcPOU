@@ -1,0 +1,322 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SuiteReadiness" Id="{39d0cd2b-9557-413f-9591-8ead9787724c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that Suite Start is authorized by owner state and the selected helper's readiness and result.</summary>
+<description>
+The real Suite reaches Idle through its normal Reset path. The helper then withholds readiness
+while the child snapshots are already ready, as can occur before cleanup is observed.
+A denied Start must not remain queued when readiness later arrives. A subsequent helper Error
+must prevent Start and propagate to the Suite, without selecting helper Execution.
+No child scheduling is simulated: controlled snapshots and helper responses isolate owner decisions.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SuiteReadiness EXTENDS TestCaseBase
+VAR
+    FSubjectParent : I_RunControl;
+    FSubject : TestSuiteLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT;
+    FChecked : BOOL;
+    FInitialization : AssertTrue;
+    FInitializationMatches : BOOL := TRUE;
+    FReadiness : AssertTrue;
+    FReadinessMatches : BOOL := TRUE;
+    FStartGate : AssertTrue;
+    FStartGateMatches : BOOL := TRUE;
+    FHelperBinding : AssertTrue;
+    FHelperBindingMatches : BOOL := TRUE;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 64;
+    Setup : INT := 0;
+    ResetRequested : INT := 1;
+    ResetCompleted : INT := 2;
+    DenyStart : INT := 3;
+    ReleaseReadiness : INT := 4;
+    RejectHelperError : INT := 5;
+    Finished : INT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{b412299c-034c-479d-8993-cfda3cf6e459}" />
+    <Method Name="AggregateResults" Id="{646302c8-3083-4efe-bb8c-ba1da7a421e5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInitialization);
+Aggregator.AddProvider(Provider := FReadiness);
+Aggregator.AddProvider(Provider := FStartGate);
+Aggregator.AddProvider(Provider := FHelperBinding);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{61e8adf7-6497-4397-8c41-37ff9991fc7b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies only the root identity; the root never executes this isolated subject.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{4e12e07c-b90e-4cce-a867-bd03f801ad89}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FInitialization.Initialize(Parent := THIS^,
+    AssertionName := 'Initialization');
+FReadiness.Initialize(Parent := THIS^,
+    AssertionName := 'Readiness');
+FStartGate.Initialize(Parent := THIS^,
+    AssertionName := 'StartGate');
+FHelperBinding.Initialize(Parent := THIS^,
+    AssertionName := 'HelperBinding');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{f6d58f99-f369-41d6-8cbe-de3a54b2ddb8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{4b11e4b4-5f7c-49d4-b189-7f11f911ea4f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates the complete readiness script and consumes reset requests on disabled calls.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND (FStep = Finished);
+FInitialization(Enable := Evaluate,
+    State := State,
+    IN := FInitializationMatches);
+FReadiness(Enable := Evaluate,
+    State := State,
+    IN := FReadinessMatches);
+FStartGate(Enable := Evaluate,
+    State := State,
+    IN := FStartGateMatches);
+FHelperBinding(Enable := Evaluate,
+    State := State,
+    IN := FHelperBindingMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{8c2e1609-a18a-4f9b-b795-2c9d1130f049}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{8bee4dc9-5c8a-48b4-ad52-fbde6b9843b2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FChecked := FALSE;
+FInitializationMatches := TRUE;
+FReadinessMatches := TRUE;
+FStartGateMatches := TRUE;
+FHelperBindingMatches := TRUE;
+FCaptureIntegrityMatches := TRUE;
+FInitialization.Reset();
+FReadiness.Reset();
+FStartGate.Reset();
+FHelperBinding.Reset();
+FCaptureIntegrity.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{4eecbce3-9752-45b3-b40c-737b141f82d7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{dbb0dc33-b300-4695-9a46-eeb73b1bf9f8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exercises readiness through normal Reset, denied Start, helper release and a held helper error.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_TestSuiteConfig;
+    ChildView : ST_OrchestrationObservation;
+    Initialized : BOOL;
+    ExpectedCalls : UINT;
+    SubjectStatus : ST_TestSuiteStatus;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        IF NOT FCapture.Initialize(Buffer := FEvents,
+            FifoControl := FCaptureFifo,
+            Status := FCaptureStatus) THEN
+            Error(Message := 'Suite readiness capture could not be initialized.');
+            RETURN;
+        END_IF;
+        FHelper.BeginScenario();
+        FSubject.Bind(Publisher := FCapture,
+            Helper := FHelper);
+        Initialized := FSubject.Initialize(Parent := FSubjectParent,
+            SuiteName := 'ReadinessSubject',
+            Config := Config);
+        FInitializationMatches := Initialized AND FSubject.IsInitialized AND NOT FSubject.IsReady;
+        IF NOT Initialized THEN
+            FStep := Finished;
+            RETURN;
+        END_IF;
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FReadinessMatches := NOT FSubject.IsReady AND (FSubject.State = E_State.Uninitialized);
+    ResetRequested:
+        IF FSubject.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Suite readiness Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        ChildView.State := E_State.Reset;
+        ChildView.Ready := FALSE;
+        FSubject.SetChildObservation(Observation := ChildView);
+        FSubject.RequestReset();
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FReadinessMatches := FReadinessMatches AND NOT FSubject.IsReady
+            AND (FSubject.State = E_State.Reset);
+    ResetCompleted:
+        // Ready children alone do not imply that helper cleanup and readiness are complete.
+        FSubject.SetChildObservation(Observation := ChildView);
+        FHelper.SetObservation(Ready := FALSE,
+            ResetFinished := TRUE);
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FReadinessMatches := FReadinessMatches AND FSubject.IsIdle AND NOT FSubject.IsReady
+            AND NOT SubjectStatus.Execution.Ready;
+        IF NOT FSubject.FreeReservedEvents() THEN
+            Error(Message := 'Suite readiness Reset reservation could not be released.');
+            RETURN;
+        END_IF;
+    DenyStart:
+        FHelper.SetObservation(Ready := FALSE);
+        FSubject.RequestStart();
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FStartGateMatches := FSubject.IsIdle
+            AND (FHelper.CurrentTask = E_OrchestratorTask.Idle)
+            AND NOT FSubject.IsReady;
+    ReleaseReadiness:
+        FHelper.SetObservation(Ready := TRUE);
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FReadinessMatches := FReadinessMatches AND FSubject.IsReady
+            AND SubjectStatus.Execution.Ready AND FSubject.IsIdle;
+        FStartGateMatches := FStartGateMatches
+            AND (FHelper.CurrentTask = E_OrchestratorTask.Idle);
+    RejectHelperError:
+        FHelper.SetObservation(Ready := FALSE,
+            Result := E_Result.Error);
+        FReadinessMatches := FReadinessMatches AND NOT FSubject.IsReady;
+        FSubject.RequestStart();
+        FSubject();
+        SubjectStatus := FSubject.Status;
+        FStartGateMatches := FStartGateMatches
+            AND (FSubject.State = E_State.Completing)
+            AND (FSubject.Result = E_Result.Error)
+            AND (FHelper.CurrentTask = E_OrchestratorTask.Idle);
+ELSE
+    Error(Message := 'Unexpected Suite readiness test step.');
+    RETURN;
+END_CASE;
+ExpectedCalls := INT_TO_UINT(FStep + 1);
+FHelperBindingMatches := FHelperBindingMatches
+    AND (FHelper.InitializeCount = 1)
+    AND (FHelper.ExecuteCount = ExpectedCalls)
+    AND (FSubject.ChildCallCount = ExpectedCalls);
+FCaptureIntegrityMatches := FCaptureIntegrityMatches AND (FCaptureStatus.LostEventCount = 0);
+FStep := FStep + 1;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,145 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionFloatingPoint" Id="{789106f5-2f0d-4153-9c07-c2c113fcf811}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks floating-point tolerances, finite boundaries, scalar/array classification and non-finite diagnostics.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionFloatingPoint EXTENDS TestSuiteBase
+VAR
+    FTolerance_Real : Test_AssertionTolerance_Real;
+    FTolerance_LReal : Test_AssertionTolerance_LReal;
+    FFiniteBoundaries_Real : Test_AssertionFiniteBoundaries_Real;
+    FFiniteBoundaries_LReal : Test_AssertionFiniteBoundaries_LReal;
+    FRelations_Real : Test_AssertionRelations_Real;
+    FRelations_LReal : Test_AssertionRelations_LReal;
+    FNonFinite_Real : Test_AssertionNonFinite_Real;
+    FNonFinite_LReal : Test_AssertionNonFinite_LReal;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+    FClassification_Real : Test_AssertionClassification_Real;
+    FArrayClassification_Real : Test_AssertionArrayClassification_Real;
+    FClassification_LReal : Test_AssertionClassification_LReal;
+    FArrayClassification_LReal : Test_AssertionArrayClassification_LReal;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 12;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a6100400-1000-4000-8000-000000000002}" />
+    <Method Name="Configure" Id="{a6100400-1000-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the twelve isolated floating-point scenarios.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FTolerance_Real.Initialize(Parent := THIS^,
+    TestName := 'Tolerance_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FTolerance_Real);
+FTolerance_LReal.Initialize(Parent := THIS^,
+    TestName := 'Tolerance_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FTolerance_LReal);
+FFiniteBoundaries_Real.Initialize(Parent := THIS^,
+    TestName := 'FiniteBoundaries_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FFiniteBoundaries_Real);
+FFiniteBoundaries_LReal.Initialize(Parent := THIS^,
+    TestName := 'FiniteBoundaries_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FFiniteBoundaries_LReal);
+FRelations_Real.Initialize(Parent := THIS^,
+    TestName := 'Relations_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FRelations_Real);
+FRelations_LReal.Initialize(Parent := THIS^,
+    TestName := 'Relations_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FRelations_LReal);
+FNonFinite_Real.Initialize(Parent := THIS^,
+    TestName := 'NonFinite_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FNonFinite_Real);
+FNonFinite_LReal.Initialize(Parent := THIS^,
+    TestName := 'NonFinite_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FNonFinite_LReal);
+
+FClassification_Real.Initialize(Parent := THIS^,
+    TestName := 'Classify_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FClassification_Real);
+FArrayClassification_Real.Initialize(Parent := THIS^,
+    TestName := 'ArrayClassify_Real',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayClassification_Real);
+FClassification_LReal.Initialize(Parent := THIS^,
+    TestName := 'Classify_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FClassification_LReal);
+FArrayClassification_LReal.Initialize(Parent := THIS^,
+    TestName := 'ArrayClassify_LReal',
+    Config := TestConfig);
+Builder.Register(TestCase := FArrayClassification_LReal);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{a6100400-1000-4000-8000-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{a6100400-1000-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTolerance_Real();
+FTolerance_LReal();
+FFiniteBoundaries_Real();
+FFiniteBoundaries_LReal();
+FRelations_Real();
+FRelations_LReal();
+FNonFinite_Real();
+FNonFinite_LReal();
+
+FClassification_Real();
+FArrayClassification_Real();
+FClassification_LReal();
+FArrayClassification_LReal();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

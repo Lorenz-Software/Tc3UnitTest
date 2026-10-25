@@ -1,0 +1,67 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_OrchestratableCollection" Id="{ab3c9bc5-2df7-4fd4-b00a-613eb3a00aab}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Read-only indexed view of the registered, owner-held children.</summary>
+<description>
+The occupied prefix starts at ChildArrayLowerBound and contains ChildCount entries; ChildArrayUpperBound includes unused capacity. Before enabling regular execution, the owner validates this metadata and the nonzero initialized children. Keep bounds, population, child identities and slots fixed for execution; the scheduler caches the occupied bounds. Lookup uses the actual DINT array index, returns zero outside the occupied prefix and does not call a child FB.
+</description>
+*)
+{endregion}
+INTERFACE I_OrchestratableCollection]]></Declaration>
+    <Property Name="ChildArrayLowerBound" Id="{200bc237-37f8-40c7-89a5-4407b81098dc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual array lower bound; zero when no configuration is available.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ChildArrayLowerBound : DINT //! Actual array lower bound; zero when no configuration is available.]]></Declaration>
+      <Get Name="Get" Id="{02a5777d-3e6c-4bf3-8fdf-a64cdf054341}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="ChildArrayUpperBound" Id="{40648750-45d5-4d3c-b135-90d2b0792df9}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual array upper bound, including unused capacity; process only ChildCount entries.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ChildArrayUpperBound : DINT //! Actual array upper bound, including unused capacity; process only ChildCount entries.]]></Declaration>
+      <Get Name="Get" Id="{4e0e8065-d3cc-4996-953e-26607d32f50b}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Property Name="ChildCount" Id="{6e10b352-e96b-46f4-bdb0-6f23c5998395}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Registered population starting at ChildArrayLowerBound; zero when unavailable.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY ChildCount : UINT //! Registered population starting at ChildArrayLowerBound; zero when unavailable.]]></Declaration>
+      <Get Name="Get" Id="{674c07c7-e64b-4101-abc9-74d28ead262f}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="GetChild" Id="{8c26ccc0-4a93-4de7-ad69-d3aad4d2798c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered entry at its original array index; invalid access returns zero.</summary>
+*)
+{endregion}
+METHOD GetChild : I_Orchestratable //! Registered child interface at Index; zero for an invalid or unoccupied index.
+VAR_INPUT
+    Index : DINT; //! Original child-array index, not a registration ordinal; valid children occupy LowerBound through LowerBound + Count - 1.
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

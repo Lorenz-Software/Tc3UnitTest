@@ -1,0 +1,721 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionNonFinite_Real" Id="{52614c6d-0ab1-44ae-acee-78cf0f907035}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks REAL non-finite scalar operands and Error above held Failed.</summary>
+<description>
+Quiet NaN and both infinities are built by bit representation, never exceptional arithmetic.
+Actual, expected/bound and tolerance roles are exercised separately across algorithm families.
+NaNAfterFailure deliberately retains the preceding subject results; other rows reset them.
+A disabled preparation call consumes subject resets before the next enabled observation.
+Only outer checking Assertions contribute to the Test Case result.
+Expected outcomes are explicit; production processing is inherited, not mirrored.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionNonFinite_Real EXTENDS TestCaseBase
+VAR
+    FEqualSubject : AssertEqual_Real;
+    FLessThanSubject : AssertLessThan_Real;
+    FInRangeSubject : AssertInRange_Real;
+    FEqualToleranceSubject : AssertEqualTolerance_Real;
+    FNotEqualToleranceSubject : AssertNotEqualTolerance_Real;
+    FActual : REAL;
+    FExpected : REAL;
+    FLower : REAL;
+    FUpper : REAL;
+    FTolerance : REAL;
+    FQuietNaN : FloatingPointBits_Real;
+    FPositiveInfinity : FloatingPointBits_Real;
+    FNegativeInfinity : FloatingPointBits_Real;
+    FExpectedEqualResult : E_Result;
+    FExpectedLessThanResult : E_Result;
+    FExpectedInRangeResult : E_Result;
+    FExpectedEqualToleranceResult : E_Result;
+    FExpectedNotEqualToleranceResult : E_Result;
+    FExpectedFindings : UDINT;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FPreserveResults : BOOL;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR
+    FEqualResult : AssertTrue;
+    FEqualResultMatches : BOOL;
+    FLessThanResult : AssertTrue;
+    FLessThanResultMatches : BOOL;
+    FInRangeResult : AssertTrue;
+    FInRangeResultMatches : BOOL;
+    FEqualToleranceResult : AssertTrue;
+    FEqualToleranceResultMatches : BOOL;
+    FNotEqualToleranceResult : AssertTrue;
+    FNotEqualToleranceResultMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+    FFindingDetails : AssertTrue;
+    FFindingDetailsMatch : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 16;
+    FixtureSize : UINT := 4;
+    OneBits : DWORD := DWORD#16#3F800000;
+    QuietNaNBits : DWORD := DWORD#16#7FC00000;
+    PositiveInfinityBits : DWORD := DWORD#16#7F800000;
+    NegativeInfinityBits : DWORD := DWORD#16#FF800000;
+    ActualQuietNaN : UINT := 1;
+    ActualPositiveInfinity : UINT := 2;
+    ActualNegativeInfinity : UINT := 3;
+    ExpectedQuietNaN : UINT := 4;
+    ExpectedPositiveInfinity : UINT := 5;
+    ExpectedNegativeInfinity : UINT := 6;
+    LowerBoundQuietNaN : UINT := 7;
+    LowerBoundPositiveInfinity : UINT := 8;
+    LowerBoundNegativeInfinity : UINT := 9;
+    UpperBoundQuietNaN : UINT := 10;
+    UpperBoundPositiveInfinity : UINT := 11;
+    UpperBoundNegativeInfinity : UINT := 12;
+    ToleranceQuietNaN : UINT := 13;
+    TolerancePositiveInfinity : UINT := 14;
+    ToleranceNegativeInfinity : UINT := 15;
+    FailureBeforeNaN : UINT := 16;
+    NaNAfterFailure : UINT := 17;
+    LastRow : UINT := NaNAfterFailure;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{d9a37075-6f64-4780-8965-f62f6f971f44}" />
+    <Method Name="AggregateResults" Id="{3b71c1d7-d252-4a45-90c3-b4cbc82f4c7d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FEqualResult);
+Aggregator.AddProvider(Provider := FLessThanResult);
+Aggregator.AddProvider(Provider := FInRangeResult);
+Aggregator.AddProvider(Provider := FEqualToleranceResult);
+Aggregator.AddProvider(Provider := FNotEqualToleranceResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);
+Aggregator.AddProvider(Provider := FFindingDetails);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{f09b8ee1-3333-4095-a0b7-0a38f43dc87b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production Assertion once using the selected row.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FExpected);
+FLessThanSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Maximum := FExpected);
+FInRangeSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Minimum := FLower,
+    Maximum := FUpper);
+FEqualToleranceSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FExpected,
+    Tolerance := FTolerance);
+FNotEqualToleranceSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FExpected,
+    Tolerance := FTolerance);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{8e07f461-0457-4ed3-8495-dcba31c7f982}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Extends base validation with subject and checking-Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FEqualResult.IsInitialized
+    AND FLessThanResult.IsInitialized
+    AND FInRangeResult.IsInitialized
+    AND FEqualToleranceResult.IsInitialized
+    AND FNotEqualToleranceResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized
+    AND FFindingDetails.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Floating-point selftest setup or fixture representation failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{7f8ddd99-8238-472b-90b5-d73edc4e2f22}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal results and the ordered isolated findings from this row.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults
+VAR
+    FindingIndex : UINT;
+    FindingMatches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualResultMatches := FEqualSubject.Result = FExpectedEqualResult;
+FLessThanResultMatches := FLessThanSubject.Result = FExpectedLessThanResult;
+FInRangeResultMatches := FInRangeSubject.Result = FExpectedInRangeResult;
+FEqualToleranceResultMatches := FEqualToleranceSubject.Result = FExpectedEqualToleranceResult;
+FNotEqualToleranceResultMatches := FNotEqualToleranceSubject.Result = FExpectedNotEqualToleranceResult;
+FCaptureIntegrityMatches := (FCaptureStatus.SequenceId = FExpectedFindings)
+    AND (FCaptureStatus.LostEventCount = 0);
+
+FindingIndex := 1;
+FFindingDetailsMatch := TRUE;
+IF (FExpectedEqualResult = E_Result.Failed) OR (FExpectedEqualResult = E_Result.Error) THEN
+    FindingMatches := IsFindingValid(Index := FindingIndex,
+        ExpectedName := FEqualSubject.Name,
+        ExpectedResult := FExpectedEqualResult);
+    FFindingDetailsMatch := FFindingDetailsMatch AND FindingMatches;
+    FindingIndex := FindingIndex + 1;
+END_IF;
+IF (FExpectedLessThanResult = E_Result.Failed) OR (FExpectedLessThanResult = E_Result.Error) THEN
+    FindingMatches := IsFindingValid(Index := FindingIndex,
+        ExpectedName := FLessThanSubject.Name,
+        ExpectedResult := FExpectedLessThanResult);
+    FFindingDetailsMatch := FFindingDetailsMatch AND FindingMatches;
+    FindingIndex := FindingIndex + 1;
+END_IF;
+IF (FExpectedInRangeResult = E_Result.Failed) OR (FExpectedInRangeResult = E_Result.Error) THEN
+    FindingMatches := IsFindingValid(Index := FindingIndex,
+        ExpectedName := FInRangeSubject.Name,
+        ExpectedResult := FExpectedInRangeResult);
+    FFindingDetailsMatch := FFindingDetailsMatch AND FindingMatches;
+    FindingIndex := FindingIndex + 1;
+END_IF;
+IF (FExpectedEqualToleranceResult = E_Result.Failed) OR (FExpectedEqualToleranceResult = E_Result.Error) THEN
+    FindingMatches := IsFindingValid(Index := FindingIndex,
+        ExpectedName := FEqualToleranceSubject.Name,
+        ExpectedResult := FExpectedEqualToleranceResult);
+    FFindingDetailsMatch := FFindingDetailsMatch AND FindingMatches;
+    FindingIndex := FindingIndex + 1;
+END_IF;
+IF (FExpectedNotEqualToleranceResult = E_Result.Failed) OR (FExpectedNotEqualToleranceResult = E_Result.Error) THEN
+    FindingMatches := IsFindingValid(Index := FindingIndex,
+        ExpectedName := FNotEqualToleranceSubject.Name,
+        ExpectedResult := FExpectedNotEqualToleranceResult);
+    FFindingDetailsMatch := FFindingDetailsMatch AND FindingMatches;
+    FindingIndex := FindingIndex + 1;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{c4b4aff1-075a-4312-aa36-4c355612d88e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FSetupValid := InitializeValues();
+FEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualResult');
+FLessThanResult.Initialize(Parent := THIS^,
+    AssertionName := 'LessThanResult');
+FInRangeResult.Initialize(Parent := THIS^,
+    AssertionName := 'InRangeResult');
+FEqualToleranceResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualToleranceResult');
+FNotEqualToleranceResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualToleranceResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FFindingDetails.Initialize(Parent := THIS^,
+    AssertionName := 'FindingDetails');
+Initialized := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FSetupValid := FSetupValid AND Initialized;
+FEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualSubject');
+FSetupValid := FSetupValid AND Initialized;
+FLessThanSubject.BindPublisher(Publisher := FCapture);
+Initialized := FLessThanSubject.Initialize(Parent := THIS^,
+    AssertionName := 'LessThanSubject');
+FSetupValid := FSetupValid AND Initialized;
+FInRangeSubject.BindPublisher(Publisher := FCapture);
+Initialized := FInRangeSubject.Initialize(Parent := THIS^,
+    AssertionName := 'InRangeSubject');
+FSetupValid := FSetupValid AND Initialized;
+FEqualToleranceSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualToleranceSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualToleranceSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotEqualToleranceSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotEqualToleranceSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotEqualToleranceSubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeValues" Id="{1fb88a18-452f-4282-804b-ff67083a3b41}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Establishes typed fixtures and verifies their representation before any subject call.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeValues : BOOL //! TRUE when fixture sizes and floating-point bit representations match their explicit expected patterns.
+VAR
+    Representation : FloatingPointBits_Real;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Representation.Value := REAL#1.0;
+InitializeValues := (SIZEOF(Representation) = FixtureSize)
+    AND (Representation.Bits = OneBits);
+
+FQuietNaN.Bits := QuietNaNBits;
+Representation.Value := FQuietNaN.Value;
+InitializeValues := InitializeValues AND (Representation.Bits = QuietNaNBits);
+FPositiveInfinity.Bits := PositiveInfinityBits;
+Representation.Value := FPositiveInfinity.Value;
+InitializeValues := InitializeValues AND (Representation.Bits = PositiveInfinityBits);
+FNegativeInfinity.Bits := NegativeInfinityBits;
+Representation.Value := FNegativeInfinity.Value;
+InitializeValues := InitializeValues AND (Representation.Bits = NegativeInfinityBits);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{7d3713c1-6f09-4c11-b95a-d33a1f76e2b6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reads a captured finding; the caller bounds the index by 5 subjects.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{3af07338-e6fa-4d06-aba2-a3fc7c2df15a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{10a88f34-0c80-461a-87c4-834d9a0e8199}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualResultMatches);
+FLessThanResult(Enable := Evaluate,
+    State := State,
+    IN := FLessThanResultMatches);
+FInRangeResult(Enable := Evaluate,
+    State := State,
+    IN := FInRangeResultMatches);
+FEqualToleranceResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualToleranceResultMatches);
+FNotEqualToleranceResult(Enable := Evaluate,
+    State := State,
+    IN := FNotEqualToleranceResultMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+FFindingDetails(Enable := Evaluate,
+    State := State,
+    IN := FFindingDetailsMatch);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{9aaa718d-eb99-4ce5-8951-88af12b892d0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{830aacfc-8256-469b-8458-4f5f7c877957}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := ActualQuietNaN;
+FRowPrepared := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FEqualResult.Reset();
+FEqualResultMatches := TRUE;
+FLessThanResult.Reset();
+FLessThanResultMatches := TRUE;
+FInRangeResult.Reset();
+FInRangeResultMatches := TRUE;
+FEqualToleranceResult.Reset();
+FEqualToleranceResultMatches := TRUE;
+FNotEqualToleranceResult.Reset();
+FNotEqualToleranceResultMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+FFindingDetails.Reset();
+FFindingDetailsMatch := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{4a1fc8e0-afd8-496c-8042-a6d0bbaac5d9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRow = LastRow THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FRow := FRow + 1;
+    FRowPrepared := FALSE;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    IF NOT FPreserveResults THEN
+        ResetSubjects();
+    END_IF;
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := TRUE);
+    CheckResults();
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{788b7996-75ef-4929-808e-8696e68fb7bc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests fresh subject results before the next disabled call.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject.Reset();
+FLessThanSubject.Reset();
+FInRangeSubject.Reset();
+FEqualToleranceSubject.Reset();
+FNotEqualToleranceSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{a2ebce5b-9168-4ede-9701-1e67c32b3f53}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects independent literal outcomes; only named escalation rows preserve results.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreserveResults := FALSE;
+CASE FRow OF
+    ActualQuietNaN:
+        FActual := FQuietNaN.Value;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 5;
+    ActualPositiveInfinity:
+        FActual := FPositiveInfinity.Value;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 5;
+    ActualNegativeInfinity:
+        FActual := FNegativeInfinity.Value;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 5;
+    ExpectedQuietNaN:
+        FActual := REAL#1.0;
+        FExpected := FQuietNaN.Value;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 4;
+    ExpectedPositiveInfinity:
+        FActual := REAL#1.0;
+        FExpected := FPositiveInfinity.Value;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 4;
+    ExpectedNegativeInfinity:
+        FActual := REAL#1.0;
+        FExpected := FNegativeInfinity.Value;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 4;
+    LowerBoundQuietNaN:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := FQuietNaN.Value;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    LowerBoundPositiveInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := FPositiveInfinity.Value;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    LowerBoundNegativeInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := FNegativeInfinity.Value;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    UpperBoundQuietNaN:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := FQuietNaN.Value;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    UpperBoundPositiveInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := FPositiveInfinity.Value;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    UpperBoundNegativeInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := FNegativeInfinity.Value;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Passed;
+        FExpectedNotEqualToleranceResult := E_Result.Failed;
+        FExpectedFindings := 3;
+    ToleranceQuietNaN:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := FQuietNaN.Value;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 3;
+    TolerancePositiveInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := FPositiveInfinity.Value;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 3;
+    ToleranceNegativeInfinity:
+        FActual := REAL#1.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := FNegativeInfinity.Value;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Passed;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 3;
+    FailureBeforeNaN:
+        FActual := REAL#3.0;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedLessThanResult := E_Result.Failed;
+        FExpectedInRangeResult := E_Result.Failed;
+        FExpectedEqualToleranceResult := E_Result.Failed;
+        FExpectedNotEqualToleranceResult := E_Result.Passed;
+        FExpectedFindings := 4;
+    NaNAfterFailure:
+        FActual := FQuietNaN.Value;
+        FExpected := REAL#1.0;
+        FLower := REAL#0.0;
+        FUpper := REAL#2.0;
+        FTolerance := REAL#0.5;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedLessThanResult := E_Result.Error;
+        FExpectedInRangeResult := E_Result.Error;
+        FExpectedEqualToleranceResult := E_Result.Error;
+        FExpectedNotEqualToleranceResult := E_Result.Error;
+        FExpectedFindings := 5;
+        FPreserveResults := TRUE;
+ELSE
+    Error(Message := 'Unknown floating-point test row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

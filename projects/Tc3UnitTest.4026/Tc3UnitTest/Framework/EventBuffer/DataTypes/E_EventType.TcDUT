@@ -1,0 +1,23 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_EventType" Id="{f00f5b34-4f30-4cef-8141-d9ed9f288d93}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Event payload classification.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EventType :
+(
+    Unknown := 0, //! No defined payload category.
+    Result := 10, //! Owner or Assertion evaluation outcome.
+    Trigger := 20, //! Lifecycle command accepted or reported by the owner.
+    StateTransition := 30, //! Owner lifecycle transition.
+    Info := 40, //! Informational event.
+    Aggregation := 50, //! Owner counters and duration encoded for final aggregation.
+    Framework := 60 //! Framework diagnostic rather than a test verdict.
+) USINT := Unknown;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

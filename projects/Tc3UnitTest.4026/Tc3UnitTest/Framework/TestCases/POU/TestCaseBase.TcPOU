@@ -1,0 +1,1992 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestCaseBase" Id="{a79d6533-bc6b-4f13-bee1-0a3f969bc7fd}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Base-owned Test Case lifecycle with scenario-specific Preparation, test and Assertion
+hooks.</summary>
+<description>
+The Suite calls Initialize before regular processing. Implement Configure, ProcessReset,
+ProcessAbort, ProcessPreparations, ProcessTests, ProcessAssertions and AggregateResults; the
+concrete FB body calls SUPER^() once per task cycle.
+
+The base owns requests, transitions, timers, result interpretation and lifecycle events.
+Completed skips processing hooks, but existing Assertion results and status counters are still
+collected. Do not implement a second owner lifecycle in the concrete body.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT TestCaseBase IMPLEMENTS I_TestCase
+VAR CONSTANT
+    StateCountNotConfigured : INT := -1;
+END_VAR
+VAR
+    /// Instance binding; derived test adapters may assign it before first use.
+    FEventPublisher : I_EventPublisher;
+    FName : STRING(GVL_Constants.NameLength);
+    FResourceName : STRING(GVL_Constants.ResourceNameLength);
+    FConfig : ST_TestCaseConfig;
+    FInitialized : BOOL;
+FHasTimeout : BOOL;
+FHasPreparationTimeout : BOOL;
+FHasResetTimeout : BOOL;
+FHasAbortTimeout : BOOL;
+    FConfigError : BOOL;
+    FExecutionSlot : UINT;
+    FReservedEntryCount : UINT;
+    FState : E_State := E_State.Uninitialized;
+    FResult : E_Result := E_Result.NotEvaluated;
+    FStatus : ST_TestCaseStatus;
+    FPreparationStatus : ST_PreparationStatus;
+    FPreparationStateCount : INT := StateCountNotConfigured;
+    FTestStateCount : INT := StateCountNotConfigured;
+    FExecutionTimer : Stopwatch;
+    FStateTimer : Stopwatch;
+    FMethodRequests: ST_Command;
+    FAggregator : ResultAggregator;
+END_VAR
+VAR_TEMP
+    Requests : ST_Command;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[ProcessRequests(InputRequests := FMethodRequests, Requests => Requests);
+
+FExecutionTimer.Update();
+FStateTimer.Update();
+
+Sequencer(Requests := Requests);
+
+IF IsInitialized THEN
+    IF IsResetting THEN
+        FPreparationStatus.State := E_State.Uninitialized;
+        FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Unknown;
+        FPreparationStatus.Ready := FALSE;
+        FPreparationStatus.Running := FALSE;
+        FPreparationStatus.Completed := FALSE;
+        FPreparationStatus.Error := FALSE;
+        UpdateStatus();
+        ProcessReset();
+    END_IF;
+
+    IF FState <> E_State.Completed THEN
+        ProcessAbort(Enable := IsAborting);
+
+        ProcessPreparations(Enable := IsPreparationActive);
+        ProcessTests(Enable := IsTestingActive);
+        ProcessAssertions(Enable := IsTestingActive);
+    END_IF;
+
+    FAggregator.Reset();
+    AggregateResults(Aggregator := FAggregator);
+END_IF;
+
+UpdateResult();
+UpdateStatus();
+EmitFinalizationEvents();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{442b7738-ebf5-4f0c-ad09-cb2031abcb0b}" />
+    <Folder Name="MetaData" Id="{cecd2af0-7730-4f5e-a224-0c140426ed49}" />
+    <Folder Name="Sequencer" Id="{9c001234-842e-420c-8888-493e9f589011}" />
+    <Folder Name="ToImplement" Id="{85ab04aa-a1c6-48ad-8af5-67be94d4be3f}" />
+    <Method Name="AggregateResults" Id="{3d88bf7f-fb77-4578-8c42-de64d09663ed}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes every owned Assertion result exactly once to the current collection.</summary>
+<description>
+Called on every initialized FB call, including Completed and inactive phases. AddProvider or
+AddResult contributes one counted Assertion; include inactive Assertions too.
+
+The base resets the aggregator before the call and subsequently derives owner result, status
+counters and finalization events. Do not reset or retain the passed interface, execute Assertions,
+publish findings or latch another result here. This abstract hook has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Owner-held contribution interface; add each child once without resetting or retaining this interface.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: add each owned Assertion once; do not reset the aggregator.
+Aggregator.AddProvider(Provider := MyAssertion);
+Aggregator.AddProvider(Provider := MyOtherAssertion);
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ChangeState" Id="{81c850c9-4ce4-4405-8407-e03f650ef9e1}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies permitted transitions; rejection holds state/timers and reports a diagnostic or Error according to the current lifecycle phase.</summary>
+*)
+{endregion}
+METHOD PRIVATE ChangeState
+VAR_INPUT
+    NewState : E_State; //! Requested lifecycle destination; identical state is a no-op and rejection leaves state and timers unchanged.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NewState = FState THEN
+    RETURN;
+END_IF;
+
+IF NOT IsStateTransitionAllowed(NewState := NewState) THEN
+    CASE FState OF
+        E_State.Uninitialized:
+            RETURN;
+
+        E_State.Completed:
+            PublishEvent(Event := CreateInvalidStateTransitionEvent(OwnerScope := E_OwnerScope.TestCase,
+                Name := FName,
+                ResourceName := FResourceName,
+                StateOld := FState,
+                StateNew := NewState));
+    ELSE
+        IF FResult <> E_Result.Error THEN
+            PublishEvent(Event := CreateInvalidStateTransitionEvent(OwnerScope := E_OwnerScope.TestCase,
+                Name := FName,
+                ResourceName := FResourceName,
+                StateOld := FState,
+                StateNew := NewState));
+        END_IF;
+        FResult := E_Result.Error;
+    END_CASE;
+    RETURN;
+END_IF;
+
+CASE NewState OF
+    E_State.Uninitialized:
+        FInitialized := FALSE;
+        FResult := E_Result.NotEvaluated;
+        FAggregator.Reset();
+        FExecutionTimer.Reset();
+        FStateTimer.Reset();
+
+    E_State.Reset:
+        FHasTimeout := FALSE;
+        FHasPreparationTimeout := FALSE;
+        FHasResetTimeout := FALSE;
+        FHasAbortTimeout := FALSE;
+        IF IsTestCaseActive THEN
+            PublishEvent(Event := CreateResetWarningEvent(OwnerScope := E_OwnerScope.TestCase,
+                Name := FName,
+                ResourceName := FResourceName,
+                State := FState));
+        END_IF;
+        FResult := E_Result.NotEvaluated;
+        FAggregator.Reset();
+        FExecutionTimer.Reset();
+        FStateTimer.Start();
+
+    E_State.Idle:
+        FStateTimer.Reset();
+
+    E_State.Starting:
+        FExecutionTimer.Start();
+        FStateTimer.Reset();
+
+    E_State.Preparing..(E_State.Running - 1),
+    E_State.Running..(E_State.Completing - 1):
+        FStateTimer.Start();
+
+    E_State.Aborting:
+        FResult := E_Result.Abort;
+        FExecutionTimer.Stop();
+        FStateTimer.Start();
+
+    E_State.AbortingFromError:
+        FResult := E_Result.Error;
+        FExecutionTimer.Stop();
+        IF FState <> E_State.Aborting THEN
+            FStateTimer.Start();
+        END_IF;
+
+    E_State.Completing:
+        FExecutionTimer.Stop();
+        FStateTimer.Reset();
+
+    E_State.Completed:
+        FStateTimer.Reset();
+ELSE
+    RETURN;
+END_CASE;
+
+PublishEvent(Event := CreateStateTransitionEvent(OwnerScope := E_OwnerScope.TestCase,
+    Name := FName,
+    ResourceName := FResourceName,
+    StateOld := FState,
+    StateNew := NewState));
+FState := NewState;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{a81dc457-3a20-4b52-bfc4-59a406e6c311}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates configured state counts and positive timeouts after Configure.</summary>
+<description>
+An override must call SUPER^.CheckInitialization(), retain failure, and additionally validate
+its owned setup, including Assertion initialization. Return FALSE for any invalid prerequisite; do
+not turn a failed base check into success.
+
+The base reports its first failed check as a Framework diagnostic. Initialization remains
+unsuccessful when validation fails.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the configured setup is valid; FALSE reports invalid setup and prevents initialization.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+
+IF FPreparationStateCount = StateCountNotConfigured THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'Preparation state count was not configured.'));
+    RETURN;
+END_IF;
+
+IF FTestStateCount = StateCountNotConfigured THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'Test state count was not configured.'));
+    RETURN;
+END_IF;
+
+IF (FPreparationStateCount < 0)
+    OR (FPreparationStateCount > E_State.Running - E_State.Preparing) THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := CONCAT('Invalid Preparation state count = ', INT_TO_STRING(FPreparationStateCount))));
+    RETURN;
+END_IF;
+
+IF (FTestStateCount < 1)
+    OR (FTestStateCount > E_State.Completing - E_State.Running) THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := CONCAT('Invalid Test state count = ', INT_TO_STRING(FTestStateCount))));
+    RETURN;
+END_IF;
+
+IF (FConfig.Timeout = T#0MS) OR (FConfig.PreparationTimeout = T#0MS)
+    OR (FConfig.ResetTimeout = T#0MS) OR (FConfig.AbortTimeout = T#0MS) THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'Timeout, PreparationTimeout, ResetTimeout and AbortTimeout must be greater than zero.'));
+    RETURN;
+END_IF;
+
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CompleteAbort" Id="{02bbd2e8-894a-4fa7-90d9-cccb192c1b54}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Acknowledges finished cleanup and enters Completing immediately.</summary>
+<description>
+Call only during IsAborting, including the error-driven abort phase. The existing Abort or
+Error result is preserved by finalization. The base enforces AbortTimeout even if the implementation
+never acknowledges completion.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CompleteAbort]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT (IsAborting) THEN
+    Error(Message := 'CompleteAbort called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+ChangeState(NewState := E_State.Completing);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CompletePreparations" Id="{0b11b2f4-7e38-41bb-9bcd-4303cc3c284f}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Ends the active Preparation phase immediately by entering Running.</summary>
+<description>
+The concrete scenario must establish that its target is reached before calling. Held owner,
+aggregate or Preparation Error prevents normal completion. The transition requires the
+stored Completed flag as well as an error-free Preparation snapshot.
+
+Following hooks observe the changed phase immediately. Alternatively, the Sequencer advances
+from Starting or Preparing when the supplied Preparation snapshot already reports Completed.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CompletePreparations]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsPreparationActive THEN
+    Error(Message := 'CompletePreparations called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+    Error(Message := 'Test Case evaluation reported Error.');
+    RETURN;
+END_IF;
+
+IF FPreparationStatus.Error THEN
+    Error(Message := 'Preparation reported Error.');
+    RETURN;
+END_IF;
+ChangeState(NewState := E_State.Running);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CompleteReset" Id="{65344385-31b6-4a87-9c3c-0c63e5bc940f}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Acknowledges completed reset work.</summary>
+<description>
+Call only in Reset. Without a held Error, the owner enters Idle; with Error, it enters
+Completing and then Completed, never an abort phase. Readiness in Idle still depends on the
+effective IsReady implementation.
+
+ResetTimeout bounds missing acknowledgement. This operation does not reinitialize
+configuration or release event reservations.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CompleteReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT (FState = E_State.Reset) THEN
+    Error(Message := 'CompleteReset called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+IF FResult = E_Result.Error THEN
+    ChangeState(NewState := E_State.Completing);
+    RETURN;
+END_IF;
+ChangeState(NewState := E_State.Idle);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CompleteTests" Id="{ff97093f-2ae1-4156-8c0e-d9c3d0ea2443}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Ends the active Test phase immediately by entering Completing.</summary>
+<description>
+Call only after scenario completion and error checks. Held owner or aggregate Error prevents
+normal completion. Subsequent hooks in the same FB call see the new state; in particular
+ProcessAssertions receives the updated IsTestingActive value.
+
+This method does not evaluate Assertions or publish final results itself. The base collects
+results and emits finalization events later in the call.
+</description>
+*)
+{endregion}
+METHOD PROTECTED CompleteTests]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsTestingActive THEN
+    Error(Message := 'CompleteTests called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+    Error(Message := 'Test Case evaluation reported Error.');
+    RETURN;
+END_IF;
+
+ChangeState(NewState := E_State.Completing);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{8abc7101-9184-4cf7-b161-50eb11a1d094}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures this concrete scenario and initializes its owned components.</summary>
+<description>
+Called synchronously after identity validation on every Initialize. Set both
+FPreparationStateCount and FTestStateCount explicitly: zero Preparations is valid; at least one Test
+state is required.
+
+Counts describe the longest finite lifecycle path and must fit the corresponding E_State
+intervals. Initialize Assertions with Parent := THIS^ and unique local names; preserve child
+initialization failures for CheckInitialization.
+
+This abstract hook has no base implementation to call. Do not perform cyclic test work
+here.
+
+Clear application-owned transient progress and pending resource commands here. Disabled hooks
+may run after successful Initialize while the owner still waits for its parent's Reset; they must
+already be passive.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Set counts for the longest finite path of this concrete scenario.
+FPreparationStateCount := 0;
+FTestStateCount := 1;
+MyAssertion.Initialize(Parent := THIS^, AssertionName := 'MyAssertion');
+Check MyAssertion.IsInitialized in CheckInitialization.
+Initialize any owned components and retain their initialization failures for CheckInitialization.
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="EmitFinalizationEvents" Id="{74543ffa-a262-4fa1-a444-ab96880f0264}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes Result and Aggregation while in Completing, after result and status updates.</summary>
+<description>
+The base's single-call Completing phase supplies one-shot publication without a separate latch: the following regular sequencing call enters Completed. Result and Aggregation use the final status from this call. Failed insertion is accounted for by the publisher, with no retry here.
+</description>
+*)
+{endregion}
+METHOD PRIVATE EmitFinalizationEvents]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (FState <> E_State.Completing) THEN
+    RETURN;
+END_IF;
+
+PublishEvent(Event := CreateResultEvent(OwnerScope := E_OwnerScope.TestCase,
+    Name := FName,
+    ResourceName := FResourceName,
+    State := FState,
+    Result := FResult,
+    Message := ''));
+PublishEvent(Event := CreateTestCaseAggregationEvent(Name := FName, ResourceName := FResourceName, Status := FStatus));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Error" Id="{1e69cd60-2320-487e-b1a8-08b9ebc6beae}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Ignores Uninitialized and Completed; reports only before Result becomes Error.</summary>
+<description>
+Latches Error without leaving Reset or Idle; active execution enters controlled error
+termination.
+</description>
+*)
+{endregion}
+METHOD PROTECTED Error
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text copied into the event within MessageLength.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (FState = E_State.Uninitialized) OR (FState = E_State.Completed) THEN
+    RETURN;
+END_IF;
+
+IF FResult <> E_Result.Error THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := Message));
+END_IF;
+
+FResult := E_Result.Error;
+IF (FState = E_State.Reset) OR (FState = E_State.Idle) THEN
+    RETURN;
+END_IF;
+ChangeState(NewState := E_State.AbortingFromError);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EventPublisher" Id="{718d4860-b732-41f8-aab8-5bda2089f21c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns this instance's retained event-publication service.</summary>
+<description>
+If the local binding is zero, the getter takes GVL_EventBuffer.Publisher on access. An
+established binding is retained; Initialize and lifecycle Reset do not replace it.
+
+The default must be bound before first diagnostic use. Controlled test adapters may assign the
+protected field before use. This getter performs no event publication, lifecycle processing or
+reservation change.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC EventPublisher : I_EventPublisher //! Returns this instance's retained event-publication service.]]></Declaration>
+      <Get Name="Get" Id="{c46ece1a-50ca-43fb-a274-28f0d4f2644b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IF FEventPublisher = 0 THEN
+    FEventPublisher := GVL_EventBuffer.Publisher;
+END_IF;
+EventPublisher := FEventPublisher;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ExecutionSlot" Id="{2f0b920e-49ba-4f37-b357-8f56f9e40f86}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Suite-assigned slot; set only during configuration. Initialize and Reset retain
+it.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ExecutionSlot : UINT //! Suite-assigned slot; set only during configuration. Initialize and Reset retain it.]]></Declaration>
+      <Get Name="Get" Id="{33259e07-a978-47c2-ab6f-2ca5da273761}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ExecutionSlot := FExecutionSlot;]]></ST>
+        </Implementation>
+      </Get>
+      <Set Name="Set" Id="{4ea61d1e-542b-4c5d-8d85-57f9eee3306e}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FExecutionSlot := ExecutionSlot;]]></ST>
+        </Implementation>
+      </Set>
+    </Property>
+    <Method Name="FreeReservedEvents" Id="{efb15c82-83b3-4ac1-ab10-2ef751b57a6f}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases the entire own reservation; zero is already successful, even before
+initialization.</summary>
+*)
+{endregion}
+METHOD PUBLIC FINAL FreeReservedEvents : BOOL //! TRUE when the own reservation is released or already zero; FALSE retains the unresolved contribution.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FreeReservedEvents := UpdateEventReservation(EntryCount := 0,
+    HeadroomEntryCount := 0,
+    ConcurrentEntryCount := 0) = E_EventReservationResult.Accepted;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="HasAbortTimeout" Id="{b4c2f121-b168-49f4-9f2c-d961edcd0c28}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected Abort timeout until Initialize or entry into a new Reset.</summary>
+<description>
+An expired abort deadline finishes through Completing with Error. Escalation from Aborting to
+AbortingFromError does not restart that deadline.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasAbortTimeout : BOOL //! Reports a detected Abort timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{90a95a7e-a354-4df6-bbe7-ec4f632f8c4c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasAbortTimeout := FHasAbortTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasError" Id="{1b9b1116-f07f-4b8d-96e1-08468b082f91}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the current owner error condition used by status projection.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasError : BOOL //! Reports the current owner error condition used by status projection.]]></Declaration>
+      <Get Name="Get" Id="{5f037916-d07c-47bd-8c14-146c3a99faa2}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasError := FConfigError OR (FResult = E_Result.Error);
+CASE FState OF
+    E_State.Uninitialized, E_State.Reset, E_State.Idle, E_State.Starting,
+    E_State.Completing, E_State.Completed, E_State.Aborting, E_State.AbortingFromError:
+        RETURN;
+ELSE
+    HasError := HasError OR NOT (IsPreparationActive OR IsTestingActive);
+END_CASE;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasPreparationTimeout" Id="{be61e949-0bbb-4138-b8bc-c49ce49cea4c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected Preparation timeout until Initialize or entry into a new
+Reset.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasPreparationTimeout : BOOL //! Reports a detected Preparation timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{7b97be23-e4b8-477b-868f-fc02459575d9}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasPreparationTimeout := FHasPreparationTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasResetTimeout" Id="{85153a59-c429-4abe-b21f-c116b9b54010}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected Reset timeout until Initialize or entry into a new Reset.</summary>
+<description>
+The owner leaves a timed-out Reset through Completing to Completed with Error, not through
+Abort. The deadline starts on entry into Reset and bounds scenario cleanup; the parent supervises earlier reservation waiting.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasResetTimeout : BOOL //! Reports a detected Reset timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{097d1313-6ad4-4c48-be72-d87b2c45d7fc}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasResetTimeout := FHasResetTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="HasTimeout" Id="{a633a8a4-a2c8-40ab-9fe5-9291ae7eac29}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a detected execution timeout until Initialize or entry into a new Reset.</summary>
+<description>
+The owner supervises its own execution deadline; the parent does not duplicate this check.
+Invalid timer measurements report Framework errors without setting this timeout flag.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC HasTimeout : BOOL //! Reports a detected execution timeout until Initialize or entry into a new Reset.]]></Declaration>
+      <Get Name="Get" Id="{c8e890c7-7357-4873-9a47-2d65de4d9534}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[HasTimeout := FHasTimeout;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{bbd4afc2-5609-43aa-9bfe-394c22a57065}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reinitializes the owner; validates identity before child setup and configuration
+afterwards.</summary>
+<description>
+Clears its own old reservation after Event Buffer startup initialization; no old contribution
+is released. Called by the parent at PLC start. Parent is not retained; the Suite-assigned
+ExecutionSlot is retained. Successful setup waits in Uninitialized for the parent's
+capacity-admitted Reset request.
+
+Reinitialization requires configuration reactivation or PLC Cold Reset followed by the
+application's first-cycle initialization chain. Normal PLC Stop/Start and UnitTest Reset do not
+rebuild configuration. Do not call Initialize as recovery during an active run.
+
+The selected publisher must already be usable for configuration diagnostics. Failure leaves
+IsInitialized FALSE; retained diagnostic identity is not proof of valid setup.
+</description>
+*)
+{endregion}
+// C0298: Reviewed compiler false positive in virtual/interface call-graph detection.
+// Reported to Beckhoff; local suppression without a fabricated stack estimate.
+{warning disable C0298}
+METHOD PUBLIC FINAL Initialize : BOOL //! TRUE after successful identity and setup validation; FALSE leaves the object uninitialized.
+VAR_INPUT
+    Parent : I_TestSuite; //! Owning Test Suite with an established Name; read during Initialize, not retained.
+    TestName : STRING(GVL_Constants.NameLength); //! Nonempty single name segment appended to Parent.Name; the complete name must fit NameLength.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    Config : ST_TestCaseConfig; //! Timeout configuration copied during initialization; all timeout values must be greater than zero.
+END_VAR
+VAR
+    ParentName : STRING(GVL_Constants.NameLength);
+    FullName : STRING(2 * GVL_Constants.NameLength + 1);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FHasTimeout := FALSE;
+FHasPreparationTimeout := FALSE;
+FHasResetTimeout := FALSE;
+FHasAbortTimeout := FALSE;
+FInitialized := FALSE;
+FReservedEntryCount := 0;
+FConfigError := TRUE;
+FState := E_State.Uninitialized;
+FResult := E_Result.NotEvaluated;
+FPreparationStateCount := StateCountNotConfigured;
+FTestStateCount := StateCountNotConfigured;
+FMethodRequests.Start := FALSE;
+FMethodRequests.Abort := FALSE;
+FMethodRequests.Reset := FALSE;
+FAggregator.Reset();
+FExecutionTimer.Reset();
+FStateTimer.Reset();
+FPreparationStatus.State := E_State.Uninitialized;
+FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Unknown;
+FPreparationStatus.Ready := FALSE;
+FPreparationStatus.Running := FALSE;
+FPreparationStatus.Completed := FALSE;
+FPreparationStatus.Error := FALSE;
+
+IF Parent = 0 THEN
+    FName := '';
+    FResourceName := '';
+    PublishEvent(Event := CreateFrameworkEvent(Name := TestName,
+        ResourceName := ResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'Missing Test Suite parent.'));
+    UpdateStatus();
+    RETURN;
+END_IF;
+
+ParentName := Parent.Name;
+FullName := CONCAT(CONCAT(ParentName, '.'), TestName);
+// SA0175: ASCII name contract; byte-based access is intentional and bounded.
+{analysis -175}
+FName := LEFT(FullName, UINT_TO_INT(GVL_Constants.NameLength));
+{analysis +175}
+FResourceName := ResourceName;
+FConfig := Config;
+
+IF NOT IsNameValid(Name := FullName, Depth := 3) THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := CONCAT('Invalid Test Case name: ', FullName)));
+    UpdateStatus();
+    RETURN;
+END_IF;
+
+Configure();
+FConfigError := NOT CheckInitialization();
+FInitialized := NOT FConfigError;
+Initialize := FInitialized;
+UpdateStatus();
+{warning restore C0298}]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsAborted" Id="{06b053be-ec83-421b-80d5-0d2f6627d083}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports a completed Abort result or the legacy Aborted state.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAborted : BOOL //! Reports a completed Abort result or the legacy Aborted state.]]></Declaration>
+      <Get Name="Get" Id="{0462132b-ddcd-44d9-b49a-3076a034815f}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAborted := ((FState = E_State.Completed) And (FResult = E_Result.Abort)) OR (FState = E_State.Aborted);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsAborting" Id="{0673c930-f934-4e87-8d0b-eca547b10623}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports an active abort phase, including abort handling caused by Error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAborting : BOOL //! Reports an active abort phase, including abort handling caused by Error.]]></Declaration>
+      <Get Name="Get" Id="{64634f8e-84db-482c-a475-e0c714fcd422}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAborting := (FState = E_State.Aborting) OR (FState = E_State.AbortingFromError);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsComplete" Id="{37359e56-5526-4405-8553-5b6f6094b19a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports that the lifecycle has reached Completed, independent of its result.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsComplete : BOOL //! Reports that the lifecycle has reached Completed, independent of its result.]]></Declaration>
+      <Get Name="Get" Id="{a8f88051-b845-4ee8-ae05-e25aad281779}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsComplete := (FState = E_State.Completed);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsIdle" Id="{7059580c-6fcb-49cd-a47c-17b6bfb636b2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports Idle state independently of readiness.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsIdle : BOOL //! Reports Idle state independently of readiness.]]></Declaration>
+      <Get Name="Get" Id="{11213c44-c975-443b-a3e2-6986c58b8b43}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsIdle := FState = E_State.Idle;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{9b673169-8560-49a3-ac55-343d269f3b6e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports successful explicit initialization.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsInitialized : BOOL //! Reports successful explicit initialization.]]></Declaration>
+      <Get Name="Get" Id="{62c9b3e0-068d-442e-9c13-105777deacdc}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsInitialized := FInitialized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsPreparationActive" Id="{499f3b36-2e75-47da-8007-ed63ccba741a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports membership in the configured Preparation-state interval.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsPreparationActive : BOOL //! Reports membership in the configured Preparation-state interval.]]></Declaration>
+      <Get Name="Get" Id="{ce7d16e7-cd5b-4fe9-a505-4fc1eb8bffeb}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsPreparationActive := (FState >= E_State.Preparing) AND (FState < E_State.Preparing + FPreparationStateCount);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsReady" Id="{a0a38d85-6203-465b-9fd3-2f84e05549d7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the effective Test Case start permission.</summary>
+<description>
+The base requires initialized, valid setup, Idle and no held Error. Override only when
+additional resource or scenario prerequisites exist and combine them with SUPER^.IsReady. The status
+snapshot uses this same effective property.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Reports the effective Test Case start permission.]]></Declaration>
+      <Get Name="Get" Id="{88992cdf-a0a2-433e-9d31-727230f6f610}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := FInitialized AND NOT FConfigError AND (FState = E_State.Idle)
+    AND (FResult <> E_Result.Error);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsResetting" Id="{12768412-4eaf-46f5-b6aa-2fe4007b9243}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports an active Reset phase.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsResetting : BOOL //! Reports an active Reset phase.]]></Declaration>
+      <Get Name="Get" Id="{f07ca674-96d7-40a6-94eb-35e51fdcd03f}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsResetting := (FState = E_State.Reset);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="IsStateTransitionAllowed" Id="{380d2290-cdbf-4a9f-9c59-6616890348bd}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the requested transition without changing state, result, timers or events.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsStateTransitionAllowed : BOOL //! TRUE when NewState satisfies the current lifecycle, configured state ranges and completion/error prerequisites.
+VAR_INPUT
+    NewState : E_State; //! Requested destination checked without changing state, result, timers or events.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsStateTransitionAllowed := TRUE;
+IF NewState = FState THEN
+    RETURN;
+END_IF;
+
+CASE NewState OF
+    E_State.Uninitialized:
+        IsStateTransitionAllowed := TRUE;
+
+    E_State.Reset:
+        IsStateTransitionAllowed := FInitialized;
+
+    E_State.Idle:
+        IsStateTransitionAllowed := (FState = E_State.Reset) AND FInitialized AND NOT FConfigError;
+
+    E_State.Starting:
+        IsStateTransitionAllowed := (FState = E_State.Idle) AND IsReady;
+
+    E_State.Preparing..(E_State.Running - 1):
+        IsStateTransitionAllowed := FInitialized AND
+            (NewState < E_State.Preparing + FPreparationStateCount) AND
+            (((FState = E_State.Starting) AND (NewState = E_State.Preparing)) OR
+            (IsPreparationActive AND (NewState = FState + 1)));
+        IF FPreparationStatus.Error THEN
+            IsStateTransitionAllowed := FALSE;
+        END_IF;
+
+    E_State.Running..(E_State.Completing - 1):
+        IF NewState = E_State.Running THEN
+            IsStateTransitionAllowed := FInitialized AND (FTestStateCount > 0) AND
+                (((FState = E_State.Starting) AND (FPreparationStateCount = 0)) OR
+                (((FState = E_State.Starting) OR IsPreparationActive) AND
+                FPreparationStatus.Completed AND NOT FPreparationStatus.Error));
+        ELSE
+            IsStateTransitionAllowed := FInitialized AND IsTestingActive AND
+                (NewState = FState + 1) AND
+                (NewState < E_State.Running + FTestStateCount);
+        END_IF;
+
+    E_State.Completing:
+        IsStateTransitionAllowed := IsTestingActive OR IsAborting
+            OR ((FState = E_State.Reset) AND (FResult = E_Result.Error));
+
+    E_State.Completed:
+        IsStateTransitionAllowed := FState = E_State.Completing;
+
+    E_State.Aborting:
+        IsStateTransitionAllowed := ((FState = E_State.Starting) OR IsPreparationActive OR IsTestingActive)
+            AND (FResult <> E_Result.Error) AND (FAggregator.Result <> E_Result.Error);
+
+    E_State.AbortingFromError:
+        IsStateTransitionAllowed := FInitialized AND
+            (FState <> E_State.Uninitialized) AND (FState <> E_State.Reset) AND
+            (FState <> E_State.Idle) AND (FState <> E_State.Completed);
+ELSE
+    IsStateTransitionAllowed := FALSE;
+END_CASE;
+
+IF ((NewState >= E_State.Preparing) AND (NewState < E_State.Completing)) AND
+    ((FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error)) THEN
+    IsStateTransitionAllowed := FALSE;
+END_IF;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsTestCaseActive" Id="{289a4db8-6859-4fca-a5ab-c696b3d5697e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports Starting, configured Preparation/Test states, abort handling, legacy Aborted, or
+Completing.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsTestCaseActive : BOOL //! Reports Starting, configured Preparation/Test states, abort handling, legacy Aborted, or Completing.]]></Declaration>
+      <Get Name="Get" Id="{198a381d-e5d2-4246-97d4-bcef5cb11f8b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsTestCaseActive := (FState = E_State.Starting) OR IsPreparationActive OR IsTestingActive
+    OR (FState = E_State.Aborting) OR (FState = E_State.AbortingFromError) OR (FState = E_State.Aborted) OR (FState = E_State.Completing);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsTestingActive" Id="{46b85358-9164-437d-99b7-d66633230662}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports membership in the configured Test-state interval.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsTestingActive : BOOL //! Reports membership in the configured Test-state interval.]]></Declaration>
+      <Get Name="Get" Id="{270e356a-c938-4041-b626-3503e1d7c601}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsTestingActive := (FState >= E_State.Running) AND (FState < E_State.Running + FTestStateCount);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Name" Id="{4f7e3956-38a4-4d77-b53f-2d16b7d9587e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Length-limited hierarchical name assigned by Initialize, including invalid diagnostic
+names.</summary>
+<description>
+IsInitialized indicates successful initialization.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC Name : STRING(GVL_Constants.NameLength) //! Length-limited hierarchical name assigned by Initialize, including invalid diagnostic names.]]></Declaration>
+      <Get Name="Get" Id="{b6919e77-94ef-4527-aac5-c9bdba7c328c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Name := FName;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="NextPreparationState" Id="{a68ceb55-2480-4ec9-a420-48054ef91081}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances immediately to the next configured Preparation state.</summary>
+<description>
+Only valid within the configured Preparation interval and without owner, aggregate or
+Preparation Error. Advancing beyond the interval reports Error; use CompletePreparations to finish
+the phase. The next state's timer starts with the transition.
+</description>
+*)
+{endregion}
+METHOD PROTECTED NextPreparationState]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsPreparationActive THEN
+    Error(Message := 'NextPreparationState called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+    Error(Message := 'Test Case evaluation reported Error.');
+    RETURN;
+END_IF;
+
+IF FState + 1 >= E_State.Preparing + FPreparationStateCount THEN
+    Error(Message := 'NextPreparationState exceeds its configured state range.');
+    RETURN;
+END_IF;
+IF FPreparationStatus.Error THEN
+    Error(Message := 'Preparation reported Error.');
+    RETURN;
+END_IF;
+ChangeState(NewState := FState + 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="NextTestState" Id="{9405c2a1-ff7a-4e53-b1d0-26934367f130}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances immediately to the next configured Test state.</summary>
+<description>
+Only valid within the configured Test interval and without owner or aggregate Error. Advancing
+beyond the interval reports Error; use CompleteTests to finish the phase. Later hooks in the same
+call observe the new state.
+</description>
+*)
+{endregion}
+METHOD PROTECTED NextTestState]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT IsTestingActive THEN
+    Error(Message := 'NextTestState called outside its lifecycle phase.');
+    RETURN;
+END_IF;
+IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+    Error(Message := 'Test Case evaluation reported Error.');
+    RETURN;
+END_IF;
+
+IF FState + 1 >= E_State.Running + FTestStateCount THEN
+    Error(Message := 'NextTestState exceeds its configured state range.');
+    RETURN;
+END_IF;
+ChangeState(NewState := FState + 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="PreparationStateCount" Id="{711a5dd1-e49c-420b-b604-202609180101}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the configured maximum number of Preparation-state entries along one finite
+lifecycle path.</summary>
+<description>
+Set the backing field explicitly in Configure. Before configuration it is
+StateCountNotConfigured (-1). Branches use the longest path, including bounded repeated entries;
+this is not a count of child instances. Keep it fixed through execution.
+
+Zero means no Preparation phase. CheckInitialization bounds the value by E_State.Running -
+E_State.Preparing.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC PreparationStateCount : INT //! Reports the configured maximum number of Preparation-state entries along one finite lifecycle path.]]></Declaration>
+      <Get Name="Get" Id="{711a5dd1-e49c-420b-b604-202609180102}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PreparationStateCount := FPreparationStateCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PreparationStatus" Id="{6a863714-c36d-4085-9536-fc294c507de0}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the stored combined Preparation observations without executing children.</summary>
+*)
+{endregion}
+PROPERTY PUBLIC PreparationStatus : ST_PreparationStatus //! Returns the stored combined Preparation observations without executing children.]]></Declaration>
+      <Get Name="Get" Id="{b2b93a19-1bbb-4425-a583-f43960619266}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PreparationStatus := FPreparationStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ProcessAbort" Id="{bcd02828-fbd0-42c5-88f7-93019ec8a070}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Performs scenario cleanup during explicit or error-driven abort.</summary>
+<description>
+Called before Preparation and Test hooks on every initialized call except Completed. Enable is
+TRUE only in an abort phase; disabled calls must not advance it.
+
+Call CompleteAbort when cleanup is finished. The base owns the abort deadline, including
+escalation from Abort to Error. This abstract hook has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessAbort
+VAR_INPUT
+    Enable: BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: process cleanup on enabled and disabled calls as required.
+MyCleanup(Enable := Enable);
+IF Enable AND MyCleanup.Completed THEN
+    CompleteAbort();
+END_IF;
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{cb39394c-26b5-4269-9039-1ea05638efb2}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes owned Assertions with their current inputs and effective activation.</summary>
+<description>
+Called after ProcessTests on every initialized call except Completed. Enable is recomputed
+from the current Test state, so CompleteTests earlier in the call disables enable-controlled
+observation.
+
+Keep disabled calls needed for pending resets and history; explicitly gated Evaluate inputs
+remain the concrete scenario's responsibility. Result collection belongs to AggregateResults, not
+this hook. This abstract hook has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessAssertions
+VAR_INPUT
+    Enable: BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: call each owned Assertion, including when Enable is FALSE.
+MyAssertion(Enable := Enable,
+    IN := ActualValue,
+    Expected := ExpectedValue);
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{17500e7b-e7aa-4e8f-8081-d5ec094e5f46}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls Preparations and supplies their scenario-specific combined observations.</summary>
+<description>
+Called after ProcessAbort on every initialized call except Completed, with the current
+Preparation-phase Enable. Call Preparations even when disabled so their observations and
+deactivation remain correct; report the combination through UpdatePreparationStatus.
+
+Only enabled phase processing may advance through NextPreparationState or
+CompletePreparations. After entry into Test states, loss of Preparation Ready or Completed is not by
+itself a Test Case failure. This abstract hook has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessPreparations
+VAR_INPUT
+    Enable: BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: declare a local ObservedStatus : ST_PreparationStatus; combine multiple Preparations as needed.
+MyPreparation(Enable := Enable);
+ObservedStatus := MyPreparation.Status;
+UpdatePreparationStatus(Ready := ObservedStatus.Ready,
+    Running := ObservedStatus.Running,
+    Completed := ObservedStatus.Completed,
+    HasError := ObservedStatus.Error,
+    State := ObservedStatus.State);
+IF Enable AND FPreparationStatus.Completed AND NOT FPreparationStatus.Error THEN
+    CompletePreparations();
+END_IF;
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessRequests" Id="{94be755f-8242-4ee3-b411-06e3ef5a34ee}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumes same-task requests, reports each received request and prioritizes Reset &gt; Abort &gt; Start.</summary>
+<description>
+Discards requests before initialization; never changes lifecycle state.
+</description>
+*)
+{endregion}
+METHOD PRIVATE ProcessRequests
+VAR_IN_OUT
+    InputRequests : ST_Command; //! Same-task request mailbox consumed and cleared, including calls made before successful initialization.
+END_VAR
+VAR_OUTPUT
+    Requests : ST_Command; //! Qualified request snapshot with Reset over Abort over Start; all FALSE before initialization.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Requests.Reset := FALSE;
+Requests.Abort := FALSE;
+Requests.Start := FALSE;
+
+IF NOT FInitialized THEN
+    InputRequests.Reset := FALSE;
+    InputRequests.Abort := FALSE;
+    InputRequests.Start := FALSE;
+    RETURN;
+END_IF;
+
+Requests.Reset := InputRequests.Reset;
+Requests.Abort := InputRequests.Abort AND NOT InputRequests.Reset;
+Requests.Start := InputRequests.Start AND NOT InputRequests.Abort AND NOT InputRequests.Reset;
+
+IF InputRequests.Reset THEN
+    PublishEvent(Event := CreateResetEvent(OwnerScope := E_OwnerScope.TestCase,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+IF InputRequests.Abort THEN
+    PublishEvent(Event := CreateAbortEvent(OwnerScope := E_OwnerScope.TestCase,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+IF InputRequests.Start THEN
+    PublishEvent(Event := CreateStartEvent(OwnerScope := E_OwnerScope.TestCase,
+        Name := FName,
+        ResourceName := FResourceName,
+        State := FState));
+END_IF;
+
+InputRequests.Reset := FALSE;
+InputRequests.Abort := FALSE;
+InputRequests.Start := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{20f7aa8f-a470-4458-952d-0ea4ddd11733}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets owned scenario resources and Assertions during the Reset phase.</summary>
+<description>
+Called after the base restores the Preparation snapshot to Unknown. Request Assertion resets;
+their next regular calls process those requests with bound inputs. Finish through CompleteReset only
+once the owned reset work is complete.
+
+Preserve configuration and publisher bindings. One-shot resource protocols must not be
+retriggered every cycle. The base owns ResetTimeout; this abstract hook has no base
+implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: request child resets and observe completion without blocking.
+MyAssertion.Reset();
+IF OwnedResourcesReset THEN
+    CompleteReset();
+END_IF;
+Issue one-shot resource requests only once if their protocol requires it.
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{403f829b-f6ad-4ddd-9871-669488aaf723}" FolderPath="ToImplement\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Performs scenario actions in the current Test state.</summary>
+<description>
+Called after ProcessPreparations on every initialized call except Completed. Enable reflects
+the phase at invocation, including transitions made by earlier hooks. Keep required cyclic resource
+calls active while disabled, but do not advance the Test phase.
+
+Use NextTestState and CompleteTests for immediate transitions. Check errors before successful
+completion; do not rely on a previously cached phase flag after changing state. This abstract hook
+has no base implementation.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ProcessTests
+VAR_INPUT
+    Enable: BOOL; //! TRUE while this hook's lifecycle phase is active; FALSE must not advance that phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[(* Example: keep required cyclic object calls outside the Enable guard.
+MyTestObject();
+IF NOT Enable THEN
+    RETURN;
+END_IF;
+Perform the action for the current State; check errors before completion.
+IF TestCompleted THEN
+    CompleteTests();
+END_IF;
+*)]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishEvent" Id="{ea02e7d7-6015-49bd-829d-30a4c1e96419}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes through the selected instance publisher; the buffer owns lost-event accounting.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishEvent
+VAR_INPUT
+    Event : ST_Event; //! Payload copied once through the selected usable publisher, which assigns sequence/time and accounts for loss.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EventPublisher.PublishEvent(Event := Event);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestAbort" Id="{6c0ecd48-3b1a-470a-a4fd-67c013e553ba}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records an Abort request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Abort requests controlled termination of execution, not Reset cancellation. The owner
+lifecycle determines whether the request applies.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestAbort]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Abort := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestReset" Id="{1c5812bf-622b-4dae-b83a-100744ec495a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Reset request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Lifecycle Reset preserves configuration and publisher binding. It is not reinitialization or
+Event Buffer Reset; capacity admission belongs to the parent when this object is a child.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Reset := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RequestStart" Id="{1439828f-9cdd-4bd2-a4c2-e0710ccc3080}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records a Start request for the next regular FB call.</summary>
+<description>
+Repeated positive calls coalesce in the same-task request storage. Processing consumes the
+requests with priority Reset, Abort, Start; calls before successful initialization are discarded
+when processed.
+
+Start is accepted by the lifecycle only in ready Idle. Recording the request does not start
+execution synchronously.
+</description>
+*)
+{endregion}
+METHOD PUBLIC RequestStart]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FMethodRequests.Start := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReservedEntryCount" Id="{2058d94b-d917-4956-943f-7b39dc1d0980}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Own contribution to the global Event Buffer reservation; changed only with that
+aggregate.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReservedEntryCount : UINT //! Own contribution to the global Event Buffer reservation; changed only with that aggregate.]]></Declaration>
+      <Get Name="Get" Id="{f152715b-2ce5-448e-9dce-382ab2c77a23}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReservedEntryCount := FReservedEntryCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ReserveExecutionEvents" Id="{52bd5bc8-8eab-4823-8082-0e972f94cd8f}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adjusts this owner's reservation to its execution budget immediately.</summary>
+<description>
+The budget uses configured state counts and the collected AssertionCountTotal, which must be
+valid and stable before Start. Local contribution and publisher accounting are updated together
+without a lifecycle transition.
+
+Accepted permits dispatch; WaitingForCapacity is retryable under the owner's timeout; Error
+denotes invalid setup or an impossible budget. Calling before initialization reports a Framework
+error. Repeated success aligns the total rather than adding a second budget.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL ReserveExecutionEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.
+VAR
+    EntryCount : UDINT;
+END_VAR
+VAR CONSTANT
+    FixedEventCount : UDINT := 9;
+    MaxReservationEntryCount : UDINT := 65535;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReserveExecutionEvents := E_EventReservationResult.Error;
+IF NOT FInitialized THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'ReserveExecutionEvents requires an initialized Test Case.'));
+    RETURN;
+END_IF;
+
+EntryCount := INT_TO_UDINT(FPreparationStateCount)
+    + INT_TO_UDINT(FTestStateCount)
+    + UINT_TO_UDINT(FStatus.AssertionCountTotal)
+    + FixedEventCount;
+IF EntryCount > MaxReservationEntryCount THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'Test Case event budget exceeds the reservation range.'));
+    RETURN;
+END_IF;
+
+ReserveExecutionEvents := UpdateEventReservation(EntryCount := UDINT_TO_UINT(EntryCount),
+    HeadroomEntryCount := Param_EventBuffer.EventBufferExecutionHeadroom,
+    ConcurrentEntryCount := GVL_Constants.TestSuiteExecutionEventCount);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReserveResetEvents" Id="{45f09a12-340b-49f3-af6f-d92dcfefaf1d}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adjusts this owner's reservation for capacity-admitted Reset immediately.</summary>
+<description>
+Does not dispatch Reset or clear existing events. Shared headroom and the Suite allowance
+participate in admission, not this owner's stored contribution.
+
+Accepted, WaitingForCapacity and Error distinguish success, temporary pressure and invalid
+setup. An uninitialized call reports a Framework error. Lifecycle Reset must not silently clear the
+reservation.
+</description>
+*)
+{endregion}
+METHOD PUBLIC FINAL ReserveResetEvents : E_EventReservationResult //! Accepted on success, WaitingForCapacity for retryable pressure, Error for invalid setup or an impossible budget.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReserveResetEvents := E_EventReservationResult.Error;
+IF NOT FInitialized THEN
+    PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+        ResourceName := FResourceName,
+        State := FState,
+        Severity := E_EventSeverity.Error,
+        Message := 'ReserveResetEvents requires an initialized Test Case.'));
+    RETURN;
+END_IF;
+
+ReserveResetEvents := UpdateEventReservation(EntryCount := GVL_Constants.TestCaseResetEventCount,
+    HeadroomEntryCount := Param_EventBuffer.EventBufferResetHeadroom,
+    ConcurrentEntryCount := GVL_Constants.TestSuiteResetEventCount);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Result" Id="{a16e11b3-4191-4d03-98f2-bee495108ade}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current held Test Case result.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Current held Test Case result.]]></Declaration>
+      <Get Name="Get" Id="{98c8ef2e-2062-46bc-b7e7-58aa0f0f5cdd}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Sequencer" Id="{7082be95-ea8c-49aa-99df-ac0aa264515c}" FolderPath="Sequencer\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects lifecycle transitions from requests, observations and timeout supervision.</summary>
+*)
+{endregion}
+METHOD PRIVATE Sequencer
+VAR_INPUT
+    Requests : ST_Command; //! Consumed request snapshot whose applicability is evaluated against current lifecycle state and error/timeout priority.
+END_VAR
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FInitialized THEN
+    IF FState <> E_State.Uninitialized THEN
+        ChangeState(NewState := E_State.Uninitialized);
+    END_IF;
+    RETURN;
+END_IF;
+IF Requests.Reset THEN
+    ChangeState(NewState := E_State.Reset);
+END_IF;
+
+CASE FState OF
+    E_State.Uninitialized:
+        RETURN;
+
+    E_State.Reset:
+        IF NOT FStateTimer.IsValid THEN
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Task clock error during Test Case reset.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.ResetTimeout) THEN
+            FHasResetTimeout := TRUE;
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Test Case reset timeout reached.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        RETURN;
+
+    E_State.Idle:
+        IF Requests.Start AND NOT Requests.Abort AND IsReady THEN
+            ChangeState(NewState := E_State.Starting);
+        END_IF;
+        RETURN;
+
+    E_State.Starting:
+        IF FResult = E_Result.Error THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF FPreparationStatus.Error THEN
+            Message := CONCAT('Preparation error. Preparation state = ', INT_TO_STRING(FPreparationStatus.State));
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+        IF FAggregator.Result = E_Result.Error THEN
+            Error(Message := 'Test Case evaluation reported Error.');
+            RETURN;
+        END_IF;
+        IF NOT FExecutionTimer.IsValid OR NOT FStateTimer.IsValid THEN
+            Error(Message := 'Task clock error.');
+            RETURN;
+        END_IF;
+        IF FExecutionTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.Timeout) THEN
+            FHasTimeout := TRUE;
+            Error(Message := 'Test Case timeout.');
+            RETURN;
+        END_IF;
+        IF Requests.Abort THEN
+            ChangeState(NewState := E_State.Aborting);
+            RETURN;
+        END_IF;
+        IF (FPreparationStateCount = 0) OR FPreparationStatus.Completed THEN
+            ChangeState(NewState := E_State.Running);
+            RETURN;
+        END_IF;
+        ChangeState(NewState := E_State.Preparing);
+        RETURN;
+
+    E_State.Preparing..(E_State.Running - 1):
+        IF FResult = E_Result.Error THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF NOT IsPreparationActive THEN
+            Message := CONCAT('Invalid preparation state = ', INT_TO_STRING(FState));
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+        IF FPreparationStatus.Error THEN
+            Message := CONCAT('Preparation error. Preparation state = ', INT_TO_STRING(FPreparationStatus.State));
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+        IF FAggregator.Result = E_Result.Error THEN
+            Error(Message := 'Test Case evaluation reported Error.');
+            RETURN;
+        END_IF;
+        IF NOT FExecutionTimer.IsValid OR NOT FStateTimer.IsValid THEN
+            Error(Message := 'Task clock error.');
+            RETURN;
+        END_IF;
+        IF FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.PreparationTimeout) THEN
+            FHasPreparationTimeout := TRUE;
+            Message := CONCAT('Preparation timeout. Preparation state = ', INT_TO_STRING(FPreparationStatus.State));
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+        IF FExecutionTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.Timeout) THEN
+            FHasTimeout := TRUE;
+            Error(Message := 'Test Case timeout.');
+            RETURN;
+        END_IF;
+        IF Requests.Abort THEN
+            ChangeState(NewState := E_State.Aborting);
+            RETURN;
+        END_IF;
+        IF (FPreparationStateCount = 0) OR FPreparationStatus.Completed THEN
+            ChangeState(NewState := E_State.Running);
+            RETURN;
+        END_IF;
+        // Leave to Running by CompletePreparations
+        RETURN;
+
+    E_State.Running..(E_State.Completing - 1):
+        IF FResult = E_Result.Error THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+            RETURN;
+        END_IF;
+        IF NOT IsTestingActive THEN
+            Message := CONCAT('Invalid testing state = ', INT_TO_STRING(FState));
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+        IF FAggregator.Result = E_Result.Error THEN
+            Error(Message := 'Test Case evaluation reported Error.');
+            RETURN;
+        END_IF;
+        IF NOT FExecutionTimer.IsValid THEN
+            Error(Message := 'Task clock error.');
+            RETURN;
+        END_IF;
+        IF FExecutionTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.Timeout) THEN
+            FHasTimeout := TRUE;
+            Error(Message := 'Test Case timeout.');
+            RETURN;
+        END_IF;
+        IF Requests.Abort THEN
+            ChangeState(NewState := E_State.Aborting);
+            RETURN;
+        END_IF;
+        // Leave to Completing by CompleteTests
+        RETURN;
+
+    E_State.Completing:
+        ChangeState(NewState := E_State.Completed);
+        RETURN;
+
+    E_State.Completed:
+        // Leave to Reset on ResetRequested.
+        RETURN;
+
+    E_State.Aborting, E_State.AbortingFromError:
+        IF NOT FStateTimer.IsValid THEN
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Task clock error during Test Case abort.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF FStateTimer.ElapsedLTime >= TIME_TO_LTIME(FConfig.AbortTimeout) THEN
+            FHasAbortTimeout := TRUE;
+            PublishEvent(Event := CreateFrameworkEvent(Name := FName,
+                ResourceName := FResourceName,
+                State := FState,
+                Severity := E_EventSeverity.Error,
+                Message := 'Test Case abort timeout reached.'));
+            FResult := E_Result.Error;
+            ChangeState(NewState := E_State.Completing);
+            RETURN;
+        END_IF;
+        IF (FState = E_State.Aborting) AND (FResult = E_Result.Error) THEN
+            ChangeState(NewState := E_State.AbortingFromError);
+        END_IF;
+        RETURN;
+
+    E_State.Aborted, E_State.Error:
+        Error(Message := 'Unexpected legacy lifecycle state.');
+        RETURN;
+ELSE
+    Error(Message := 'Unhandled Test Case lifecycle state.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="State" Id="{b00bb606-fe76-4b02-bc50-b62330631240}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Test Case lifecycle state.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC State : E_State //! Current Test Case lifecycle state.]]></Declaration>
+      <Get Name="Get" Id="{25e4f4ae-0d66-4051-ab62-e75b3ffa80ba}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[State := FState;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="Status" Id="{2ecf26b7-8a24-4bf6-a458-0138f1cdc469}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the latest Test Case status snapshot without executing children.</summary>
+<description>
+The base refreshes this snapshot on every FB call, including Uninitialized and Completed.
+Assertion counters come from the current collection; the completed owner result remains held.
+Runtime is TIME.
+
+Preparation observations are available separately through PreparationStatus. Optional external
+publication requires an explicit data wrapper, not access to owner instance data.
+</description>
+*)
+{endregion}
+PROPERTY PUBLIC Status : ST_TestCaseStatus //! Returns the latest Test Case status snapshot without executing children.]]></Declaration>
+      <Get Name="Get" Id="{6e543620-74cc-4737-94e9-1f493d6d262c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status := FStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TestStateCount" Id="{711a5dd1-e49c-420b-b604-202609180111}" FolderPath="MetaData\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reports the configured maximum number of Test-state entries along one finite lifecycle
+path.</summary>
+<description>
+Set the backing field explicitly in Configure. Before configuration it is
+StateCountNotConfigured (-1). Branches use the longest path, including bounded repeated entries;
+this is not a count of child instances. Keep it fixed through execution.
+
+At least one Test state is required. CheckInitialization bounds the value by
+E_State.Completing - E_State.Running.
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TestStateCount : INT //! Reports the configured maximum number of Test-state entries along one finite lifecycle path.]]></Declaration>
+      <Get Name="Get" Id="{711a5dd1-e49c-420b-b604-202609180112}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TestStateCount := FTestStateCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="UpdateEventReservation" Id="{ca07e9d2-642d-4555-9e4d-1f7625ffcbbe}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks target capacity before changing either reservation count; zero releases without capacity gating.</summary>
+<description>
+A zero target with no existing contribution succeeds without accessing a publisher. Releasing a nonzero contribution delegates to FreeReservedSpace without a free-capacity check. Positive targets first require valid publisher/accounting and permanent capacity for target plus the concurrent Suite allowance plus headroom. Temporary free capacity uses aggregate minus old own contribution plus target plus headroom; it does not add the Suite allowance again. Even unchanged or reduced positive targets must pass those checks. Failure leaves both ledgers unchanged.
+</description>
+*)
+{endregion}
+METHOD PRIVATE UpdateEventReservation : E_EventReservationResult //! Accepted after aligning the own contribution, WaitingForCapacity for temporary pressure, Error for invalid binding/accounting or impossible capacity.
+VAR_INPUT
+    EntryCount : UINT; //! Target total own reservation, not an additional delta; zero releases the complete own contribution.
+    HeadroomEntryCount : UINT; //! Shared unreserved producer headroom included in permanent and temporary capacity checks for a nonzero target.
+    ConcurrentEntryCount : UINT; //! Suite allowance used only in the permanent capacity check; actual temporary reservations already include the parent's contribution.
+END_VAR
+VAR
+    Publisher : I_EventPublisher;
+    RequiredCapacity : UDINT;
+    RequiredFreeEntries : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[UpdateEventReservation := E_EventReservationResult.Error;
+IF (EntryCount = 0) AND (FReservedEntryCount = 0) THEN
+    UpdateEventReservation := E_EventReservationResult.Accepted;
+    RETURN;
+END_IF;
+
+Publisher := EventPublisher;
+
+IF EntryCount = 0 THEN
+    IF Publisher.FreeReservedSpace(EntryCount := FReservedEntryCount,
+        OwnerReservedEntryCount := FReservedEntryCount) THEN
+        UpdateEventReservation := E_EventReservationResult.Accepted;
+    END_IF;
+    RETURN;
+END_IF;
+
+IF NOT Publisher.IsValid THEN
+    RETURN;
+END_IF;
+RequiredCapacity := UINT_TO_UDINT(EntryCount)
+    + UINT_TO_UDINT(ConcurrentEntryCount)
+    + UINT_TO_UDINT(HeadroomEntryCount);
+IF RequiredCapacity > UINT_TO_UDINT(Publisher.Capacity) THEN
+    RETURN;
+END_IF;
+IF FReservedEntryCount > Publisher.ReservedEntryCount THEN
+    RETURN;
+END_IF;
+
+RequiredFreeEntries := UINT_TO_UDINT(Publisher.ReservedEntryCount)
+    - UINT_TO_UDINT(FReservedEntryCount)
+    + UINT_TO_UDINT(EntryCount)
+    + UINT_TO_UDINT(HeadroomEntryCount);
+IF RequiredFreeEntries > UINT_TO_UDINT(Publisher.FreeEntryCount) THEN
+    UpdateEventReservation := E_EventReservationResult.WaitingForCapacity;
+    RETURN;
+END_IF;
+
+IF EntryCount < FReservedEntryCount THEN
+    IF Publisher.FreeReservedSpace(EntryCount := FReservedEntryCount - EntryCount,
+        OwnerReservedEntryCount := FReservedEntryCount) THEN
+        UpdateEventReservation := E_EventReservationResult.Accepted;
+    END_IF;
+    RETURN;
+END_IF;
+
+IF Publisher.ReserveSpace(EntryCount := EntryCount - FReservedEntryCount,
+    HeadroomEntryCount := HeadroomEntryCount,
+    OwnerReservedEntryCount := FReservedEntryCount) THEN
+    UpdateEventReservation := E_EventReservationResult.Accepted;
+ELSE
+    UpdateEventReservation := E_EventReservationResult.WaitingForCapacity;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdatePreparationStatus" Id="{e6d83654-3595-4e7e-b3c6-03d885c27874}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Replaces the combined Preparation observations without calling children.</summary>
+<description>
+Combine multiple Preparations according to the concrete scenario; this method imposes no
+universal AND/OR aggregation. All supplied flags replace previous observations; Ready is suppressed
+while Running.
+
+ExecutionStatus follows Error, Completed, Running, then Idle when Ready and NotReady
+otherwise. State is optional diagnostic context, not the owner's phase. Initial/reset Unknown
+snapshots are established separately by the base.
+</description>
+*)
+{endregion}
+METHOD PROTECTED UpdatePreparationStatus
+VAR_INPUT
+    Ready : BOOL; //! Resource can be driven to the target state; suppressed while Running. Does not mean target reached.
+    Running : BOOL; //! Preparation is actively driving the resource toward its target; forces Ready to FALSE.
+    Completed : BOOL; //! Preparation target is currently reached; observation is not latched.
+    HasError : BOOL; //! Preparation cannot continue meaningfully; reported as an error observation.
+    State : E_State := E_State.Uninitialized; //! Optional combined Preparation state for observation; default Uninitialized.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStatus.State := State;
+FPreparationStatus.Ready := Ready AND NOT Running;
+FPreparationStatus.Running := Running;
+FPreparationStatus.Completed := Completed;
+FPreparationStatus.Error := HasError;
+
+IF HasError THEN
+    FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Error;
+ELSIF Completed THEN
+    FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Completed;
+ELSIF Running THEN
+    FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Running;
+ELSIF Ready THEN
+    FPreparationStatus.ExecutionStatus := E_ExecutionStatus.Idle;
+ELSE
+    FPreparationStatus.ExecutionStatus := E_ExecutionStatus.NotReady;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateResult" Id="{49ccf9fe-f5ca-4279-83a3-5991228e310d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Applies lifecycle-specific owner result rules to the current aggregate.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateResult]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (FResult = E_Result.Error) AND (FState <> E_State.Uninitialized) THEN
+    RETURN;
+END_IF;
+
+CASE FState OF
+    E_State.Uninitialized, E_State.Starting:
+        FResult := E_Result.NotEvaluated;
+    E_State.Reset, E_State.Idle:
+        RETURN;
+    E_State.Aborting:
+        IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+            FResult := E_Result.Error;
+        ELSE
+            FResult := E_Result.Abort;
+        END_IF;
+    E_State.AbortingFromError:
+        FResult := E_Result.Error;
+    E_State.Completing:
+        IF (FResult = E_Result.Error) OR (FAggregator.Result = E_Result.Error) THEN
+            FResult := E_Result.Error;
+            RETURN;
+        END_IF;
+        IF FResult = E_Result.Abort THEN
+            RETURN;
+        END_IF;
+        CASE FAggregator.Result OF
+            E_Result.Failed:
+                FResult := E_Result.Failed;
+            E_Result.Passed, E_Result.NotEvaluated:
+                FResult := E_Result.Passed;
+        ELSE
+            FResult := E_Result.Error;
+        END_CASE;
+    E_State.Completed:
+        RETURN;
+ELSE
+    IF IsPreparationActive OR IsTestingActive THEN
+        FResult := E_Result.NotEvaluated;
+    ELSE
+        FResult := E_Result.Error;
+    END_IF;
+END_CASE;
+]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateStatus" Id="{288c3e73-5177-46aa-bd2b-fc93f76c6634}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Refreshes the typed snapshot from current lifecycle state; does not invoke children.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateStatus
+VAR
+    ExecutionStatus : ST_TestCaseExecutionStatus;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ExecutionStatus.State := FState;
+ExecutionStatus.Result := FResult;
+ExecutionStatus.ConfigError := FConfigError;
+CASE FState OF
+    E_State.Uninitialized:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.NotReady;
+        ExecutionStatus.Uninitialized := TRUE;
+    E_State.Reset:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Reset;
+    E_State.Idle:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Idle;
+        ExecutionStatus.Ready := IsReady;
+    E_State.Starting:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Starting;
+    E_State.Completing:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Completing;
+    E_State.Completed:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Completed;
+        ExecutionStatus.Completed := TRUE;
+        ExecutionStatus.Aborted := FResult = E_Result.Abort;
+        ExecutionStatus.Error := FResult = E_Result.Error;
+    E_State.Aborting, E_State.AbortingFromError:
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Aborting;
+ELSE
+    IF IsPreparationActive OR IsTestingActive THEN
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Running;
+        ExecutionStatus.Running := TRUE;
+        ExecutionStatus.PreparationActive := IsPreparationActive;
+        ExecutionStatus.TestActive := IsTestingActive;
+    ELSE
+        ExecutionStatus.ExecutionStatus := E_ExecutionStatus.Error;
+        ExecutionStatus.Error := TRUE;
+    END_IF;
+END_CASE;
+ExecutionStatus.Error := HasError;
+FStatus.Execution := ExecutionStatus;
+FStatus.PreparationStateCount := 0;
+IF (FPreparationStateCount >= 0)
+    AND (FPreparationStateCount <= E_State.Running - E_State.Preparing) THEN
+    FStatus.PreparationStateCount := INT_TO_UINT(FPreparationStateCount);
+END_IF;
+FStatus.TestStateCount := 0;
+IF (FTestStateCount >= 1)
+    AND (FTestStateCount <= E_State.Completing - E_State.Running) THEN
+    FStatus.TestStateCount := INT_TO_UINT(FTestStateCount);
+END_IF;
+FStatus.Runtime := FExecutionTimer.ElapsedTime;
+FStatus.AssertionCountTotal := FAggregator.TotalCount;
+FStatus.AssertionCountPassed := FAggregator.PassedCount;
+FStatus.AssertionCountFailed := FAggregator.FailedCount;
+FStatus.AssertionCountError := FAggregator.ErrorCount;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

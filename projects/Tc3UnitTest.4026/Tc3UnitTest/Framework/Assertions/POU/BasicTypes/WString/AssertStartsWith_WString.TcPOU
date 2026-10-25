@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertStartsWith_WString" Id="{e1d7fcb6-d1cb-4f1e-8106-0a7790600415}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether text starts with the expected prefix, case-sensitively.</summary>
+<description>
+
+Read-only text must remain stable during the call and fit the configured Param_Assertions
+text capacity. Invalid references or a missing terminator within that capacity report
+Error.
+
+The searched fragment, prefix or suffix must be nonempty; empty search text reports
+Error. Matching is case-sensitive, without trimming or wildcard rules.
+
+Comparison uses WSTRING code units. Diagnostic previews are shortened and converted for
+the STRING event message; they need not preserve every displayed character.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertStartsWith_WString EXTENDS AssertionBase
+VAR_IN_OUT CONSTANT
+    IN : WSTRING(Param_Assertions.AssertionWStringLength); //! Actual text.
+    Prefix : WSTRING(Param_Assertions.AssertionWStringLength); //! Expected prefix; must not be empty.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{c3f88433-8655-4fc2-a733-8b76f91c0a6e}" />
+    <Method Name="Assert" Id="{0189325d-d1cd-433b-86e6-52174ada0c9e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates inputs before comparing and escalating the result.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    PrefixText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Prefix) THEN
+    Error(Message := 'Assertion error: Prefix reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionWStringLengthValid(Value := IN) THEN
+    Error(Message := 'Assertion error: IN exceeds configured WSTRING length.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionWStringLengthValid(Value := Prefix) THEN
+    Error(Message := 'Assertion error: Prefix exceeds configured WSTRING length.');
+    RETURN;
+END_IF;
+
+IF Prefix = "" THEN
+    Error(Message := 'Assertion error: Prefix must not be empty.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF NOT TextStartsWith_WString(Value := IN,
+    Prefix := Prefix) THEN
+    PrefixText := CreateAssertionTextValue_WString(Value := Prefix);
+    ActualText := CreateAssertionTextValue_WString(Value := IN);
+    Message := CONCAT('Assertion failed: text does not start with expected prefix. Prefix = ',
+        PrefixText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,373 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ExecutionReservationAccounting" Id="{3a83df41-772f-4b34-8dd7-cf953fd2cc43}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks execution reservation accounting on an exactly sized local Event Buffer.</summary>
+<description>
+Local counters represent two independent reservation callers, not child FB instances.
+The budget is ten Suite entries plus eleven Test Case entries: zero Preparation states,
+one test state, one Assertion and nine fixed lifecycle entries.
+Storage includes the FIFO spare position. These API tests do not prove owner admission.
+Owner budget calculation and child dispatch are checked by separate integration scenarios.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ExecutionReservationAccounting EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FSuiteReserved : UINT;
+    FChildReserved : UINT;
+    FInitialFifo : ST_FifoStatus;
+    FBinding : AssertTrue;
+    FBindingMatches : BOOL;
+    FSuiteContribution : AssertTrue;
+    FSuiteContributionMatches : BOOL;
+    FCombinedContributions : AssertTrue;
+    FCombinedContributionsMatches : BOOL;
+    FRejectedReservation : AssertTrue;
+    FRejectedReservationMatches : BOOL;
+    FChildRelease : AssertTrue;
+    FChildReleaseMatches : BOOL;
+    FBalancedRelease : AssertTrue;
+    FBalancedReleaseMatches : BOOL;
+    FRepeatedRelease : AssertTrue;
+    FRepeatedReleaseMatches : BOOL;
+    FReadableDataUnchanged : AssertTrue;
+    FReadableDataUnchangedMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    SuiteBudget : UINT := GVL_Constants.TestSuiteExecutionEventCount;
+    ChildBudget : UINT := 11;
+    Headroom : UINT := Param_EventBuffer.EventBufferExecutionHeadroom;
+    BufferLength : UINT := SuiteBudget + ChildBudget + Headroom + 1;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{dc2fbbbc-df99-45b9-95dc-b406e28129b3}" />
+    <Method Name="AggregateResults" Id="{f9308f8d-6853-486b-bda7-b249f15af125}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FBinding);
+Aggregator.AddProvider(Provider := FSuiteContribution);
+Aggregator.AddProvider(Provider := FCombinedContributions);
+Aggregator.AddProvider(Provider := FRejectedReservation);
+Aggregator.AddProvider(Provider := FChildRelease);
+Aggregator.AddProvider(Provider := FBalancedRelease);
+Aggregator.AddProvider(Provider := FRepeatedRelease);
+Aggregator.AddProvider(Provider := FReadableDataUnchanged);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{deba4398-2720-4854-81da-cc84eca4e573}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FBinding.IsInitialized
+    AND FSuiteContribution.IsInitialized
+    AND FCombinedContributions.IsInitialized
+    AND FRejectedReservation.IsInitialized
+    AND FChildRelease.IsInitialized
+    AND FBalancedRelease.IsInitialized
+    AND FRepeatedRelease.IsInitialized
+    AND FReadableDataUnchanged.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{3b9e6781-f7a2-4e42-9f02-9cf47bd6864a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FBinding.Initialize(Parent := THIS^,
+    AssertionName := 'Binding');
+FSuiteContribution.Initialize(Parent := THIS^,
+    AssertionName := 'SuiteContribution');
+FCombinedContributions.Initialize(Parent := THIS^,
+    AssertionName := 'CombinedContributions');
+FRejectedReservation.Initialize(Parent := THIS^,
+    AssertionName := 'RejectedReservation');
+FChildRelease.Initialize(Parent := THIS^,
+    AssertionName := 'ChildRelease');
+FBalancedRelease.Initialize(Parent := THIS^,
+    AssertionName := 'BalancedRelease');
+FRepeatedRelease.Initialize(Parent := THIS^,
+    AssertionName := 'RepeatedRelease');
+FReadableDataUnchanged.Initialize(Parent := THIS^,
+    AssertionName := 'ReadableDataUnchanged');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{90572077-e34f-4bf6-afac-e7ea326827e3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks local contributions and buffer-wide accounting at exact capacity.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSuiteReserved := 0;
+FChildReserved := 0;
+Initialized := FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus);
+FBindingMatches := Initialized
+    AND (FSubject.Capacity = BufferLength - 1)
+    AND (FSubject.FreeEntryCount = BufferLength - 1)
+    AND (FSubject.ReservedEntryCount = 0);
+IF NOT Initialized THEN
+    RETURN;
+END_IF;
+
+FInitialFifo := FFifo;
+ReserveBudgets();
+RejectAdditionalReservation();
+ReleaseBudgets();
+
+FReadableDataUnchangedMatches := (FFifo.IndexIn = FInitialFifo.IndexIn)
+    AND (FFifo.IndexOut = FInitialFifo.IndexOut)
+    AND (FFifo.ElementCount = 0) AND FFifo.BufferEmpty
+    AND (FSubject.FreeEntryCount = BufferLength - 1)
+    AND (FBufferStatus.SequenceId = 0)
+    AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{62ee294f-53af-4af7-85c2-b801b7f4fdda}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{c0560e60-36dd-4d60-a153-45e1bf58c0b0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FBinding(Enable := Evaluate,
+    State := State,
+    IN := FBindingMatches);
+FSuiteContribution(Enable := Evaluate,
+    State := State,
+    IN := FSuiteContributionMatches);
+FCombinedContributions(Enable := Evaluate,
+    State := State,
+    IN := FCombinedContributionsMatches);
+FRejectedReservation(Enable := Evaluate,
+    State := State,
+    IN := FRejectedReservationMatches);
+FChildRelease(Enable := Evaluate,
+    State := State,
+    IN := FChildReleaseMatches);
+FBalancedRelease(Enable := Evaluate,
+    State := State,
+    IN := FBalancedReleaseMatches);
+FRepeatedRelease(Enable := Evaluate,
+    State := State,
+    IN := FRepeatedReleaseMatches);
+FReadableDataUnchanged(Enable := Evaluate,
+    State := State,
+    IN := FReadableDataUnchangedMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{9109e44e-44fa-426a-9120-d74896e5e73f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{10e5aba6-71f9-4c1c-b9db-4fadb55368b6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FBinding.Reset();
+FBindingMatches := FALSE;
+FSuiteContribution.Reset();
+FSuiteContributionMatches := FALSE;
+FCombinedContributions.Reset();
+FCombinedContributionsMatches := FALSE;
+FRejectedReservation.Reset();
+FRejectedReservationMatches := FALSE;
+FChildRelease.Reset();
+FChildReleaseMatches := FALSE;
+FBalancedRelease.Reset();
+FBalancedReleaseMatches := FALSE;
+FRepeatedRelease.Reset();
+FRepeatedReleaseMatches := FALSE;
+FReadableDataUnchanged.Reset();
+FReadableDataUnchangedMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{f3b459de-e585-4371-9fde-7188728d8a4b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RejectAdditionalReservation" Id="{58cde4f1-6c6b-4718-9aab-958227be4baf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies rejection leaves both contributions and the aggregate unchanged.</summary>
+*)
+{endregion}
+METHOD PRIVATE RejectAdditionalReservation
+VAR
+    Accepted : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Accepted := FSubject.ReserveSpace(EntryCount := 1,
+    HeadroomEntryCount := Headroom,
+    OwnerReservedEntryCount := FChildReserved);
+FRejectedReservationMatches := NOT Accepted
+    AND (FSuiteReserved = SuiteBudget) AND (FChildReserved = ChildBudget)
+    AND (FSubject.ReservedEntryCount = SuiteBudget + ChildBudget);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReleaseBudgets" Id="{4d0a8d4b-458a-48c6-9c3a-4dafc23d491e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases each contribution independently and repeats an empty release.</summary>
+*)
+{endregion}
+METHOD PRIVATE ReleaseBudgets
+VAR
+    Released : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Released := FSubject.FreeReservedSpace(EntryCount := FChildReserved,
+    OwnerReservedEntryCount := FChildReserved);
+FChildReleaseMatches := Released
+    AND (FChildReserved = 0) AND (FSuiteReserved = SuiteBudget)
+    AND (FSubject.ReservedEntryCount = SuiteBudget);
+
+Released := FSubject.FreeReservedSpace(EntryCount := FSuiteReserved,
+    OwnerReservedEntryCount := FSuiteReserved);
+FBalancedReleaseMatches := Released
+    AND (FSuiteReserved = 0) AND (FChildReserved = 0)
+    AND (FSubject.ReservedEntryCount = 0);
+
+Released := FSubject.FreeReservedSpace(EntryCount := FChildReserved,
+    OwnerReservedEntryCount := FChildReserved);
+FRepeatedReleaseMatches := Released
+    AND (FChildReserved = 0) AND (FSuiteReserved = 0)
+    AND (FSubject.ReservedEntryCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReserveBudgets" Id="{8f6475ea-df4f-4b1a-b880-380312029b41}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reserves two independent contributions with shared headroom.</summary>
+*)
+{endregion}
+METHOD PRIVATE ReserveBudgets
+VAR
+    Accepted : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Accepted := FSubject.ReserveSpace(EntryCount := SuiteBudget,
+    HeadroomEntryCount := Headroom,
+    OwnerReservedEntryCount := FSuiteReserved);
+FSuiteContributionMatches := Accepted
+    AND (FSuiteReserved = SuiteBudget) AND (FChildReserved = 0)
+    AND (FSubject.ReservedEntryCount = SuiteBudget);
+
+Accepted := FSubject.ReserveSpace(EntryCount := ChildBudget,
+    HeadroomEntryCount := Headroom,
+    OwnerReservedEntryCount := FChildReserved);
+FCombinedContributionsMatches := Accepted
+    AND (FSuiteReserved = SuiteBudget) AND (FChildReserved = ChildBudget)
+    AND (FSubject.ReservedEntryCount = SuiteBudget + ChildBudget)
+    AND (FSubject.FreeEntryCount = FSubject.ReservedEntryCount + Headroom);]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

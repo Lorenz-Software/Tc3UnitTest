@@ -1,0 +1,21 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_RunControlCommunication" Id="{e13d7805-00d4-4291-af4c-cc61942c444e}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Published Run Control metadata and external command/status data; no FB instance state.</summary>
+<description>
+This is the Direct Access publication below GVL_UnitTest.RunControl. Consumers validate its ContractInfo before interpreting data or writing Cmd/BufferCmd. The producer owns identity and status; only the declared command fields are externally writable. Current status is diagnostic/control data, not a replacement for missing event evidence.
+</description>
+*)
+{endregion}
+TYPE ST_RunControlCommunication :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ContractInfo : ST_ContractInfo; //! Direct-access compatibility and framework version metadata.
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    ControlData : ST_RunControl; //! Published command/status storage; only Cmd and BufferCmd are consumer-writable.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

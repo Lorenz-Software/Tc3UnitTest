@@ -1,0 +1,166 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayContainsString_Byte" Id="{0d259981-3f6a-40c8-b6f1-99c356ac8d92}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Search the selected array for the contiguous STRING code units.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Expected must be nonempty and fit its configured text capacity (otherwise Error). A valid
+text longer than the selected array region reports Failed. The array is not zero-terminated or
+trimmed; matching is exact and case-sensitive.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayContainsString_Byte EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected array elements, from 1 through 255.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF BYTE; //! Read-only actual data; the selected range must remain stable during the call.
+    Expected : STRING(Param_Assertions.AssertionStringLength); //! Nonempty expected text, terminated within the configured capacity; keep stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{573daad6-d06b-4bb1-a261-ab23fa2712cd}" />
+    <Method Name="Assert" Id="{b26019a8-749a-46c1-a97d-b388ccc901d0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate references and ranges before exact code-unit comparison.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    ExpectedLength : DINT;
+    CharacterIndex : DINT;
+    InIndex : DINT;
+    CandidateOffset : LINT;
+    LastCandidateOffset : LINT;
+    PatternMatches : BOOL;
+    PatternFound : BOOL;
+    ExpectedText : STRING(GVL_Constants.AssertionValueLength);
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+VAR CONSTANT
+    Terminator : BYTE := 0;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Expected) THEN
+    Error(Message := 'Assertion error: Expected reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := Expected) THEN
+    Error(Message := 'Assertion error: Expected exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+// SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+{analysis -175}
+IF Expected[0] = Terminator THEN
+{analysis +175}
+    Error(Message := 'Assertion error: Expected must not be empty.');
+    RETURN;
+END_IF;
+
+ExpectedLength := 0;
+FOR CharacterIndex := 0 TO UINT_TO_DINT(Param_Assertions.AssertionStringLength) DO
+    // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+    {analysis -175}
+    IF Expected[CharacterIndex] = Terminator THEN
+    {analysis +175}
+        ExpectedLength := CharacterIndex;
+        EXIT;
+    END_IF;
+END_FOR;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+PatternFound := FALSE;
+IF ExpectedLength <= USINT_TO_DINT(Length) THEN
+    LastCandidateOffset := USINT_TO_LINT(Length) - DINT_TO_LINT(ExpectedLength);
+    FOR CandidateOffset := 0 TO LastCandidateOffset DO
+        PatternMatches := TRUE;
+        FOR CharacterIndex := 0 TO ExpectedLength - 1 DO
+            InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset
+                + DINT_TO_LINT(CharacterIndex));
+            // SA0175: Exact byte comparison; caller validates termination/capacity and indices stay in bounds.
+            {analysis -175}
+            IF IN[InIndex] <> Expected[CharacterIndex] THEN
+            {analysis +175}
+                PatternMatches := FALSE;
+                EXIT;
+            END_IF;
+        END_FOR;
+        IF PatternMatches THEN
+            PatternFound := TRUE;
+            EXIT;
+        END_IF;
+    END_FOR;
+END_IF;
+
+IF NOT PatternFound THEN
+    ExpectedText := CreateAssertionTextValue_String(Value := Expected);
+    Message := CONCAT('Assertion failed: selected array does not contain Expected = ',
+        ExpectedText);
+    Message := CONCAT(Message, ', Range = [');
+    Message := CONCAT(Message, DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, '], ExpectedLength = ');
+    Message := CONCAT(Message, DINT_TO_STRING(ExpectedLength));
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

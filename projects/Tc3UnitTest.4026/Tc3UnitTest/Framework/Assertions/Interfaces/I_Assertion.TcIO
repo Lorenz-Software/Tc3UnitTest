@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_Assertion" Id="{69c8dce9-9b31-45d4-b6d1-94dd1e4c8ab9}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Assertion-specific identity and result view; initialization remains an instance API.</summary>
+*)
+{endregion}
+INTERFACE I_Assertion EXTENDS I_ResultProvider]]></Declaration>
+  </Itf>
+</TcPlcObject>

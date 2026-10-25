@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorAbortInterruption" Id="{6884b029-19ca-489c-9032-90a1107410c9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Changes the owner task to Abort, requests only the active child and observes terminal cleanup.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorAbortInterruption EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{5b5b6eed-132a-4025-968c-2aabddfdfa40}" />
+    <Method Name="ConfigureScenario" Id="{0bb37073-3890-44db-a9f4-3fc5f3f58e81}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 8;
+
+{region "01 - Idle readiness before child processing"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start first child"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "03 - Abort replaces Execution in the same helper call"}
+FSteps[3].Task := E_OrchestratorTask.Abort;
+FSteps[3].Children[1].State := E_State.Aborting;
+FSteps[3].Children[1].Result := E_Result.Abort;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedAbortRequests[1] := 1;
+{endregion}
+
+{region "04 - Already-aborting child receives no duplicate request"}
+FSteps[4].Task := E_OrchestratorTask.Abort;
+FSteps[4].Children[1].State := E_State.Aborting;
+FSteps[4].Children[1].Result := E_Result.Abort;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "05 - Child reaches Completed with Abort"}
+FSteps[5].Task := E_OrchestratorTask.Abort;
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Result := E_Result.Abort;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "06 - Observe Abort completion and release"}
+FSteps[6].Task := E_OrchestratorTask.Abort;
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Result := E_Result.Abort;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].ExpectedReleasedEntries[1] := 1;
+FSteps[6].ExpectedAbortFinished := TRUE;
+{endregion}
+
+{region "07 - Completion does not select Idle autonomously"}
+FSteps[7].Task := E_OrchestratorTask.Abort;
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Result := E_Result.Abort;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].ExpectedAbortFinished := TRUE;
+{endregion}
+
+{region "08 - Owner explicitly selects Idle"}
+FSteps[8].Task := E_OrchestratorTask.Idle;
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Result := E_Result.Abort;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

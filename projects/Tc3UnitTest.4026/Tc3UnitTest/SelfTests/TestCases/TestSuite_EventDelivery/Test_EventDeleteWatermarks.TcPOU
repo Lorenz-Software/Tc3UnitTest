@@ -1,0 +1,375 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventDeleteWatermarks" Id="{27b70400-2696-4b16-80db-26b708e3fb16}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies zero, stale, valid and future deletion watermarks on local event storage.</summary>
+<description>
+Three retained events establish a prefix deletion. Zero and stale requests must not
+move that prefix; future requests may append a diagnostic but must not release it.
+The final stage repeats the future request on empty storage to distinguish rejection
+from deleting the diagnostic that the rejection itself produces.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventDeleteWatermarks EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FZero : AssertTrue;
+    FZeroMatches : BOOL;
+    FPrefix : AssertTrue;
+    FPrefixMatches : BOOL;
+    FStale : AssertTrue;
+    FStaleMatches : BOOL;
+    FFuture : AssertTrue;
+    FFutureMatches : BOOL;
+    FDrained : AssertTrue;
+    FDrainedMatches : BOOL;
+    FEmptyFuture : AssertTrue;
+    FEmptyFutureMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 10;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500003-0050-4050-8050-000000000002}" />
+    <Method Name="AggregateResults" Id="{00500003-0050-4050-8050-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FZero);
+Aggregator.AddProvider(Provider := FPrefix);
+Aggregator.AddProvider(Provider := FStale);
+Aggregator.AddProvider(Provider := FFuture);
+Aggregator.AddProvider(Provider := FDrained);
+Aggregator.AddProvider(Provider := FEmptyFuture);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckEmptyBoundary" Id="{00500003-0050-4050-8050-00000000000e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Drains to the last retained sequence and checks stale and future requests on empty storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckEmptyBoundary
+VAR
+    Request : UDINT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Request := 4;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FDrainedMatches := (Request = 0) AND FFifo.BufferEmpty AND (FFifo.ElementCount = 0)
+    AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 5)
+    AND (FBufferStatus.SequenceId = 4) AND (FBufferStatus.DeletedSequenceId = 4);
+Request := 4;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FDrainedMatches := FDrainedMatches AND (Request = 0)
+    AND FFifo.BufferEmpty AND (FFifo.ElementCount = 0)
+    AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 5)
+    AND (FBufferStatus.SequenceId = 4) AND (FBufferStatus.DeletedSequenceId = 4)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO BufferLength DO
+    FDrainedMatches := FDrainedMatches AND (FEvents[Index].SequenceId = 0);
+END_FOR;
+
+Request := 5;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FEmptyFutureMatches := (Request = 0) AND (FBufferStatus.DeletedSequenceId = 4)
+    AND (FBufferStatus.SequenceId = 5) AND (FBufferStatus.LostEventCount = 0)
+    AND NOT FFifo.BufferEmpty AND (FFifo.ElementCount = 1)
+    AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 6)
+    AND (FEvents[5].SequenceId = 5) AND (FEvents[5].OwnerScope = E_OwnerScope.Framework)
+    AND (FEvents[5].EventType = E_EventType.Framework)
+    AND (FEvents[5].Severity = E_EventSeverity.Warning) AND (FEvents[5].Name = 'EventBuffer');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500003-0050-4050-8050-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FZero.IsInitialized
+    AND FPrefix.IsInitialized
+    AND FStale.IsInitialized
+    AND FFuture.IsInitialized
+    AND FDrained.IsInitialized
+    AND FEmptyFuture.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckStaleAndFuture" Id="{00500003-0050-4050-8050-00000000000d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks stale requests leave the suffix intact and a future request only appends a warning.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckStaleAndFuture
+VAR
+    Request : UDINT;
+    StaleSequence : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStaleMatches := TRUE;
+FOR StaleSequence := 1 TO 2 DO
+    Request := StaleSequence;
+    FSubject.ProcessDeleteRequest(SequenceId := Request);
+    FStaleMatches := FStaleMatches AND (Request = 0)
+        AND (FFifo.ElementCount = 1) AND (FFifo.IndexOut = 3) AND (FFifo.IndexIn = 4)
+        AND (FBufferStatus.SequenceId = 3) AND (FBufferStatus.DeletedSequenceId = 2)
+        AND (FBufferStatus.LostEventCount = 0)
+        AND (FEvents[3].SequenceId = 3) AND (FEvents[3].Message = '3');
+END_FOR;
+
+Request := 100;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FFutureMatches := (Request = 0) AND (FBufferStatus.DeletedSequenceId = 2)
+    AND (FBufferStatus.SequenceId = 4) AND (FBufferStatus.LostEventCount = 0)
+    AND (FFifo.ElementCount = 2) AND (FFifo.IndexOut = 3) AND (FFifo.IndexIn = 5)
+    AND (FEvents[3].SequenceId = 3) AND (FEvents[3].Name = 'LocalDelete')
+    AND (FEvents[3].Message = '3')
+    AND (FEvents[4].SequenceId = 4) AND (FEvents[4].OwnerScope = E_OwnerScope.Framework)
+    AND (FEvents[4].EventType = E_EventType.Framework)
+    AND (FEvents[4].Severity = E_EventSeverity.Warning) AND (FEvents[4].Name = 'EventBuffer');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckZeroAndPrefix" Id="{00500003-0050-4050-8050-00000000000c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks zero requests on empty and occupied storage, followed by exact prefix deletion.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckZeroAndPrefix
+VAR
+    Request : UDINT;
+    Index : UINT;
+    WriteResult : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Request := 0;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FZeroMatches := (Request = 0) AND FFifo.BufferEmpty AND (FFifo.ElementCount = 0)
+    AND (FFifo.IndexIn = 1) AND (FFifo.IndexOut = 1)
+    AND (FBufferStatus.SequenceId = 0) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO 3 DO
+    WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalDelete',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UINT_TO_STRING(Index)));
+    FZeroMatches := FZeroMatches AND (WriteResult = UINT_TO_INT(Index));
+END_FOR;
+Request := 0;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FZeroMatches := FZeroMatches AND (Request = 0)
+    AND (FFifo.ElementCount = 3) AND (FFifo.IndexOut = 1) AND (FFifo.IndexIn = 4)
+    AND (FBufferStatus.SequenceId = 3) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO 3 DO
+    FZeroMatches := FZeroMatches AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Name = 'LocalDelete') AND (FEvents[Index].Message = UINT_TO_STRING(Index));
+END_FOR;
+
+Request := 2;
+FSubject.ProcessDeleteRequest(SequenceId := Request);
+FPrefixMatches := (Request = 0) AND (FBufferStatus.DeletedSequenceId = 2)
+    AND (FBufferStatus.SequenceId = 3) AND (FBufferStatus.LostEventCount = 0)
+    AND (FFifo.ElementCount = 1) AND (FFifo.IndexOut = 3) AND (FFifo.IndexIn = 4)
+    AND (FEvents[3].SequenceId = 3) AND (FEvents[3].Name = 'LocalDelete')
+    AND (FEvents[3].Message = '3');
+FOR Index := 1 TO 2 DO
+    FPrefixMatches := FPrefixMatches AND (FEvents[Index].SequenceId = 0)
+        AND (FEvents[Index].Timestamp = 0) AND (FEvents[Index].Name = '')
+        AND (FEvents[Index].Message = '');
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500003-0050-4050-8050-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FZero.Initialize(Parent := THIS^,
+    AssertionName := 'Zero');
+FPrefix.Initialize(Parent := THIS^,
+    AssertionName := 'Prefix');
+FStale.Initialize(Parent := THIS^,
+    AssertionName := 'Stale');
+FFuture.Initialize(Parent := THIS^,
+    AssertionName := 'Future');
+FDrained.Initialize(Parent := THIS^,
+    AssertionName := 'Drained');
+FEmptyFuture.Initialize(Parent := THIS^,
+    AssertionName := 'EmptyFuture');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500003-0050-4050-8050-00000000000b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes a local subject, then exercises the watermark boundaries in order.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+CheckZeroAndPrefix();
+CheckStaleAndFuture();
+CheckEmptyBoundary();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500003-0050-4050-8050-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500003-0050-4050-8050-00000000000a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FZero(Enable := Evaluate,
+    State := State,
+    IN := FZeroMatches);
+FPrefix(Enable := Evaluate,
+    State := State,
+    IN := FPrefixMatches);
+FStale(Enable := Evaluate,
+    State := State,
+    IN := FStaleMatches);
+FFuture(Enable := Evaluate,
+    State := State,
+    IN := FFutureMatches);
+FDrained(Enable := Evaluate,
+    State := State,
+    IN := FDrainedMatches);
+FEmptyFuture(Enable := Evaluate,
+    State := State,
+    IN := FEmptyFutureMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500003-0050-4050-8050-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500003-0050-4050-8050-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FZero.Reset();
+FZeroMatches := FALSE;
+FPrefix.Reset();
+FPrefixMatches := FALSE;
+FStale.Reset();
+FStaleMatches := FALSE;
+FFuture.Reset();
+FFutureMatches := FALSE;
+FDrained.Reset();
+FDrainedMatches := FALSE;
+FEmptyFuture.Reset();
+FEmptyFutureMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500003-0050-4050-8050-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

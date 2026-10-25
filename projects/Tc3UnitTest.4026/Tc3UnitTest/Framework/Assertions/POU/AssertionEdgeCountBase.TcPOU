@@ -1,0 +1,125 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertionEdgeCountBase" Id="{8fdd7bbb-6a0b-415e-8f70-9c56a1d4908f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Shared edge observation and bounded cumulative count for explicit-evaluation
+assertions.</summary>
+<description>
+
+Derived Assert implementations call SUPER^.Assert() once before evaluating the count.
+Implement the side-effect-free IsMatchingEdge predicate for rising or falling edges.
+
+The first active observation establishes a signal baseline without counting an edge. An
+observation interruption invalidates that baseline but retains the accumulated count until
+Reset. Evaluate checks that count independently of Enable.
+
+The UINT count saturates at 65535. The next matching edge reports Error rather than
+wrapping; this observation error can occur without explicit evaluation.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT AssertionEdgeCountBase EXTENDS AssertionWithEvaluationBase
+VAR_INPUT
+    IN : BOOL; //! Signal sampled while ObservationActive; the first sample establishes the edge baseline.
+END_VAR
+VAR
+    FINPrevious : BOOL;
+    FObservationPrevious : BOOL;
+    FEdgeCount : UINT;
+END_VAR
+VAR CONSTANT
+    MaxEdgeCount : UINT := 65535;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{06e41d48-a9bb-4542-b18f-070871738389}" />
+    <Method Name="Assert" Id="{d0b62295-64f1-45f2-a886-dc013d8ace0d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Capture history and count a matching edge before independent result
+evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    HasPreviousObservation : BOOL;
+    PreviousValue : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[HasPreviousObservation := FObservationPrevious;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+PreviousValue := FINPrevious;
+FINPrevious := IN;
+
+IF NOT HasPreviousObservation THEN
+    RETURN;
+END_IF;
+
+IF NOT IsMatchingEdge(PreviousValue := PreviousValue,
+    CurrentValue := IN) THEN
+    RETURN;
+END_IF;
+
+IF FEdgeCount = MaxEdgeCount THEN
+    Error(Message := 'Assertion error: edge count exceeds UINT capacity.');
+    RETURN;
+END_IF;
+
+FEdgeCount := FEdgeCount + 1;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EdgeCount" Id="{68def670-beac-4e61-a16a-a65686dd1412}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observed edges; retained across observation interruptions and cleared by
+Reset.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EdgeCount : UINT //! Observed edges; retained across observation interruptions and cleared by Reset.]]></Declaration>
+      <Get Name="Get" Id="{b46708f3-3436-4c3d-91b0-8bdfdf6d65f5}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EdgeCount := FEdgeCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="IsMatchingEdge" Id="{eb9bf23c-6e00-47be-bc11-4fd55914bcb9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return whether the two observed values form the selected edge; no side
+effects.</summary>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT IsMatchingEdge : BOOL //! TRUE when PreviousValue and CurrentValue form the edge selected by this Assertion.
+VAR_INPUT
+    PreviousValue : BOOL; //! Signal value from the preceding active observation.
+    CurrentValue : BOOL; //! Signal value from the current active observation.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{7fccf325-e2aa-4688-88c1-8816b6d63ab0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear edge count and invalidate the observation baseline.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FINPrevious := FALSE;
+FObservationPrevious := FALSE;
+FEdgeCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

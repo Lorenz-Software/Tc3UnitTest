@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertContainsBit_Byte" Id="{8ad70666-14bf-4974-804c-a41aeb2cb299}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks that at least one selected bit equals the expected Boolean value.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK AssertContainsBit_Byte EXTENDS AssertionBase
+VAR_INPUT
+    IN : BYTE; //! Actual bitfield.
+    Mask : BYTE := 16#FF; //! Selects evaluated bits; defaults to all bits. An empty mask produces Error during evaluation.
+    Expected : BOOL; //! Expected value of at least one selected bit.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2455702c-f108-447e-aa11-a548e070f1d0}" />
+    <Method Name="Assert" Id="{a55890a1-7547-4c10-882f-baa8e8e0c15a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects an empty mask before checking for a matching selected bit.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    ContainsBit : BOOL;
+    Message : STRING(GVL_Constants.MessageLength);
+    MaskText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    NoMask : BYTE := 16#00;
+    HexDigitCount : USINT := 2;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+IF Mask = NoMask THEN
+    MaskText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Mask),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion error: mask must not be empty. Mask = ',
+        MaskText);
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF Expected THEN
+    ContainsBit := (IN AND Mask) <> NoMask;
+ELSE
+    ContainsBit := (IN AND Mask) <> Mask;
+END_IF;
+
+IF NOT ContainsBit THEN
+    MaskText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Mask),
+        DigitCount := HexDigitCount);
+    ActualText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(IN),
+        DigitCount := HexDigitCount);
+    Message := CONCAT('Assertion failed: selected bits do not contain expected bit value. Expected = ',
+        BOOL_TO_STRING(Expected));
+    Message := CONCAT(Message, ', Mask = ');
+    Message := CONCAT(Message, MaskText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

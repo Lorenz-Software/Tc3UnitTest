@@ -1,0 +1,74 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateTestSuiteAggregationEvent" Id="{93641af7-e7d7-442a-ab05-1daa9d729bc9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Test Suite aggregation event from an already aggregated status snapshot.</summary>
+<description>
+Runtime is rendered as unsigned milliseconds; the caller owns publication.
+
+
+Compact JSON fields are total, inactive, idle, running, completed, passed, failed, error and runtime. Counts and runtime are unsigned decimal numbers. This formats the supplied snapshot without validating completion or recomputing aggregation; the owner controls finalization order and publication.
+</description>
+*)
+{endregion}
+FUNCTION CreateTestSuiteAggregationEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    Status : ST_TestSuiteStatus; //! Already aggregated owner status snapshot; the function formats it without observing children.
+END_VAR
+VAR
+    RuntimeMilliseconds : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[RuntimeMilliseconds := TIME_TO_UDINT(Status.Runtime);
+
+CreateTestSuiteAggregationEvent.SequenceId := 0;
+CreateTestSuiteAggregationEvent.Timestamp := 0;
+CreateTestSuiteAggregationEvent.OwnerScope := E_OwnerScope.TestSuite;
+CreateTestSuiteAggregationEvent.EventType := E_EventType.Aggregation;
+CreateTestSuiteAggregationEvent.Severity := SelectResultSeverity(Result := Status.Execution.Result);
+CreateTestSuiteAggregationEvent.Name := Name;
+CreateTestSuiteAggregationEvent.ResourceName := ResourceName;
+CreateTestSuiteAggregationEvent.State := Status.Execution.State;
+CreateTestSuiteAggregationEvent.Result := Status.Execution.Result;
+
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := '{"total":',
+    STR2 := UINT_TO_STRING(Status.TestCaseCountTotal));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"inactive":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountInactive));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"idle":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountIdle));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"running":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountRunning));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"completed":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountCompleted));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"passed":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountPassed));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"failed":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountFailed));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"error":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.TestCaseCountError));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := ',"runtime":');
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message,
+    STR2 := UDINT_TO_STRING(RuntimeMilliseconds));
+CreateTestSuiteAggregationEvent.Message := CONCAT(STR1 := CreateTestSuiteAggregationEvent.Message, STR2 := '}');]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

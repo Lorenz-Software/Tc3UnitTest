@@ -1,0 +1,201 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="OrchestrationCollectionDouble" Id="{0f2e9bb6-f6ba-479c-9a8d-c7556a88b772}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Copies a small fixed child view and records actual-index access by the helper.</summary>
+<description>
+Initialize reads real bounds from the fixture's selected fixed array and copies only
+its registered prefix. The copy is intentional test-double storage, not a production
+registry or retained array pointer. GetChild translates the original index without
+calling a child. Invalid access and trace overflow remain observable.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK OrchestrationCollectionDouble IMPLEMENTS I_OrchestratableCollection
+VAR
+    FChildren : ARRAY[1..ChildCapacity] OF I_Orchestratable;
+    FLowerBound : DINT;
+    FUpperBound : DINT;
+    FCount : UINT;
+    FReadIndices : ARRAY[1..ReadCapacity] OF DINT;
+    FReadCount : UINT;
+    FInvalidAccess : BOOL;
+    FTraceOverflow : BOOL;
+END_VAR
+VAR CONSTANT
+    ChildCapacity : UINT := 3;
+    ReadCapacity : UINT := 512;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Property Name="ChildArrayLowerBound" Id="{f5e4eb33-88f1-4926-9a6c-1ca1453ce1da}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual input-array lower bound.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildArrayLowerBound : DINT //! Actual input-array lower bound.]]></Declaration>
+      <Get Name="Get" Id="{53075e1e-f107-49e3-985e-19efd0d8b37f}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildArrayLowerBound := FLowerBound;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ChildArrayUpperBound" Id="{dc4a9d96-a7aa-4f55-bfb2-86faed04f6f4}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Actual input-array capacity upper bound.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildArrayUpperBound : DINT //! Actual input-array capacity upper bound.]]></Declaration>
+      <Get Name="Get" Id="{897d1ad8-a809-4778-a5e2-3369250be454}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildArrayUpperBound := FUpperBound;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ChildCount" Id="{15950828-9c47-46f0-807d-bbca17d5915b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of occupied entries.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildCount : UINT //! Number of occupied entries.]]></Declaration>
+      <Get Name="Get" Id="{9ce7ce1c-afb8-40a2-b511-675cd881fcc3}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildCount := FCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="GetChild" Id="{53a4bdbb-b9fd-4e0b-b7bf-0af8008a3ebb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records the original array index and returns only registered entries; never invokes a child.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetChild : I_Orchestratable //! Copied child interface at the original occupied index; zero and a latched InvalidAccess for an invalid index.
+VAR_INPUT
+    Index : DINT; //! Original array index to record and resolve within the occupied prefix.
+END_VAR
+VAR
+    Position : LINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetChild := 0;
+IF FReadCount < ReadCapacity THEN
+    FReadCount := FReadCount + 1;
+    FReadIndices[FReadCount] := Index;
+ELSE
+    FTraceOverflow := TRUE;
+END_IF;
+
+Position := DINT_TO_LINT(Index) - DINT_TO_LINT(FLowerBound) + 1;
+IF (Position < 1) OR (Position > UINT_TO_LINT(FCount)) THEN
+    FInvalidAccess := TRUE;
+    RETURN;
+END_IF;
+GetChild := FChildren[LINT_TO_UINT(Position)];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{96d3e0af-aab3-4fdf-999b-62be6b66f807}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Copies the fixed registered prefix and clears access evidence without retaining addresses.</summary>
+*)
+{endregion}
+METHOD PUBLIC Initialize : BOOL //! TRUE after copying a valid nonzero occupied prefix; FALSE leaves ChildCount zero.
+VAR_INPUT
+    Count : UINT; //! Occupied prefix length in 1..ChildCapacity; it must fit the supplied array.
+END_VAR
+VAR_IN_OUT
+    Children : ARRAY[*] OF I_Orchestratable; //! Borrowed array whose occupied interface prefix is copied; keep the referenced children alive.
+END_VAR
+VAR
+    Position : UINT;
+    ArrayIndex : DINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FCount := 0;
+FLowerBound := LOWER_BOUND(Children, 1);
+FUpperBound := UPPER_BOUND(Children, 1);
+FReadCount := 0;
+FInvalidAccess := FALSE;
+FTraceOverflow := FALSE;
+FOR Position := 1 TO ChildCapacity DO
+    FChildren[Position] := 0;
+END_FOR;
+FOR Position := 1 TO ReadCapacity DO
+    FReadIndices[Position] := 0;
+END_FOR;
+IF (Count = 0) OR (Count > ChildCapacity)
+    OR (DINT_TO_LINT(FLowerBound) + UINT_TO_LINT(Count) - 1 > DINT_TO_LINT(FUpperBound)) THEN
+    RETURN;
+END_IF;
+
+FOR Position := 1 TO Count DO
+    ArrayIndex := FLowerBound + UINT_TO_DINT(Position) - 1;
+    IF Children[ArrayIndex] = 0 THEN
+        RETURN;
+    END_IF;
+    FChildren[Position] := Children[ArrayIndex];
+END_FOR;
+FCount := Count;
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="InvalidAccess" Id="{37afb7e1-0196-4eb6-a5e2-f807522399bc}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latched access outside the registered range.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC InvalidAccess : BOOL //! Latched access outside the registered range.]]></Declaration>
+      <Get Name="Get" Id="{6dd2fae8-4911-4bad-9350-bc37bfd0a475}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[InvalidAccess := FInvalidAccess;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ReadCount" Id="{8a615a60-4867-4a5d-9d10-4f357d1fc258}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of retained index-access observations.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReadCount : UINT //! Number of retained index-access observations.]]></Declaration>
+      <Get Name="Get" Id="{c361f4f2-a8fb-4dea-a5fb-f560660b95db}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReadCount := FReadCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TraceOverflow" Id="{fdb74941-d67f-4bb1-9ce7-0c7774dbf895}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Whether the bounded index trace was exhausted.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TraceOverflow : BOOL //! Whether the bounded index trace was exhausted.]]></Declaration>
+      <Get Name="Get" Id="{2e6b2f17-a219-4a72-8516-c466a3e04b9d}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TraceOverflow := FTraceOverflow;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

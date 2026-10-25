@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SerialRegistrationOrder" Id="{c053b2de-613c-4c82-9ef5-cbd83dd4dcbc}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks A-B-C registration order, delayed observation and exactly one active child.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SerialRegistrationOrder EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ead15da1-4898-400e-8ef3-fce5e8ae92d9}" />
+    <Method Name="ConfigureScenario" Id="{7db28357-147d-4dd1-af36-1d80aaed2252}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.Ordinary;
+FChildCount := 3;
+ConfigureStandardSequence();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

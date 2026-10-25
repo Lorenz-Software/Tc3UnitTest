@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_TestCase" Id="{088cf8fc-9888-4eca-890d-167aa30a7a5b}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Typed owner status with the shared child orchestration view.</summary>
+<description>
+Adds only the typed Status snapshot to I_Orchestratable. Lifecycle requests, readiness/state, initialization, reservation operations, execution slot and inherited identity/result belong to that shared child view. Requests do not execute the concrete FB. The owning Suite calls the concrete instance cyclically; status reads do not refresh it.
+</description>
+*)
+{endregion}
+INTERFACE I_TestCase EXTENDS I_Orchestratable]]></Declaration>
+    <Property Name="Status" Id="{a7c5d149-8841-4ed6-8e10-6bbdaff0249f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return the latest typed Test Case status by value without executing lifecycle, Preparation or Assertion work.</summary>
+*)
+{endregion}
+PROPERTY Status : ST_TestCaseStatus //! Return the latest typed Test Case status by value without executing lifecycle, Preparation or Assertion work.]]></Declaration>
+      <Get Name="Get" Id="{664d4734-1c0a-451f-8c49-4065864e18a2}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

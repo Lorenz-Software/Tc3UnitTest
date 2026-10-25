@@ -1,0 +1,100 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionLifecycle" Id="{b3b87d31-eb0a-4d8b-af0a-20dec4abcf80}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks shared Assertion identity, activity, reset and result-event behavior.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionLifecycle EXTENDS TestSuiteBase
+VAR
+    FInitialization : Test_AssertionInitialization;
+    FActivity : Test_AssertionActivity;
+    FUninitialized : Test_AssertionUninitialized;
+    FResetReuse : Test_AssertionResetReuse;
+    FEscalation : Test_AssertionEscalation;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{de28be23-9eeb-4d7a-ba0b-771b3990a81a}" />
+    <Method Name="Configure" Id="{67585e89-7fce-4cf5-aacc-301a51a947c0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the five isolated Assertion lifecycle scenarios.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FInitialization.Initialize(Parent := THIS^,
+    TestName := 'Initialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FInitialization);
+FActivity.Initialize(Parent := THIS^,
+    TestName := 'Activity',
+    Config := TestConfig);
+Builder.Register(TestCase := FActivity);
+FUninitialized.Initialize(Parent := THIS^,
+    TestName := 'Uninitialized',
+    Config := TestConfig);
+Builder.Register(TestCase := FUninitialized);
+FResetReuse.Initialize(Parent := THIS^,
+    TestName := 'ResetReuse',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetReuse);
+FEscalation.Initialize(Parent := THIS^,
+    TestName := 'Escalation',
+    Config := TestConfig);
+Builder.Register(TestCase := FEscalation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{a8208cee-3c3a-49c0-a494-ae589dc2160d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{4231c389-aa60-46c0-8a04-6796b91b91bd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialization();
+FActivity();
+FUninitialized();
+FResetReuse();
+FEscalation();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

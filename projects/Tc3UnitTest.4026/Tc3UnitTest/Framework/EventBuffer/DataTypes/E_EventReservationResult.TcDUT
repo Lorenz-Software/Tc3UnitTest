@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_EventReservationResult" Id="{da2275ec-e9ad-45de-90b7-c4605623b3fa}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Outcome of an immediate owner event-budget reservation.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EventReservationResult :
+(
+    Error := 0, //! Invalid prerequisite or permanently impossible budget; do not retry as capacity waiting.
+    Accepted := 1, //! Owner and global reservation counts now reflect the requested budget.
+    WaitingForCapacity := 2 //! Temporarily insufficient free capacity; counts unchanged and retry is allowed.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

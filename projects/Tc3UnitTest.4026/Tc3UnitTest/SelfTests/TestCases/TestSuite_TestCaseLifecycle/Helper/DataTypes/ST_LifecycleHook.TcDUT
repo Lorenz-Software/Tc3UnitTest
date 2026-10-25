@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_LifecycleHook" Id="{c27cda02-922e-4852-950e-5c92e6fce1af}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Records one method entry in the latest subject call, independently of ST_Event logging.
+</summary>
+
+<description>
+State and Enabled are captured before the method performs its scenario action.
+An entry with Enabled = FALSE proves that the disabled method was still called.
+Reset and Aggregate have no Enable parameter; their entries use TRUE when called.
+</description>
+*)
+{endregion}
+TYPE ST_LifecycleHook :
+STRUCT
+    Hook : E_LifecycleHook; //! Lifecycle extension hook entered by this call.
+    State : E_State; //! State at method entry, which can differ from the state after the full FB call.
+    Enabled : BOOL; //! Recorded hook permission; Reset and aggregation record TRUE because they have no Enable argument.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

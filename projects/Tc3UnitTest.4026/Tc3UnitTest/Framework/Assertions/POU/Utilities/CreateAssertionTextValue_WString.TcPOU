@@ -1,0 +1,69 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_WString" Id="{7c846c19-926e-45f1-ae6b-3edcce00f5d0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Render a quoted diagnostic preview with at most AssertionValueLength output bytes.
+Printable ASCII is retained; other code units become byte 16#D7 without expansion.</summary>
+<description>
+Zero terminates the input. Quotes and backslashes remain literal. Shortening reserves
+space for enclosing quotes and an ellipsis; the default limit retains 35 code units.
+Rendering is lossy and does not alter the compared input or its result.
+</description>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_WString : STRING(GVL_Constants.AssertionValueLength) //! Bounded diagnostic aid; not a lossless representation for subsequent comparison.
+VAR_INPUT
+    Value : WSTRING(GVL_Constants.MessageLength); //! Text to preview; zero terminates the input.
+END_VAR
+VAR
+    Text : STRING(GVL_Constants.AssertionValueLength);
+    CharacterIndex : INT;
+    CopyLength : INT;
+    Code : WORD;
+    Shortened : BOOL;
+END_VAR
+VAR CONSTANT
+    Quote : STRING(1) := '$'';
+    Ellipsis : STRING(3) := '...';
+    QuoteLength : INT := 2;
+    EllipsisLength : INT := 3;
+    FirstPrintableAscii : WORD := 16#20;
+    LastPrintableAscii : WORD := 16#7E;
+    ReplacementByte : BYTE := 16#D7;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CopyLength := UINT_TO_INT(GVL_Constants.AssertionValueLength) - QuoteLength;
+// SA0175: Bounded diagnostic code-unit rendering; each unsupported unit becomes one byte.
+{analysis -175}
+Shortened := TRUE;
+FOR CharacterIndex := 0 TO CopyLength DO
+    IF Value[CharacterIndex] = 0 THEN
+        CopyLength := CharacterIndex;
+        Shortened := FALSE;
+        EXIT;
+    END_IF;
+END_FOR;
+IF Shortened THEN
+    CopyLength := CopyLength - EllipsisLength;
+END_IF;
+
+FOR CharacterIndex := 0 TO CopyLength - 1 DO
+    Code := Value[CharacterIndex];
+    IF (Code >= FirstPrintableAscii) AND (Code <= LastPrintableAscii) THEN
+        Text[CharacterIndex] := WORD_TO_BYTE(Code);
+    ELSE
+        Text[CharacterIndex] := ReplacementByte;
+    END_IF;
+END_FOR;
+Text[CopyLength] := 0;
+{analysis +175}
+
+IF Shortened THEN
+    Text := CONCAT(Text, Ellipsis);
+END_IF;
+CreateAssertionTextValue_WString := CONCAT(Quote, Text);
+CreateAssertionTextValue_WString := CONCAT(CreateAssertionTextValue_WString, Quote);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

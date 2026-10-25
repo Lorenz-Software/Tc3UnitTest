@@ -1,0 +1,80 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_LifecycleStep" Id="{bf034d23-c9ab-4be6-8852-515be013bb25}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Defines the stimulus and expected observations for one lifecycle-test checkpoint.
+</summary>
+
+<description>
+
+Stimulus and defaults
+
+Request* fields are applied before the subject call.
+Other stimulus fields control the subject's concrete hooks.
+Each row starts with this DUT's defaults; values do not carry over from the previous row.
+
+Observation boundary
+
+ExpectedState, ExpectedResult and status expectations describe the completed FB call.
+ExpectedHooks describes method entry within that call, before the recorded method acts.
+The expectations are authored independently of the subject's observed behavior.
+
+Waiting checkpoints
+
+WaitForTransition repeats the row until the subject leaves WaitingState.
+Keep one-shot requests in a preceding row so waiting does not reissue them.
+The outer Test Case timeout bounds a stalled scenario.
+These checks verify the timeout path and retained flags, not an exact elapsed-time boundary.
+</description>
+*)
+{endregion}
+TYPE ST_LifecycleStep :
+STRUCT
+    // Requests and exceptional-path stimulus.
+    RequestReset : BOOL; //! TRUE issues a Reset request before this checkpoint call.
+    RequestAbort : BOOL; //! TRUE issues an Abort request before this checkpoint call.
+    AbortCompleted : BOOL := TRUE; //! TRUE permits the Abort hook to report completion.
+    ResetError : BOOL; //! TRUE injects a technical Error from the Reset hook.
+    TestError : BOOL; //! TRUE injects a technical Error from the test hook.
+    AbortError : BOOL; //! TRUE injects a technical Error from the Abort hook.
+    PreparationError : BOOL; //! TRUE injects a technical Error from the preparation hook.
+    // Optional repeated-call checkpoint and expected timeout flags.
+    WaitForTransition : BOOL; //! TRUE repeats subject calls while the subject remains in WaitingState; each call remains nonblocking.
+    WaitingState : E_State; //! State in which repeated checkpoint calls wait for a transition.
+    ExpectedTimeout : BOOL; //! Expected overall timeout indication at this checkpoint.
+    ExpectedPreparationTimeout : BOOL; //! Expected preparation-timeout indication.
+    ExpectedResetTimeout : BOOL; //! Expected Reset-timeout indication.
+    ExpectedAbortTimeout : BOOL; //! Expected Abort-timeout indication.
+    // Start/readiness and normal application-phase stimulus.
+    RequestStart : BOOL; //! TRUE issues a Start request before this checkpoint call.
+    Ready : BOOL := TRUE; //! Scenario readiness release, combined with inherited startability.
+    ResetCompleted : BOOL := TRUE; //! TRUE permits the Reset hook to report completion.
+    PreparationTargetReached : BOOL; //! Scripted preparation target condition.
+    AdvancePreparation : BOOL; //! TRUE permits the preparation hook to advance its state.
+    FinishPreparations : BOOL; //! TRUE permits the preparation hook to complete its phase.
+    AdvanceTest : BOOL; //! TRUE permits the test hook to advance its state.
+    FinishTests : BOOL; //! TRUE permits the test hook to complete its phase.
+    AssertionCondition : BOOL := TRUE; //! Condition supplied to the controlled Assertion.
+    // Expected state, result and status after the complete subject call.
+    ExpectedState : E_State := E_State.Uninitialized; //! Expected lifecycle state after the complete subject-body call.
+    ExpectedResult : E_Result := E_Result.NotEvaluated; //! Expected lifecycle result after the complete subject-body call.
+    ExpectedReady : BOOL; //! Expected readiness after the complete subject-body call.
+    ExpectedPassedCount : UINT; //! Expected number of Passed Assertions after this call.
+    ExpectedFailedCount : UINT; //! Expected number of Failed Assertions after this call.
+    // Optional terminal/repeat-run checks; counts cover the entire retained capture.
+    CheckFinalization : BOOL; //! TRUE checks retained owner finalization events against the cumulative expectations.
+    ExpectedFinalizationCount : UINT; //! Expected cumulative owner Result/Aggregation pairs in the retained capture.
+    ExpectedCompletionCount : UINT; //! Expected cumulative owner Completed transitions in the retained capture.
+    ExpectedFinalResult : E_Result := E_Result.NotEvaluated; //! Expected result of the most recent owner finalization when any exists.
+    ExpectQuietCall : BOOL; //! TRUE requires this call to publish no additional events.
+    ExpectRuntimeCleared : BOOL; //! TRUE requires the measured test runtime to be cleared.
+    ExpectRuntimeHeld : BOOL; //! TRUE requires the measured test runtime to retain its preceding value.
+    // Expected method-entry sequence within that same call, not across multiple cycles.
+    ExpectedHooks : ARRAY[1..6] OF ST_LifecycleHook; //! Expected ordered hook entries within this checkpoint call; only ExpectedHookCount entries are used.
+    ExpectedHookCount : UINT; //! Number of expected hook entries in 1..6 for this checkpoint call.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

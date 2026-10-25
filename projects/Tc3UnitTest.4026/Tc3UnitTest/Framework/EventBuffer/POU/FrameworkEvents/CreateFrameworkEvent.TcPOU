@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateFrameworkEvent" Id="{723d8436-b7ea-40c9-89d4-dd2b5e5d73d0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a framework diagnostic event without publishing it.</summary>
+<description>
+Name and Message are ASCII text limited to the declared event capacities.
+</description>
+*)
+{endregion}
+FUNCTION CreateFrameworkEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+    Severity : E_EventSeverity; //! Logging severity for the diagnostic; independent of the test result.
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text copied into the event within MessageLength.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateFrameworkEvent.SequenceId := 0;
+CreateFrameworkEvent.Timestamp := 0;
+CreateFrameworkEvent.OwnerScope := E_OwnerScope.Framework;
+CreateFrameworkEvent.EventType := E_EventType.Framework;
+CreateFrameworkEvent.Severity := Severity;
+CreateFrameworkEvent.Name := Name;
+CreateFrameworkEvent.ResourceName := ResourceName;
+CreateFrameworkEvent.State := State;
+CreateFrameworkEvent.Result := E_Result.NotEvaluated;
+CreateFrameworkEvent.Message := Message;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

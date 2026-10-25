@@ -1,0 +1,55 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="FindArrayToken_Word" Id="{21476190-6020-4b35-852a-81f10057ad16}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Finds the first exact contiguous array token in the selected range. Caller validates stable references, a nonempty in-bounds range, and a nonempty token fitting the range.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL FindArrayToken_Word : BOOL //! TRUE when a token was found; Index is its absolute array index and may legitimately be zero.
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+END_VAR
+VAR_OUTPUT
+    Index : DINT; //! Absolute matching index; zero when no match exists. Use the BOOL result to distinguish.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Read-only actual data; the selected range must remain stable during the call.
+    Token : ARRAY[*] OF WORD; //! Read-only nonempty token; keep stable during the call and within the selected search length.
+END_VAR
+VAR
+    CandidateOffset : LINT;
+    InIndex : DINT;
+    TokenLowerIndex : DINT;
+    TokenLength : LINT;
+    TokenOffset : LINT;
+    TokenIndex : DINT;
+    TokenMatches : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FindArrayToken_Word := FALSE;
+Index := 0;
+
+TokenLowerIndex := LOWER_BOUND(Token, 1);
+TokenLength := DINT_TO_LINT(UPPER_BOUND(Token, 1)) - DINT_TO_LINT(TokenLowerIndex) + 1;
+
+FOR CandidateOffset := 0 TO USINT_TO_LINT(Length) - TokenLength DO
+    TokenMatches := TRUE;
+    FOR TokenOffset := 0 TO TokenLength - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset + TokenOffset);
+        TokenIndex := LINT_TO_DINT(DINT_TO_LINT(TokenLowerIndex) + TokenOffset);
+        IF IN[InIndex] <> Token[TokenIndex] THEN
+            TokenMatches := FALSE;
+            EXIT;
+        END_IF;
+    END_FOR;
+    IF TokenMatches THEN
+        Index := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset);
+        FindArrayToken_Word := TRUE;
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

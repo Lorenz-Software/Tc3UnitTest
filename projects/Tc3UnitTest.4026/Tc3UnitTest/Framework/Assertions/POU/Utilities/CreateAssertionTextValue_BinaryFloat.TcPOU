@@ -1,0 +1,203 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_BinaryFloat" Id="{21e8b385-ebe4-429e-8536-336d0a18e3ce}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Formats an IEEE finite magnitude exactly before decimal rounding; used only by the typed diagnostic formatters.</summary>
+<description>Preconditions: significand at most 53 bits; binary exponent -1074..971; precision 1..17.
+Uses at most 86 base-1e9 limbs (344 bytes), 83 scale passes and bounded integer arithmetic.
+No floating-point operation, dynamic allocation or full decimal expansion string.
+Round-to-nearest, ties-to-even; trim fractional zeros and use scientific notation outside the compact fixed range.</description>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_BinaryFloat : STRING(GVL_Constants.AssertionValueLength) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    Significand : ULINT; //! Unsigned binary significand, at most 53 bits; caller supplies a finite magnitude.
+    BinaryExponent : INT; //! Power of two multiplying Significand; supported range -1074..971.
+    Negative : BOOL; //! TRUE prefixes a minus sign, including negative zero.
+    SignificantDigits : INT; //! Required significant decimal digits, 1..17; validated by the typed caller.
+END_VAR
+VAR
+    Limbs : ARRAY[0..LimbCapacity - 1] OF UDINT;
+    LimbCount : INT;
+    LimbIndex : INT;
+    RemainingExponent : INT;
+    Scale : INT;
+    Step : INT;
+    StepLimit : INT;
+    PowerBase : ULINT;
+    Multiplier : ULINT;
+    Carry : ULINT;
+    Product : ULINT;
+    LeadingDigits : ULINT;
+    DigitCount : INT;
+    TakenDigits : INT;
+    DecimalExponent : INT;
+    Divisor : ULINT;
+    GuardDigit : ULINT;
+    HasRemainder : BOOL;
+    Digits : STRING(20);
+    DigitLength : INT;
+    DecimalPosition : INT;
+    Text : STRING(GVL_Constants.AssertionValueLength);
+    ExponentText : STRING(6);
+    Index : INT;
+END_VAR
+VAR CONSTANT
+    LimbCapacity : INT := 86;
+    DecimalBase : ULINT := 1000000000;
+    LimbDigits : INT := 9;
+    BinaryChunk : INT := 29;
+    FractionChunk : INT := 13;
+    PowersOfTen : ARRAY[0..17] OF ULINT := [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000, 10000000000, 100000000000, 1000000000000, 10000000000000, 100000000000000, 1000000000000000, 10000000000000000, 100000000000000000];
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF Significand = 0 THEN
+    IF Negative THEN
+        CreateAssertionTextValue_BinaryFloat := '-0';
+    ELSE
+        CreateAssertionTextValue_BinaryFloat := '0';
+    END_IF;
+    RETURN;
+END_IF;
+
+{region 'Exact binary-to-decimal magnitude'}
+Carry := Significand;
+LimbCount := 0;
+WHILE Carry <> 0 DO
+    Limbs[LimbCount] := ULINT_TO_UDINT(Carry MOD DecimalBase);
+    Carry := Carry / DecimalBase;
+    LimbCount := LimbCount + 1;
+END_WHILE;
+
+Scale := 0;
+PowerBase := 2;
+StepLimit := BinaryChunk;
+RemainingExponent := BinaryExponent;
+IF BinaryExponent < 0 THEN
+    // m * 2^-n = (m * 5^n) * 10^-n, including subnormal inputs.
+    Scale := -BinaryExponent;
+    PowerBase := 5;
+    StepLimit := FractionChunk;
+    RemainingExponent := Scale;
+END_IF;
+
+WHILE RemainingExponent > 0 DO
+    Step := MIN(RemainingExponent, StepLimit);
+    Multiplier := 1;
+    FOR Index := 1 TO Step DO
+        Multiplier := Multiplier * PowerBase;
+    END_FOR;
+    Carry := 0;
+    FOR LimbIndex := 0 TO LimbCount - 1 DO
+        Product := UDINT_TO_ULINT(Limbs[LimbIndex]) * Multiplier + Carry;
+        Limbs[LimbIndex] := ULINT_TO_UDINT(Product MOD DecimalBase);
+        Carry := Product / DecimalBase;
+    END_FOR;
+    WHILE Carry <> 0 DO
+        Limbs[LimbCount] := ULINT_TO_UDINT(Carry MOD DecimalBase);
+        Carry := Carry / DecimalBase;
+        LimbCount := LimbCount + 1;
+    END_WHILE;
+    RemainingExponent := RemainingExponent - Step;
+END_WHILE;
+{endregion}
+
+{region 'Significant digits and rounding'}
+LimbIndex := LimbCount - 1;
+LeadingDigits := UDINT_TO_ULINT(Limbs[LimbIndex]);
+Digits := ULINT_TO_STRING(LeadingDigits);
+DigitCount := LEN(Digits);
+DecimalExponent := DigitCount + LimbDigits * LimbIndex - 1 - Scale;
+HasRemainder := FALSE;
+IF DigitCount > SignificantDigits + 1 THEN
+    Divisor := PowersOfTen[DigitCount - SignificantDigits - 1];
+    HasRemainder := (LeadingDigits MOD Divisor) <> 0;
+    LeadingDigits := LeadingDigits / Divisor;
+    DigitCount := SignificantDigits + 1;
+END_IF;
+
+WHILE (DigitCount < SignificantDigits + 1) AND (LimbIndex > 0) DO
+    LimbIndex := LimbIndex - 1;
+    TakenDigits := MIN(LimbDigits, SignificantDigits + 1 - DigitCount);
+    Divisor := PowersOfTen[LimbDigits - TakenDigits];
+    LeadingDigits := LeadingDigits * PowersOfTen[TakenDigits]
+        + UDINT_TO_ULINT(Limbs[LimbIndex]) / Divisor;
+    HasRemainder := (UDINT_TO_ULINT(Limbs[LimbIndex]) MOD Divisor) <> 0;
+    DigitCount := DigitCount + TakenDigits;
+END_WHILE;
+FOR Index := 0 TO LimbIndex - 1 DO
+    IF Limbs[Index] <> 0 THEN
+        HasRemainder := TRUE;
+        EXIT;
+    END_IF;
+END_FOR;
+
+IF DigitCount > SignificantDigits THEN
+    GuardDigit := LeadingDigits MOD 10;
+    LeadingDigits := LeadingDigits / 10;
+    IF (GuardDigit > 5)
+        OR ((GuardDigit = 5) AND (HasRemainder OR ((LeadingDigits MOD 2) <> 0))) THEN
+        LeadingDigits := LeadingDigits + 1;
+    END_IF;
+    IF LeadingDigits = PowersOfTen[SignificantDigits] THEN
+        LeadingDigits := LeadingDigits / 10;
+        DecimalExponent := DecimalExponent + 1;
+    END_IF;
+END_IF;
+
+WHILE (LeadingDigits MOD 10) = 0 DO
+    LeadingDigits := LeadingDigits / 10;
+END_WHILE;
+Digits := ULINT_TO_STRING(LeadingDigits);
+DigitLength := LEN(Digits);
+{endregion}
+
+{region 'Bounded diagnostic text'}
+IF (DecimalExponent >= 0) AND (DecimalExponent < SignificantDigits) THEN
+    DecimalPosition := DecimalExponent + 1;
+    IF DecimalPosition >= DigitLength THEN
+        Text := Digits;
+        FOR Index := DigitLength TO DecimalPosition - 1 DO
+            Text := CONCAT(Text, '0');
+        END_FOR;
+    ELSE
+        // SA0175: Generated ASCII decimal digits; split positions fit the current digit length.
+        {analysis -175}
+        Text := CONCAT(LEFT(Digits, DecimalPosition), '.');
+        Text := CONCAT(Text, RIGHT(Digits, DigitLength - DecimalPosition));
+        {analysis +175}
+    END_IF;
+ELSIF (DecimalExponent < 0) AND (DecimalExponent >= -4) THEN
+    Text := '0.';
+    FOR Index := 1 TO -DecimalExponent - 1 DO
+        Text := CONCAT(Text, '0');
+    END_FOR;
+    Text := CONCAT(Text, Digits);
+ELSE
+    // SA0175: Generated ASCII decimal digits; split positions fit the current digit length.
+    {analysis -175}
+    Text := LEFT(Digits, 1);
+    {analysis +175}
+    IF DigitLength > 1 THEN
+        Text := CONCAT(Text, '.');
+        // SA0175: Generated ASCII decimal digits; split positions fit the current digit length.
+        {analysis -175}
+        Text := CONCAT(Text, RIGHT(Digits, DigitLength - 1));
+        {analysis +175}
+    END_IF;
+    Text := CONCAT(Text, 'E');
+    IF DecimalExponent >= 0 THEN
+        Text := CONCAT(Text, '+');
+    END_IF;
+    ExponentText := INT_TO_STRING(DecimalExponent);
+    Text := CONCAT(Text, ExponentText);
+END_IF;
+IF Negative THEN
+    Text := CONCAT('-', Text);
+END_IF;
+CreateAssertionTextValue_BinaryFloat := Text;
+{endregion}]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertContains_String" Id="{f44616ac-c986-4686-b011-b93ab3fd6d72}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether text contains the expected fragment, case-sensitively.</summary>
+<description>
+
+Read-only text must remain stable during the call and fit the configured Param_Assertions
+text capacity. Invalid references or a missing terminator within that capacity report
+Error.
+
+The searched fragment, prefix or suffix must be nonempty; empty search text reports
+Error. Matching is case-sensitive, without trimming or wildcard rules.
+
+Diagnostic previews are shortened; the comparison still covers the complete validated
+text.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertContains_String EXTENDS AssertionBase
+VAR_IN_OUT CONSTANT
+    IN : STRING(Param_Assertions.AssertionStringLength); //! Actual text; must remain stable during the call.
+    Fragment : STRING(Param_Assertions.AssertionStringLength); //! Nonempty expected fragment; must remain stable during the call.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{6c74a363-4a32-46d9-95a2-4f5dc0b763d0}" />
+    <Method Name="Assert" Id="{b2be582c-d452-48aa-be79-3e1774180dc0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates inputs before comparing and escalating the result.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    FragmentText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Fragment) THEN
+    Error(Message := 'Assertion error: Fragment reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := IN) THEN
+    Error(Message := 'Assertion error: IN exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := Fragment) THEN
+    Error(Message := 'Assertion error: Fragment exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+IF Fragment = '' THEN
+    Error(Message := 'Assertion error: Fragment must not be empty.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF NOT TextContains_String(Value := IN,
+    Fragment := Fragment) THEN
+    FragmentText := CreateAssertionTextValue_String(Value := Fragment);
+    ActualText := CreateAssertionTextValue_String(Value := IN);
+    Message := CONCAT('Assertion failed: text does not contain expected fragment. Fragment = ',
+        FragmentText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

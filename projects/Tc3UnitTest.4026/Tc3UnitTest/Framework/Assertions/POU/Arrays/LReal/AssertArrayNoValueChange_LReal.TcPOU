@@ -1,0 +1,247 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayNoValueChange_LReal" Id="{bdff8b43-2ae3-4d04-b72d-2b6a89c85d5b}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Captures one snapshot until Reset; Disable/Re-Enable never replaces it.</summary>
+<description>
+
+Disabling observation preserves the original snapshot. Re-enabling requires a fresh
+preceding observation before comparisons resume; it does not replace that snapshot.
+
+StartIndex is an absolute IN index and Length selects 1..255 elements within IN. Memory
+must have at least Length elements from its own lower bound. Invalid references or ranges
+report Error.
+
+The caller provides dedicated writable Memory that must not overlap IN; overlap is not
+checked. Keep bindings, selected range and snapshot contents stable until Reset. Reset
+invalidates the snapshot without clearing Memory bytes.
+
+Snapshot capture rejects NaN with Error but accepts either infinity. Later NaN is a
+mismatch; equal signed infinities match.
+
+Tolerance is absolute, in the same units as the values, finite and non-negative. Its
+default zero requests exact comparison. The equality boundary is inclusive; larger differences
+are unequal. Difference checking avoids overflow for large finite operands.
+
+Numeric diagnostics use the formatter's default six significant digits; rounding affects
+the message only, not the comparison.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayNoValueChange_LReal EXTENDS AssertionBase
+VAR_INPUT
+    Tolerance : LREAL := 0.0; //! Maximum absolute allowed difference; finite and non-negative.
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of monitored elements, from 1 through 255.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF LREAL; //! Read-only actual data; the selected range must remain stable during the call.
+END_VAR
+VAR_IN_OUT
+    Memory : ARRAY[*] OF LREAL; //! Dedicated snapshot storage; only this assertion writes its selected elements.
+END_VAR
+VAR
+    FSnapshotValid : BOOL;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{f9ba491a-6bab-4664-9f17-d223740939d5}" />
+    <Method Name="Assert" Id="{aeb002f4-e766-42d3-af31-6b57dbbcb14e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Capture once or compare against the retained snapshot after range validation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    ReferenceValue : LREAL;
+    ValuesEqual : BOOL;
+    Value : LREAL;
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    MemoryLowerIndex : DINT;
+    MemoryUpperIndex : DINT;
+    MemoryEndIndex : LINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    MemoryIndex : DINT;
+    Message : STRING(GVL_Constants.MessageLength);
+    ReferenceText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious AND FSnapshotValid;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Memory) THEN
+    Error(Message := 'Assertion error: Memory reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT Tc2_Utilities.LrealIsFinite(x := Tolerance) THEN
+    Error(Message := 'Assertion error: Tolerance must be finite.');
+    RETURN;
+END_IF;
+
+IF Tolerance < 0.0 THEN
+    Error(Message := 'Assertion error: Tolerance must not be negative.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+MemoryLowerIndex := LOWER_BOUND(Memory, 1);
+MemoryUpperIndex := UPPER_BOUND(Memory, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+MemoryEndIndex := DINT_TO_LINT(MemoryLowerIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex))
+    OR (MemoryEndIndex > DINT_TO_LINT(MemoryUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array or memory range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', EndIndex = ');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF NOT FSnapshotValid THEN
+    FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+        Value := IN[InIndex];
+        IF Tc2_Utilities.LrealIsNaN(x := Value) THEN
+            Message := CONCAT('Assertion error: snapshot cannot contain NaN. IN index = ',
+                DINT_TO_STRING(InIndex));
+            Message := CONCAT(Message, '.');
+            Error(Message := Message);
+            RETURN;
+        END_IF;
+    END_FOR;
+    FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+        MemoryIndex := LINT_TO_DINT(DINT_TO_LINT(MemoryLowerIndex) + Offset);
+        Memory[MemoryIndex] := IN[InIndex];
+    END_FOR;
+    FSnapshotValid := TRUE;
+    RETURN;
+END_IF;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    MemoryIndex := LINT_TO_DINT(DINT_TO_LINT(MemoryLowerIndex) + Offset);
+    Value := IN[InIndex];
+    ReferenceValue := Memory[MemoryIndex];
+    ValuesEqual := FALSE;
+    IF NOT Tc2_Utilities.LrealIsNaN(x := Value) THEN
+        IF Value = ReferenceValue THEN
+            ValuesEqual := TRUE;
+        ELSIF Tc2_Utilities.LrealIsFinite(x := Value)
+            AND Tc2_Utilities.LrealIsFinite(x := ReferenceValue) THEN
+            ValuesEqual := IsWithinTolerance_LReal(IN := Value,
+                Expected := ReferenceValue,
+                Tolerance := Tolerance);
+        END_IF;
+    END_IF;
+    IF NOT ValuesEqual THEN
+        Value := Memory[MemoryIndex];
+        IF Tc2_Utilities.LrealIsFinite(x := Value) THEN
+            ReferenceText := CreateAssertionTextValue_LReal(Value := Value);
+        ELSE
+            ReferenceText := '<non-finite>';
+        END_IF;
+        Value := IN[InIndex];
+        IF Tc2_Utilities.LrealIsFinite(x := Value) THEN
+            ActualText := CreateAssertionTextValue_LReal(Value := IN[InIndex]);
+        ELSE
+            ActualText := '<non-finite>';
+        END_IF;
+        Message := CONCAT('Assertion failed: array value changed. Reference[',
+            DINT_TO_STRING(MemoryIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ReferenceText);
+        Message := CONCAT(Message, ', IN[');
+        Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ActualText);
+        Message := CONCAT(Message, '.');
+        Message := CONCAT(Message, ' Tolerance = ');
+        Message := CONCAT(Message, CreateAssertionTextValue_LReal(Value := Tolerance));
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+END_FOR;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{fc14e8ef-387f-4644-be85-5f94747d4954}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has consecutive observation and an existing snapshot.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has consecutive observation and an existing snapshot.]]></Declaration>
+      <Get Name="Get" Id="{4ecbaf3e-5baf-423a-abdc-fa483392bf6d}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{1e6e4619-3534-4b90-a39b-bbc2682fbefe}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Invalidate the snapshot and observation history.</summary>
+<description>
+
+Does not clear external Memory. The next active observation captures a new snapshot
+before comparison.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSnapshotValid := FALSE;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,204 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_RunControlLifecycle" Id="{91c77309-a9ec-4bbe-aed0-f3c4cd9c686d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Groups isolated RunControlBase owner scenarios; the application's real root and publisher remain unchanged.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_RunControlLifecycle EXTENDS TestSuiteBase
+VAR
+    FInitialization : Test_RunControlInitialization;
+    FTaskMapping : Test_RunControlTaskMapping;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+    FNormalRepeat : Test_RunControlNormalLifecycle;
+    FMixedRepeat : Test_RunControlNormalLifecycle;
+    FRequests : Test_RunControlRequests;
+    FRealComposition : Test_RunControlRealComposition;
+    FResetError : Test_RunControlExceptionalLifecycle;
+    FResetTimeout : Test_RunControlExceptionalLifecycle;
+    FResetErrorTimeout : Test_RunControlExceptionalLifecycle;
+    FChildError : Test_RunControlExceptionalLifecycle;
+    FUnexpectedChildAbort : Test_RunControlExceptionalLifecycle;
+    FExecutionError : Test_RunControlExceptionalLifecycle;
+    FExecutionTimeout : Test_RunControlExceptionalLifecycle;
+    FAbort : Test_RunControlExceptionalLifecycle;
+    FAbortError : Test_RunControlExceptionalLifecycle;
+    FAbortTimeout : Test_RunControlExceptionalLifecycle;
+    FAbortErrorTimeout : Test_RunControlExceptionalLifecycle;
+    FZeroDelay : Test_RunControlCompletion;
+    FDefaultDelay : Test_RunControlCompletion;
+    FInvalidTime : Test_RunControlCompletion;
+    FLateResetChildren : Test_RunControlCompletion;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 21;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{69d656ce-7490-4fa2-b2fa-9e42bc0af577}" />
+    <Method Name="Configure" Id="{e63cc2ae-9751-4c7f-80c6-b40e3f0a3f39}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the local root scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FInitialization.Initialize(Parent := THIS^,
+    TestName := 'Initialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FInitialization);
+FTaskMapping.Initialize(Parent := THIS^,
+    TestName := 'TaskMapping',
+    Config := TestConfig);
+Builder.Register(TestCase := FTaskMapping);
+
+FNormalRepeat.Initialize(Parent := THIS^,
+    TestName := 'NormalRepeat',
+    Config := TestConfig);
+Builder.Register(TestCase := FNormalRepeat);
+FMixedRepeat.Initialize(Parent := THIS^,
+    TestName := 'MixedRepeat',
+    Config := TestConfig);
+Builder.Register(TestCase := FMixedRepeat);
+FRequests.Initialize(Parent := THIS^,
+    TestName := 'Requests',
+    Config := TestConfig);
+Builder.Register(TestCase := FRequests);
+
+FResetError.Initialize(Parent := THIS^,
+    TestName := 'ResetError',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetError);
+FResetTimeout.Initialize(Parent := THIS^,
+    TestName := 'ResetTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetTimeout);
+FResetErrorTimeout.Initialize(Parent := THIS^,
+    TestName := 'ResetErrorTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetErrorTimeout);
+FChildError.Initialize(Parent := THIS^,
+    TestName := 'ChildError',
+    Config := TestConfig);
+Builder.Register(TestCase := FChildError);
+FUnexpectedChildAbort.Initialize(Parent := THIS^,
+    TestName := 'UnexpectedChildAbort',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnexpectedChildAbort);
+FExecutionError.Initialize(Parent := THIS^,
+    TestName := 'ExecutionError',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionError);
+FExecutionTimeout.Initialize(Parent := THIS^,
+    TestName := 'ExecutionTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionTimeout);
+FAbort.Initialize(Parent := THIS^,
+    TestName := 'Abort',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbort);
+FAbortError.Initialize(Parent := THIS^,
+    TestName := 'AbortError',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortError);
+FAbortTimeout.Initialize(Parent := THIS^,
+    TestName := 'AbortTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortTimeout);
+FAbortErrorTimeout.Initialize(Parent := THIS^,
+    TestName := 'AbortErrorTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortErrorTimeout);
+
+FZeroDelay.Initialize(Parent := THIS^,
+    TestName := 'ZeroDelay',
+    Config := TestConfig);
+Builder.Register(TestCase := FZeroDelay);
+FDefaultDelay.Initialize(Parent := THIS^,
+    TestName := 'DefaultDelay',
+    Config := TestConfig);
+Builder.Register(TestCase := FDefaultDelay);
+FInvalidTime.Initialize(Parent := THIS^,
+    TestName := 'InvalidTime',
+    Config := TestConfig);
+Builder.Register(TestCase := FInvalidTime);
+FLateResetChildren.Initialize(Parent := THIS^,
+    TestName := 'LateResetChildren',
+    Config := TestConfig);
+Builder.Register(TestCase := FLateResetChildren);
+
+FRealComposition.Initialize(Parent := THIS^,
+    TestName := 'RealComposition',
+    Config := TestConfig);
+Builder.Register(TestCase := FRealComposition);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{2b3ac449-0c70-4e75-b4bb-6ed9c688bdc0}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{c14a1ac8-496b-4742-9855-ee3f4e85f74b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialization();
+FTaskMapping();
+
+FNormalRepeat(FirstChildResult := E_Result.Passed);
+FMixedRepeat(FirstChildResult := E_Result.Failed);
+FRequests();
+
+FResetError(Scenario := E_RunControlLifecycleScenario.ResetError);
+FResetTimeout(Scenario := E_RunControlLifecycleScenario.ResetTimeout);
+FResetErrorTimeout(Scenario := E_RunControlLifecycleScenario.ResetErrorTimeout);
+FChildError(Scenario := E_RunControlLifecycleScenario.ChildError);
+FUnexpectedChildAbort(Scenario := E_RunControlLifecycleScenario.UnexpectedChildAbort);
+FExecutionError(Scenario := E_RunControlLifecycleScenario.ExecutionError);
+FExecutionTimeout(Scenario := E_RunControlLifecycleScenario.ExecutionTimeout);
+FAbort(Scenario := E_RunControlLifecycleScenario.Abort);
+FAbortError(Scenario := E_RunControlLifecycleScenario.AbortError);
+FAbortTimeout(Scenario := E_RunControlLifecycleScenario.AbortTimeout);
+FAbortErrorTimeout(Scenario := E_RunControlLifecycleScenario.AbortErrorTimeout);
+
+FZeroDelay(Scenario := E_RunControlCompletionScenario.ZeroDelay);
+FDefaultDelay(Scenario := E_RunControlCompletionScenario.DefaultDelay);
+FInvalidTime(Scenario := E_RunControlCompletionScenario.InvalidTime);
+FLateResetChildren(Scenario := E_RunControlCompletionScenario.LateResetChildren);
+FRealComposition();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

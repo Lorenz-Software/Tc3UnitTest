@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_Event" Id="{ff95796d-40e9-48de-9816-c2ee72286b7f}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Event payload. Timestamp is UTC Unix nanoseconds; text is ASCII.</summary>
+<description>
+Constructors return unpublished values with SequenceId and Timestamp zero. The publisher assigns both; SequenceId alone governs order and acknowledgements. Nonzero loss makes the log incomplete. StateTransition records its destination; Framework diagnostics may record the related existing state instead.
+</description>
+*)
+{endregion}
+TYPE ST_Event :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SequenceId : UDINT := 0; //! Producer-assigned event sequence within the current buffer epoch; zero is not a published event.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Timestamp : LINT := 0; //! UTC Unix timestamp in nanoseconds, assigned on publication.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    OwnerScope : E_OwnerScope := E_OwnerScope.Unknown; //! Semantic owner or technical diagnostic scope; independent of the event type.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    EventType : E_EventType := E_EventType.Unknown; //! Payload category used by the consumer to interpret this event.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Severity : E_EventSeverity := E_EventSeverity.Info; //! Logging severity, independent of Result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Name : STRING(GVL_Constants.NameLength) := ''; //! Hierarchical ASCII owner identity within NameLength.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional ASCII resource context; empty when not supplied.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    State : E_State := E_State.Uninitialized; //! Owner state associated with the event; transitions record their destination.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Result : E_Result := E_Result.NotEvaluated; //! Evaluation result associated with the event; numeric order is not severity order.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Message : STRING(GVL_Constants.MessageLength) := ''; //! ASCII diagnostic or category-specific payload text within MessageLength.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

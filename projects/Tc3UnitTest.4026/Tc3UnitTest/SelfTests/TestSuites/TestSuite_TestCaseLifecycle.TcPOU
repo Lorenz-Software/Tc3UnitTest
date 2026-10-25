@@ -1,0 +1,246 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_TestCaseLifecycle" Id="{3d9b9b11-141c-4a50-8d1e-f1caea9e42b5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies the real Test Case lifecycle through isolated subjects and serial checking Test Cases.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_TestCaseLifecycle EXTENDS TestSuiteBase
+VAR
+    FInitialization : Test_LifecycleInitialization;
+    FWithoutPreparation : Test_LifecycleWithoutPreparation;
+    FSinglePreparation : Test_LifecycleSinglePreparation;
+    FMultipleStates : Test_LifecycleMultipleStates;
+    FAlreadyPrepared : Test_LifecycleAlreadyPrepared;
+    FFailedResult : Test_LifecycleFailedResult;
+    FAbort : Test_LifecycleAbort;
+    FAbortError : Test_LifecycleAbortError;
+    FAbortTimeout : Test_LifecycleAbortTimeout;
+    FExecutionTimeout : Test_LifecycleExecutionTimeout;
+    FPreparationError : Test_LifecyclePreparationError;
+    FPreparationTimeout : Test_LifecyclePreparationTimeout;
+    FResetError : Test_LifecycleResetError;
+    FResetTimeout : Test_LifecycleResetTimeout;
+    FResetDuringExecution : Test_LifecycleResetDuringExecution;
+    FFailedToError : Test_LifecycleFailedToError;
+    FInvalidTestAdvance : Test_LifecycleInvalidTestAdvance;
+    FInvalidPreparationTransition : Test_LifecycleInvalidPreparationTransition;
+    FRepeatAfterPassed : Test_LifecycleRepeatAfterPassed;
+    FRepeatAfterFailed : Test_LifecycleRepeatAfterFailed;
+    FRepeatAfterError : Test_LifecycleRepeatAfterError;
+    FRepeatAfterAbort : Test_LifecycleRepeatAfterAbort;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 22;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{84073cc6-92b1-4b24-88c3-94aba0acb74e}" />
+    <Method Name="Configure" Id="{a6659604-5579-4200-855c-832aee413ff8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds subject identity before outer initialization and registers deterministic serial order.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+
+FInitialization.BindSubjectParent(Parent := THIS^);
+FInitialization.Initialize(Parent := THIS^,
+    TestName := 'Initialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FInitialization);
+
+FWithoutPreparation.BindSubjectParent(Parent := THIS^);
+FWithoutPreparation.Initialize(Parent := THIS^,
+    TestName := 'WithoutPreparation',
+    Config := TestConfig);
+Builder.Register(TestCase := FWithoutPreparation);
+
+FSinglePreparation.BindSubjectParent(Parent := THIS^);
+FSinglePreparation.Initialize(Parent := THIS^,
+    TestName := 'SinglePreparation',
+    Config := TestConfig);
+Builder.Register(TestCase := FSinglePreparation);
+
+FMultipleStates.BindSubjectParent(Parent := THIS^);
+FMultipleStates.Initialize(Parent := THIS^,
+    TestName := 'MultipleStates',
+    Config := TestConfig);
+Builder.Register(TestCase := FMultipleStates);
+
+FAlreadyPrepared.BindSubjectParent(Parent := THIS^);
+FAlreadyPrepared.Initialize(Parent := THIS^,
+    TestName := 'AlreadyPrepared',
+    Config := TestConfig);
+Builder.Register(TestCase := FAlreadyPrepared);
+
+FFailedResult.BindSubjectParent(Parent := THIS^);
+FFailedResult.Initialize(Parent := THIS^,
+    TestName := 'FailedResult',
+    Config := TestConfig);
+Builder.Register(TestCase := FFailedResult);
+
+FAbort.BindSubjectParent(Parent := THIS^);
+FAbort.Initialize(Parent := THIS^,
+    TestName := 'Abort',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbort);
+
+FAbortError.BindSubjectParent(Parent := THIS^);
+FAbortError.Initialize(Parent := THIS^,
+    TestName := 'AbortError',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortError);
+
+FAbortTimeout.BindSubjectParent(Parent := THIS^);
+FAbortTimeout.Initialize(Parent := THIS^,
+    TestName := 'AbortTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortTimeout);
+
+FExecutionTimeout.BindSubjectParent(Parent := THIS^);
+FExecutionTimeout.Initialize(Parent := THIS^,
+    TestName := 'ExecutionTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionTimeout);
+
+FPreparationError.BindSubjectParent(Parent := THIS^);
+FPreparationError.Initialize(Parent := THIS^,
+    TestName := 'PreparationError',
+    Config := TestConfig);
+Builder.Register(TestCase := FPreparationError);
+
+FPreparationTimeout.BindSubjectParent(Parent := THIS^);
+FPreparationTimeout.Initialize(Parent := THIS^,
+    TestName := 'PreparationTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FPreparationTimeout);
+
+FResetError.BindSubjectParent(Parent := THIS^);
+FResetError.Initialize(Parent := THIS^,
+    TestName := 'ResetError',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetError);
+
+FResetTimeout.BindSubjectParent(Parent := THIS^);
+FResetTimeout.Initialize(Parent := THIS^,
+    TestName := 'ResetTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetTimeout);
+
+FResetDuringExecution.BindSubjectParent(Parent := THIS^);
+FResetDuringExecution.Initialize(Parent := THIS^,
+    TestName := 'ResetDuringExecution',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetDuringExecution);
+
+FFailedToError.BindSubjectParent(Parent := THIS^);
+FFailedToError.Initialize(Parent := THIS^,
+    TestName := 'FailedToError',
+    Config := TestConfig);
+Builder.Register(TestCase := FFailedToError);
+
+FInvalidTestAdvance.BindSubjectParent(Parent := THIS^);
+FInvalidTestAdvance.Initialize(Parent := THIS^,
+    TestName := 'InvalidTestAdvance',
+    Config := TestConfig);
+Builder.Register(TestCase := FInvalidTestAdvance);
+
+FInvalidPreparationTransition.BindSubjectParent(Parent := THIS^);
+FInvalidPreparationTransition.Initialize(Parent := THIS^,
+    TestName := 'InvalidPreparationTransition',
+    Config := TestConfig);
+Builder.Register(TestCase := FInvalidPreparationTransition);
+
+FRepeatAfterPassed.BindSubjectParent(Parent := THIS^);
+FRepeatAfterPassed.Initialize(Parent := THIS^,
+    TestName := 'RepeatAfterPassed',
+    Config := TestConfig);
+Builder.Register(TestCase := FRepeatAfterPassed);
+
+FRepeatAfterFailed.BindSubjectParent(Parent := THIS^);
+FRepeatAfterFailed.Initialize(Parent := THIS^,
+    TestName := 'RepeatAfterFailed',
+    Config := TestConfig);
+Builder.Register(TestCase := FRepeatAfterFailed);
+
+FRepeatAfterError.BindSubjectParent(Parent := THIS^);
+FRepeatAfterError.Initialize(Parent := THIS^,
+    TestName := 'RepeatAfterError',
+    Config := TestConfig);
+Builder.Register(TestCase := FRepeatAfterError);
+
+FRepeatAfterAbort.BindSubjectParent(Parent := THIS^);
+FRepeatAfterAbort.Initialize(Parent := THIS^,
+    TestName := 'RepeatAfterAbort',
+    Config := TestConfig);
+Builder.Register(TestCase := FRepeatAfterAbort);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{89021e2f-1a0d-4f40-9353-74f7efad48de}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resolves the same array that Configure registered.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{65fb3228-311b-4fbb-a0f6-a2eb32576c6c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned checking Test Case once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialization();
+FWithoutPreparation();
+FSinglePreparation();
+FMultipleStates();
+FAlreadyPrepared();
+FFailedResult();
+FAbort();
+FAbortError();
+FAbortTimeout();
+FExecutionTimeout();
+FPreparationError();
+FPreparationTimeout();
+FResetError();
+FResetTimeout();
+FResetDuringExecution();
+FFailedToError();
+FInvalidTestAdvance();
+FInvalidPreparationTransition();
+FRepeatAfterPassed();
+FRepeatAfterFailed();
+FRepeatAfterError();
+FRepeatAfterAbort();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

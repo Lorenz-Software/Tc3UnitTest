@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_RunControlStatus" Id="{7bfcac82-594a-4316-bbf1-649b85bf9ddb}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregated child execution counts and elapsed owner duration.</summary>
+<description>
+Execution and result counters are different observations, not disjoint categories to sum. Child calls and counters continue after the root result and final event payload have been held. Runtime is the root's active execution interval, including waits, projected to saturating TIME milliseconds; it is not the sum of Suite durations or the completion delay.
+</description>
+*)
+{endregion}
+TYPE ST_RunControlStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Execution : ST_ExecutionStatus; //! Owner lifecycle, readiness, result and error snapshot.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountTotal : UINT := 0; //! Total number of Suites in the current collection.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountInactive : UINT := 0; //! Number of children observed inactive.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountIdle : UINT := 0; //! Number of children observed Idle.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountRunning : UINT := 0; //! Number of children observed running.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountCompleted : UINT := 0; //! Number of children observed completed, irrespective of outcome.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountPassed : UINT := 0; //! Number of Suites with Passed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountFailed : UINT := 0; //! Number of Suites with Failed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    SuiteCountError : UINT := 0; //! Number of Suites reporting an error.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Runtime : TIME := T#0ms; //! Elapsed execution duration projected to TIME milliseconds; not a timeout configuration.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

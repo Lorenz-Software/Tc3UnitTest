@@ -1,0 +1,71 @@
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Prepare_ValueAtTarget" Id="{379efb65-a5de-4557-8a28-2aa295fbf4ab}" SpecialFunc="None">
+    <Declaration>{region 'Documentation'}
+(*!
+&lt;summary&gt;Establishes the requested and observed value of a simulated resource.&lt;/summary&gt;
+*)
+{endregion}
+FUNCTION_BLOCK Prepare_ValueAtTarget EXTENDS Tc3UnitTest.PreparationBase
+VAR_INPUT
+    ActualValue : DINT; //! Current resource feedback; this Preparation does not write it.
+    TargetValue : DINT; //! Requested pre-test target, held stable during the Preparation phase.
+    ResourceError : BOOL; //! TRUE reports that the resource cannot continue meaningfully.
+END_VAR
+VAR_IN_OUT
+    RequestedValue : DINT; //! Resource command written only while enabled; a write does not establish feedback.
+END_VAR</Declaration>
+    <Implementation>
+      <ST>SUPER^();</ST>
+    </Implementation>
+    <Method Name="Prepare" Id="{c4557af1-b9bf-410c-b290-7f3a7bf5f635}">
+      <Declaration>{region 'Documentation'}
+(*!
+&lt;summary&gt;Drives only while enabled and publishes the current target observation.&lt;/summary&gt;
+*)
+{endregion}
+METHOD PROTECTED Prepare
+VAR
+    ObservedState : Tc3UnitTest.E_State;
+    ObservedExecutionStatus : Tc3UnitTest.E_ExecutionStatus;
+END_VAR</Declaration>
+      <Implementation>
+        <ST>// C0371: validate the FB binding before accessing it from this hook.
+{warning disable C0371}
+IF NOT __ISVALIDREF(RequestedValue) THEN
+    UpdateStatus(State := Tc3UnitTest.E_State.Error,
+        ExecutionStatus := Tc3UnitTest.E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF ResourceError THEN
+    UpdateStatus(State := Tc3UnitTest.E_State.Error,
+        ExecutionStatus := Tc3UnitTest.E_ExecutionStatus.Error,
+        Ready := FALSE);
+    RETURN;
+END_IF;
+
+IF Enabled AND (RequestedValue &lt;&gt; TargetValue) THEN
+    RequestedValue := TargetValue;
+END_IF;
+
+IF (ActualValue = TargetValue) AND (RequestedValue = TargetValue) THEN
+    ObservedState := Tc3UnitTest.E_State.Completed;
+    ObservedExecutionStatus := Tc3UnitTest.E_ExecutionStatus.Completed;
+ELSIF Enabled THEN
+    ObservedState := Tc3UnitTest.E_State.Running;
+    ObservedExecutionStatus := Tc3UnitTest.E_ExecutionStatus.Running;
+ELSE
+    ObservedState := Tc3UnitTest.E_State.Idle;
+    ObservedExecutionStatus := Tc3UnitTest.E_ExecutionStatus.Idle;
+END_IF;
+
+{warning restore C0371}
+
+UpdateStatus(State := ObservedState,
+    ExecutionStatus := ObservedExecutionStatus,
+    Ready := ObservedExecutionStatus &lt;&gt; Tc3UnitTest.E_ExecutionStatus.Running);</ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

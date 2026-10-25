@@ -1,0 +1,153 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_ParallelResetOverlappingExecution" Id="{dc1eed08-519c-4e3e-a112-d8865b8432e4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets overlapping parallel children and an already completed child without issuing further Starts.</summary>
+<description>
+Two children are running when the third completes immediately. Owner-selected Reset
+replaces each execution reservation through the child's Reset reservation method.
+Independent reset completion retains unfinished reservations and returns to ready Idle
+only after all children finish.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_ParallelResetOverlappingExecution EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{7c70b1b2-daaa-4e87-a1b9-9e3f3461630d}" />
+    <Method Name="ConfigureScenario" Id="{98cd4acf-34c7-485b-8a61-fefad69d2b8a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines reachable child responses and independent per-cycle expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 1;
+FStepCount := 12;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Start child 2 concurrently"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[2].State := E_State.Running;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].ExpectedStartChild := 2;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].MaxActiveChildCount := 2;
+{endregion}
+
+{region "04 - Start child 3 which completes immediately"}
+FSteps[4].Children[1].State := E_State.Running;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[2].State := E_State.Running;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].Children[3].State := E_State.Completed;
+FSteps[4].Children[3].Ready := FALSE;
+FSteps[4].Children[3].Complete := TRUE;
+FSteps[4].Children[3].Result := E_Result.Passed;
+FSteps[4].ExpectedStartChild := 3;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+FSteps[4].ExpectedReservations[2] := 1;
+FSteps[4].ExpectedReservations[3] := 1;
+FSteps[4].MaxActiveChildCount := 3;
+{endregion}
+
+{region "05 - Owner selects Reset and resets active child 1"}
+FSteps[5].Task := E_OrchestratorTask.Reset;
+FSteps[5].Children[1].State := E_State.Reset;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[2].State := E_State.Running;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[3].State := E_State.Completed;
+FSteps[5].Children[3].Ready := FALSE;
+FSteps[5].Children[3].Complete := TRUE;
+FSteps[5].Children[3].Result := E_Result.Passed;
+FSteps[5].ExpectedResetChild := 1;
+FSteps[5].ExpectedReservations[1] := 1;
+FSteps[5].ExpectedReservations[2] := 1;
+FSteps[5].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "06 - Reset child 2 while child 1 is still resetting"}
+FSteps[6].Task := E_OrchestratorTask.Reset;
+FSteps[6].Children[1].State := E_State.Reset;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[2].State := E_State.Reset;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].Children[3].State := E_State.Completed;
+FSteps[6].Children[3].Ready := FALSE;
+FSteps[6].Children[3].Complete := TRUE;
+FSteps[6].Children[3].Result := E_Result.Passed;
+FSteps[6].ExpectedResetChild := 2;
+FSteps[6].ExpectedReservations[1] := 1;
+FSteps[6].ExpectedReservations[2] := 1;
+FSteps[6].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "07 - Reset completed child 3 while child 1 reaches Idle"}
+FSteps[7].Task := E_OrchestratorTask.Reset;
+FSteps[7].Children[2].State := E_State.Reset;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[3].State := E_State.Reset;
+FSteps[7].Children[3].Ready := FALSE;
+FSteps[7].ExpectedResetChild := 3;
+FSteps[7].ExpectedReservations[1] := 1;
+FSteps[7].ExpectedReservations[2] := 1;
+FSteps[7].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "08 - Release child 1 while child 2 reaches Idle"}
+FSteps[8].Task := E_OrchestratorTask.Reset;
+FSteps[8].Children[3].State := E_State.Reset;
+FSteps[8].Children[3].Ready := FALSE;
+FSteps[8].ExpectedReservations[2] := 1;
+FSteps[8].ExpectedReservations[3] := 1;
+FSteps[8].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "09 - Release child 2 while child 3 reaches Idle"}
+FSteps[9].Task := E_OrchestratorTask.Reset;
+FSteps[9].ExpectedReservations[3] := 1;
+FSteps[9].ExpectedReleasedEntries[2] := 1;
+{endregion}
+
+{region "10 - Release final reservation and report Reset finished"}
+FSteps[10].Task := E_OrchestratorTask.Reset;
+FSteps[10].ExpectedResetFinished := TRUE;
+FSteps[10].ExpectedReleasedEntries[3] := 1;
+{endregion}
+
+{region "11 - Repeated Reset retains completion without redispatch"}
+FSteps[11].Task := E_OrchestratorTask.Reset;
+FSteps[11].ExpectedResetFinished := TRUE;
+{endregion}
+
+{region "12 - Owner selects Idle and observes restored readiness"}
+FSteps[12].Task := E_OrchestratorTask.Idle;
+FSteps[12].ExpectedReady := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

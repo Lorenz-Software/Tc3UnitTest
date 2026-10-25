@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_OrchestratorNegativeBounds" Id="{c0e083f5-f845-496c-99b7-7daf0a68e68a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the same execution trace with actual indices -3 through -1.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_OrchestratorNegativeBounds EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{74b5ad6d-492f-4c41-a7a2-70d400646c50}" />
+    <Method Name="ConfigureScenario" Id="{f9a33a95-b838-4ddc-b035-47cc7977230e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.Negative;
+FChildCount := 3;
+ConfigureStandardSequence();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

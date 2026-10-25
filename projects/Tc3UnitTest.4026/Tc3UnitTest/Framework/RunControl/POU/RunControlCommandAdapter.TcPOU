@@ -1,0 +1,71 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="RunControlCommandAdapter" Id="{adb0eb8b-71ac-4575-a3b1-91356339ea22}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Qualifies external lifecycle commands and forwards requests before the Run Control FB call.</summary>
+<description>
+Initialize with the selected ControlData at PLC startup before the first cyclic call.
+Requires a valid Run Control interface and its actual command storage, with stable cyclic wiring.
+
+Call once before the matching concrete Run Control in the same task. A lifecycle bit must be TRUE in two consecutive adapter samples before it is forwarded and cleared. Multiple accepted bits are all forwarded; Run Control later applies Reset over Abort over Start. Initialize clears both lifecycle and Buffer commands at startup, while regular calls handle only lifecycle bits. There is no null-interface check or automatic storage-identity validation; the application owns valid, stable wiring.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK RunControlCommandAdapter
+VAR_INPUT
+    // SA0027: Parameter denotes the supplied owner interface, not the concrete RunControl FB.
+    {attribute 'analysis' := '-27'}
+    RunControl : I_RunControl; //! Nonzero request recipient matching Commands storage; an uninitialized owner discards forwarded requests.
+END_VAR
+VAR_IN_OUT
+    Commands : ST_Command; //! Actual external lifecycle-command storage; commands are qualified, forwarded and cleared in place.
+END_VAR
+VAR
+    FPreviousCommands : ST_Command;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF Commands.Reset AND FPreviousCommands.Reset THEN
+    RunControl.RequestReset();
+    Commands.Reset := FALSE;
+END_IF;
+
+IF Commands.Abort AND FPreviousCommands.Abort THEN
+    RunControl.RequestAbort();
+    Commands.Abort := FALSE;
+END_IF;
+
+IF Commands.Start AND FPreviousCommands.Start THEN
+    RunControl.RequestStart();
+    Commands.Start := FALSE;
+END_IF;
+
+FPreviousCommands := Commands;]]></ST>
+    </Implementation>
+    <Method Name="Initialize" Id="{b65bf596-36db-4d3b-8bae-b45410f544eb}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears external commands and sampling history once at PLC startup, before Event Buffer/hierarchy initialization.</summary>
+<description>
+Preserves Name and Status; does not use cyclic inputs, invoke requests or execute buffer operations.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Initialize
+VAR_IN_OUT
+    ControlData : ST_RunControl; //! External Run Control storage; Initialize clears Cmd and BufferCmd without changing Name or Status.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ControlData.Cmd.Start := FALSE;
+ControlData.Cmd.Abort := FALSE;
+ControlData.Cmd.Reset := FALSE;
+ControlData.BufferCmd.Reset := FALSE;
+ControlData.BufferCmd.DeleteSequenceId := 0;
+
+FPreviousCommands.Start := FALSE;
+FPreviousCommands.Abort := FALSE;
+FPreviousCommands.Reset := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

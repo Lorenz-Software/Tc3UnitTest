@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestCaseStatus" Id="{3995435c-8ecf-4638-b805-cc73cdc4bccc}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Test Case status and lifecycle-capacity metadata.</summary>
+<description>
+Counts and lifecycle fields are refreshed during regular calls; Assertion results continue to be collected after Completed while the final owner result and emitted payload remain held. Total includes all contributed results, including NotEvaluated and Abort. State counts are validated projections: zero may also reflect an unset/invalid backing count; require successful initialization before using metadata for admission. Runtime is active owner duration in saturating TIME milliseconds, not summed child durations. External publication requires an explicit data wrapper, not owner instance symbols.
+</description>
+*)
+{endregion}
+TYPE ST_TestCaseStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Execution : ST_TestCaseExecutionStatus; //! Owner lifecycle, readiness, result and error snapshot.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    PreparationStateCount : UINT := 0; //! Configured number of Preparation states; zero means no Preparation phase.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestStateCount : UINT := 0; //! Configured number of Test states; at least one after successful initialization.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    AssertionCountTotal : UINT := 0; //! Total number of Assertion contributions in the current collection.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    AssertionCountPassed : UINT := 0; //! Number of Assertion contributions with Passed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    AssertionCountFailed : UINT := 0; //! Number of Assertion contributions with Failed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    AssertionCountError : UINT := 0; //! Number of Assertion contributions with Error result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Runtime : TIME := T#0ms; //! Elapsed execution duration projected to TIME milliseconds; not a timeout configuration.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

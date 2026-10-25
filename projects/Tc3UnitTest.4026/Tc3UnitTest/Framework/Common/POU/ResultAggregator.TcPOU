@@ -1,0 +1,173 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="ResultAggregator" Id="{e97c5183-557c-4e2d-b99c-61de0ceb7ba9}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Incrementally collect results through methods; no cyclic FB call is required. Reset starts an empty collection; Add methods always contribute. Each contribution counts once; the owner limits each collection to the UINT range.</summary>
+<description>
+Use Reset before each new collection and contribute each intended provider/result exactly once. AddProvider reads immediately and retains no interface. Error has highest precedence but does not stop later counter updates. TotalCount includes NotEvaluated and Abort contributions, so PassedCount, FailedCount and ErrorCount do not necessarily sum to TotalCount. The caller keeps a collection within 65535 contributions; counters are not saturating. This object emits no events and does not execute providers.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ResultAggregator IMPLEMENTS I_ResultAggregator
+VAR
+    FResult : E_Result := E_Result.NotEvaluated;
+    FTotalCount : UINT;
+    FPassedCount : UINT;
+    FFailedCount : UINT;
+    FErrorCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="AddProvider" Id="{91a68725-8993-405b-bd24-8d24e7ee23ee}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adds one provider result; a null provider contributes one Error. Reads the result immediately; no reference is retained.</summary>
+*)
+{endregion}
+METHOD PUBLIC AddProvider
+VAR_INPUT
+    Provider : I_ResultProvider; //! Result provider read immediately; zero contributes Error. No reference is retained.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Provider = 0 THEN
+    AddResult(Result := E_Result.Error);
+    RETURN;
+END_IF;
+AddResult(Result := Provider.Result);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AddResult" Id="{e0113b7f-a51e-43f8-a8ba-0e7db5ea9de5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts one contribution and combines Error &gt; Abort &gt; Failed &gt; Passed &gt; NotEvaluated.</summary>
+*)
+{endregion}
+METHOD PUBLIC AddResult
+VAR_INPUT
+    Result : E_Result; //! Evaluation result to count as one contribution; severity is Error > Abort > Failed > Passed > NotEvaluated.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTotalCount := FTotalCount + 1;
+CASE Result OF
+    E_Result.Passed:
+        FPassedCount := FPassedCount + 1;
+    E_Result.Failed:
+        FFailedCount := FFailedCount + 1;
+    E_Result.Error:
+        FErrorCount := FErrorCount + 1;
+END_CASE;
+
+IF FResult = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+CASE Result OF
+    E_Result.NotEvaluated:
+        RETURN;
+    E_Result.Passed:
+        IF FResult = E_Result.NotEvaluated THEN
+            FResult := Result;
+        END_IF;
+    E_Result.Failed:
+        IF FResult <> E_Result.Abort THEN
+            FResult := Result;
+        END_IF;
+    E_Result.Abort, E_Result.Error:
+        FResult := Result;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ErrorCount" Id="{e4db7d92-9e42-47cd-9fd9-000000000010}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of accepted Error contributions.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ErrorCount : UINT //! Number of accepted Error contributions.]]></Declaration>
+      <Get Name="Get" Id="{e4db7d92-9e42-47cd-9fd9-000000000011}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ErrorCount := FErrorCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="FailedCount" Id="{e4db7d92-9e42-47cd-9fd9-000000000008}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of accepted Failed contributions.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC FailedCount : UINT //! Number of accepted Failed contributions.]]></Declaration>
+      <Get Name="Get" Id="{e4db7d92-9e42-47cd-9fd9-000000000009}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[FailedCount := FFailedCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="PassedCount" Id="{e4db7d92-9e42-47cd-9fd9-000000000006}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of accepted Passed contributions.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC PassedCount : UINT //! Number of accepted Passed contributions.]]></Declaration>
+      <Get Name="Get" Id="{e4db7d92-9e42-47cd-9fd9-000000000007}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[PassedCount := FPassedCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Reset" Id="{71475d21-3022-42b9-b8ab-88ba8a22c64d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Starts an empty collection by clearing result and counters immediately.</summary>
+*)
+{endregion}
+METHOD PUBLIC Reset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResult := E_Result.NotEvaluated;
+FTotalCount := 0;
+FPassedCount := 0;
+FFailedCount := 0;
+FErrorCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Result" Id="{76553a6c-b993-4b76-80cc-1df08d3f07c9}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current aggregate; an empty collection is NotEvaluated.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Current aggregate; an empty collection is NotEvaluated.]]></Declaration>
+      <Get Name="Get" Id="{ba636d45-1cd0-4539-ae33-3505e4320e78}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="TotalCount" Id="{e4db7d92-9e42-47cd-9fd9-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Number of accepted contributions, including NotEvaluated and Abort.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TotalCount : UINT //! Number of accepted contributions, including NotEvaluated and Abort.]]></Declaration>
+      <Get Name="Get" Id="{e4db7d92-9e42-47cd-9fd9-000000000005}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TotalCount := FTotalCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

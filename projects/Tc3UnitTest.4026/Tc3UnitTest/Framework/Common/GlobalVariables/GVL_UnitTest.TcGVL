@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <GVL Name="GVL_UnitTest" Id="{8bbaf80e-6da9-4775-a532-9af7abb6e3c2}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Library-owned PLC/PC communication storage; only command fields are consumer-writable.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'linkalways'}
+VAR_GLOBAL
+    {attribute 'OPC.UA.DA' := '1'}
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    // SA0027: Qualified communication symbol; intentionally named independently of the concrete FB.
+    {attribute 'analysis' := '-27'}
+    RunControl : ST_RunControlCommunication := (ContractInfo := (
+        ContractVersion := GVL_Constants.DirectAccessContractVersion,
+        FrameworkVersion := GetFrameworkVersion())); //! Published lifecycle command/status storage; only command members are consumer-writable.
+
+    {attribute 'OPC.UA.DA' := '1'}
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    EventStream : ST_EventStream := (ContractInfo := (
+        ContractVersion := GVL_Constants.EventStreamContractVersion,
+        FrameworkVersion := GetFrameworkVersion())); //! Published producer-owned event data and metadata; consumers acknowledge through RunControl.ControlData.BufferCmd.
+END_VAR]]></Declaration>
+  </GVL>
+</TcPlcObject>

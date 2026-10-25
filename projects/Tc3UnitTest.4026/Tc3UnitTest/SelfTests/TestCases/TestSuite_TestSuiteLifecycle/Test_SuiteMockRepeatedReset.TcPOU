@@ -1,0 +1,279 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SuiteMockRepeatedReset" Id="{a76a07a6-64bb-4b90-9288-5dd3fc1585c4}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies automatic mock Reset completion despite a second Reset request.</summary>
+<description>
+Each Reset retains its initial entry call, then reaches Idle on the next call even with
+another request. A no-request call holds Idle before a second interval repeats the check.
+The inherited mock owns all processing. A thin adapter only routes its events to local capture.
+Checks cover coherent state/result/readiness, zero child counters, two Reset/Idle transitions,
+reservation release and no lost events. Outer Assertions use the normal selftest publisher.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SuiteMockRepeatedReset EXTENDS TestCaseBase
+VAR
+    FSubjectParent : I_RunControl;
+    FSubject : TestSuiteMockProbe;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT;
+    FStepChecked : BOOL;
+    FProgress : AssertTrue;
+    FProgressMatches : BOOL := TRUE;
+    FEvidence : AssertTrue;
+    FEvidenceMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 32;
+    Setup : INT := 0;
+    RequestFirst : INT := 1;
+    RepeatFirst : INT := 2;
+    HoldIdle : INT := 3;
+    RequestAgain : INT := 4;
+    RepeatAgain : INT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{46683d84-8d30-4eab-973a-86e5ebcda972}" />
+    <Method Name="AggregateResults" Id="{8b8235bb-e49e-485c-8ca2-a8cfe144c967}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes the checking Assertions and excludes the isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink; contribute checks without resetting or retaining it.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FProgress);
+Aggregator.AddProvider(Provider := FEvidence);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{f1db2356-ccd2-4ca2-aa25-8b66217cdff8}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Retains the root identity for the isolated mock subject.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed root identity; keep alive throughout subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{21b11d4f-8d32-496a-8e0f-dff86473c50a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes checks; subject initialization belongs to the active test scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FProgress.Initialize(Parent := THIS^,
+    AssertionName := 'Progress');
+FEvidence.Initialize(Parent := THIS^,
+    AssertionName := 'Evidence');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{dd77c8b7-4caa-4009-960a-a6a1f9496a85}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes Abort immediately; no asynchronous resource is owned.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Authorizes completion of the active Abort phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{ca3c08c1-ccba-41fb-ac38-2641f4d3cc59}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the subject cycle before allowing script progression.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Enables checking during the active Test phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FProgress(Enable := Enable,
+    State := State,
+    IN := FProgressMatches);
+FEvidence(Enable := Enable,
+    State := State,
+    IN := FEvidenceMatches);
+IF Enable THEN
+    FStepChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{c54fc0d0-0648-4e3e-9a3e-28e60d1e0a4b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required for this isolated lifecycle test.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; the test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! No preparation action is performed in either phase.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{db20cd3a-10cf-40d9-9415-150e261b4240}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets its checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FStepChecked := FALSE;
+FProgressMatches := TRUE;
+FEvidenceMatches := TRUE;
+FProgress.Reset();
+FEvidence.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{7dab9a9e-9dde-434a-ab52-cce5245c3db3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Performs one subject call per active cycle and advances only after checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Authorizes scenario progression.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FStepChecked THEN
+    FStep := FStep + 1;
+    FStepChecked := FALSE;
+END_IF;
+IF FStep > RepeatAgain THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{19fa605f-bd8c-4ea8-bc08-206efa970885}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks first entry, repeated-request completion, held Idle and a second complete Reset interval.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_TestSuiteConfig;
+    ExpectedState : E_State;
+    Snapshot : ST_TestSuiteStatus;
+    Index : UINT;
+    ResetTransitions : UINT;
+    IdleTransitions : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        IF NOT FCapture.Initialize(Buffer := FEvents,
+            FifoControl := FCaptureFifo,
+            Status := FCaptureStatus) THEN
+            Error(Message := 'Mock Reset capture initialization failed.');
+            RETURN;
+        END_IF;
+        FSubject.BindPublisher(Publisher := FCapture);
+        IF NOT FSubject.Initialize(Parent := FSubjectParent,
+            SuiteName := 'RepeatedResetMock',
+            Config := Config) THEN
+            Error(Message := 'Mock Reset subject initialization failed.');
+            RETURN;
+        END_IF;
+        ExpectedState := E_State.Uninitialized;
+
+    RequestFirst, RequestAgain:
+        IF FSubject.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Mock Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        FSubject.RequestReset();
+        ExpectedState := E_State.Reset;
+
+    RepeatFirst, RepeatAgain:
+        FSubject.RequestReset();
+        ExpectedState := E_State.Idle;
+
+    HoldIdle:
+        ExpectedState := E_State.Idle;
+ELSE
+    Error(Message := 'Unexpected mock Reset test step.');
+    RETURN;
+END_CASE;
+
+FSubject();
+Snapshot := FSubject.Status;
+FProgressMatches := (FSubject.State = ExpectedState)
+    AND (Snapshot.Execution.State = ExpectedState)
+    AND (FSubject.Result = E_Result.NotEvaluated)
+    AND (Snapshot.Execution.Result = E_Result.NotEvaluated)
+    AND NOT FSubject.HasError AND NOT Snapshot.Execution.Error
+    AND (FSubject.IsReady = (ExpectedState = E_State.Idle))
+    AND (Snapshot.Execution.Ready = (ExpectedState = E_State.Idle))
+    AND NOT FSubject.IsComplete AND NOT Snapshot.Execution.Completed;
+FEvidenceMatches := (FCaptureStatus.LostEventCount = 0)
+    AND (Snapshot.TestCaseCountTotal = 0)
+    AND (Snapshot.TestCaseCountIdle = 0)
+    AND (Snapshot.TestCaseCountRunning = 0)
+    AND (Snapshot.TestCaseCountCompleted = 0)
+    AND (Snapshot.TestCaseCountError = 0);
+
+IF (FStep = RepeatFirst) OR (FStep = RepeatAgain) THEN
+    IF NOT FSubject.FreeReservedEvents() THEN
+        FEvidenceMatches := FALSE;
+    END_IF;
+    FEvidenceMatches := FEvidenceMatches AND (FSubject.ReservedEntryCount = 0)
+        AND (FCapture.ReservedEntryCount = 0);
+END_IF;
+IF FStep = RepeatAgain THEN
+    FOR Index := 1 TO CaptureLength DO
+        IF (FEvents[Index].SequenceId <> 0)
+            AND (FEvents[Index].Name = FSubject.Name)
+            AND (FEvents[Index].EventType = E_EventType.StateTransition) THEN
+            IF FEvents[Index].State = E_State.Reset THEN
+                ResetTransitions := ResetTransitions + 1;
+            ELSIF FEvents[Index].State = E_State.Idle THEN
+                IdleTransitions := IdleTransitions + 1;
+            END_IF;
+        END_IF;
+    END_FOR;
+    FEvidenceMatches := FEvidenceMatches AND (ResetTransitions = 2)
+        AND (IdleTransitions = 2);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

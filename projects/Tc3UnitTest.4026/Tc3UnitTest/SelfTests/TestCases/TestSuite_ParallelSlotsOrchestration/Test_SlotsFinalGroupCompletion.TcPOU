@@ -1,0 +1,178 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SlotsFinalGroupCompletion" Id="{57a41d21-497b-40f5-a085-841c1f581bd0}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs both final-slot children in parallel and ignores unused collection capacity when determining completion.</summary>
+<description>
+Child 1 completes immediately in slot 1. Children 2 and 3 then overlap in the final
+slot and finish in reverse order. The collection has six array positions but only three
+registered children; final-slot detection must use the occupied range.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SlotsFinalGroupCompletion EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{adcb4610-53ab-4cfa-8e99-000000000002}" />
+    <Method Name="ConfigureScenario" Id="{adcb4620-53ab-4cfa-8e99-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines slot-group stimuli and per-cycle dispatch, completion and reservation expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 2;
+FChildSlots[3] := 2;
+FArrayLayout := E_OrchestrationArrayLayout.SpareCapacity;
+FStepCount := 10;
+
+{region "01 - Observe readiness with unused array capacity"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+FSteps[1].MaxActiveChildCount := 0;
+{endregion}
+
+{region "02 - Start child 1 which completes immediately"}
+FSteps[2].Children[1].State := E_State.Completed;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[1].Complete := TRUE;
+FSteps[2].Children[1].Result := E_Result.Passed;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Confirm immediate completion and select the final slot"}
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[1].Result := E_Result.Passed;
+FSteps[3].ExpectedSlot := 2;
+FSteps[3].ExpectedReleasedEntries[1] := 1;
+FSteps[3].MaxActiveChildCount := 0;
+{endregion}
+
+{region "04 - Start child 2 in the final slot"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[1].Result := E_Result.Passed;
+FSteps[4].Children[2].State := E_State.Running;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].ExpectedStartChild := 2;
+FSteps[4].ExpectedSlot := 2;
+FSteps[4].ExpectedReservations[2] := 1;
+FSteps[4].MaxActiveChildCount := 1;
+{endregion}
+
+{region "05 - Start child 3 while child 2 remains active"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Passed;
+FSteps[5].Children[2].State := E_State.Running;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[3].State := E_State.Running;
+FSteps[5].Children[3].Ready := FALSE;
+FSteps[5].ExpectedStartChild := 3;
+FSteps[5].ExpectedSlot := 2;
+FSteps[5].ExpectedReservations[2] := 1;
+FSteps[5].ExpectedReservations[3] := 1;
+FSteps[5].MaxActiveChildCount := 2;
+{endregion}
+
+{region "06 - Child 3 completes before child 2"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Passed;
+FSteps[6].Children[2].State := E_State.Running;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].Children[3].State := E_State.Completed;
+FSteps[6].Children[3].Ready := FALSE;
+FSteps[6].Children[3].Complete := TRUE;
+FSteps[6].Children[3].Result := E_Result.Passed;
+FSteps[6].ExpectedSlot := 2;
+FSteps[6].ExpectedReservations[2] := 1;
+FSteps[6].ExpectedReservations[3] := 1;
+FSteps[6].MaxActiveChildCount := 2;
+{endregion}
+
+{region "07 - Release child 3 without reporting final completion"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].Children[2].State := E_State.Running;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[3].State := E_State.Completed;
+FSteps[7].Children[3].Ready := FALSE;
+FSteps[7].Children[3].Complete := TRUE;
+FSteps[7].Children[3].Result := E_Result.Passed;
+FSteps[7].ExpectedSlot := 2;
+FSteps[7].ExpectedReservations[2] := 1;
+FSteps[7].ExpectedReleasedEntries[3] := 1;
+FSteps[7].MaxActiveChildCount := 1;
+{endregion}
+
+{region "08 - Child 2 completes after its shorter sibling"}
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Passed;
+FSteps[8].Children[2].State := E_State.Completed;
+FSteps[8].Children[2].Ready := FALSE;
+FSteps[8].Children[2].Complete := TRUE;
+FSteps[8].Children[2].Result := E_Result.Passed;
+FSteps[8].Children[3].State := E_State.Completed;
+FSteps[8].Children[3].Ready := FALSE;
+FSteps[8].Children[3].Complete := TRUE;
+FSteps[8].Children[3].Result := E_Result.Passed;
+FSteps[8].ExpectedSlot := 2;
+FSteps[8].ExpectedReservations[2] := 1;
+FSteps[8].MaxActiveChildCount := 1;
+{endregion}
+
+{region "09 - Finish at the occupied boundary rather than array capacity"}
+FSteps[9].Children[1].State := E_State.Completed;
+FSteps[9].Children[1].Ready := FALSE;
+FSteps[9].Children[1].Complete := TRUE;
+FSteps[9].Children[1].Result := E_Result.Passed;
+FSteps[9].Children[2].State := E_State.Completed;
+FSteps[9].Children[2].Ready := FALSE;
+FSteps[9].Children[2].Complete := TRUE;
+FSteps[9].Children[2].Result := E_Result.Passed;
+FSteps[9].Children[3].State := E_State.Completed;
+FSteps[9].Children[3].Ready := FALSE;
+FSteps[9].Children[3].Complete := TRUE;
+FSteps[9].Children[3].Result := E_Result.Passed;
+FSteps[9].ExpectedFinished := TRUE;
+FSteps[9].ExpectedReleasedEntries[2] := 1;
+FSteps[9].MaxActiveChildCount := 0;
+{endregion}
+
+{region "10 - Keep completion stable without accessing spare entries"}
+FSteps[10].Children[1].State := E_State.Completed;
+FSteps[10].Children[1].Ready := FALSE;
+FSteps[10].Children[1].Complete := TRUE;
+FSteps[10].Children[1].Result := E_Result.Passed;
+FSteps[10].Children[2].State := E_State.Completed;
+FSteps[10].Children[2].Ready := FALSE;
+FSteps[10].Children[2].Complete := TRUE;
+FSteps[10].Children[2].Result := E_Result.Passed;
+FSteps[10].Children[3].State := E_State.Completed;
+FSteps[10].Children[3].Ready := FALSE;
+FSteps[10].Children[3].Complete := TRUE;
+FSteps[10].Children[3].Result := E_Result.Passed;
+FSteps[10].ExpectedFinished := TRUE;
+FSteps[10].MaxActiveChildCount := 0;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

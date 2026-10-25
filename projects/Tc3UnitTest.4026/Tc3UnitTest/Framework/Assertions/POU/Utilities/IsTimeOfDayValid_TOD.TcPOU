@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="IsTimeOfDayValid_TOD" Id="{a1599892-7fbd-497a-8e88-04e89d0c13d6}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the native time-of-day range without changing or normalizing Value.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL IsTimeOfDayValid_TOD : BOOL //! TRUE for a time of day below 24 hours; the value is not normalized.
+VAR_INPUT
+    Value : TOD; //! Time-of-day value checked against the interval from midnight inclusive to the next midnight exclusive.
+END_VAR
+VAR CONSTANT
+    MaximumTimeOfDay : TOD := TOD#23:59:59.999;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IsTimeOfDayValid_TOD := Value <= MaximumTimeOfDay;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

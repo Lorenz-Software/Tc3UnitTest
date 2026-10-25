@@ -1,0 +1,294 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_CommandAdapterInitialization" Id="{5455aae3-9062-4476-b28e-f2ad5c961de5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies command-only initialization before cyclic use and after a retained sample.</summary>
+<description>
+PrimeHistory selects the reinitialization case: one public adapter call establishes TRUE history
+before Initialize. The other instance calls Initialize before its first-ever cyclic use.
+Both variants seed every command and distinctive Name/Status values. Initialize must clear
+commands without touching the projection or invoking owner requests. Two fresh samples then
+prove the old history was discarded and normal forwarding still works. No Event Buffer is
+bound to this request-only double or to the production adapter; buffer work is outside its API.
+Repeat runs reinitialize the same instance before the next script, rather than claiming fresh
+instance memory. Assertions use the outer selftest publisher; the subject has no publisher.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_CommandAdapterInitialization EXTENDS TestCaseBase
+VAR_INPUT
+    PrimeHistory : BOOL := FALSE; //! TRUE primes one TRUE command sample before reinitialization; FALSE exercises first-ever initialization.
+END_VAR
+VAR
+    FSubject : RunControlCommandAdapter;
+    FOwner : RunControlRequestRecorder;
+    FControl : ST_RunControl;
+    FExpectedStatus : ST_RunControlStatus;
+    FStep : UINT;
+    FChecked : BOOL;
+    FCommandsCleared : AssertTrue;
+    FCommandsClearedMatches : BOOL;
+    FProjectionPreserved : AssertTrue;
+    FProjectionPreservedMatches : BOOL;
+    FNoRequests : AssertTrue;
+    FNoRequestsMatches : BOOL;
+    FHistoryCleared : AssertTrue;
+    FHistoryClearedMatches : BOOL;
+    FFreshRequest : AssertTrue;
+    FFreshRequestMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    InitializeSubject : UINT := 0;
+    FirstSample : UINT := 1;
+    SecondSample : UINT := 2;
+    CheckResults : UINT := 3;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{49490000-0000-4000-8000-000000000017}" />
+    <Method Name="AggregateResults" Id="{49490000-0000-4000-8000-000000000019}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects the five independent initialization checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FCommandsCleared);
+Aggregator.AddProvider(Provider := FProjectionPreserved);
+Aggregator.AddProvider(Provider := FNoRequests);
+Aggregator.AddProvider(Provider := FHistoryCleared);
+Aggregator.AddProvider(Provider := FFreshRequest);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{49490000-0000-4000-8000-000000000018}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures one scripted initialization test and its checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FCommandsCleared.Initialize(Parent := THIS^,
+    AssertionName := 'CommandsCleared');
+FProjectionPreserved.Initialize(Parent := THIS^,
+    AssertionName := 'ProjectionPreserved');
+FNoRequests.Initialize(Parent := THIS^,
+    AssertionName := 'NoRequests');
+FHistoryCleared.Initialize(Parent := THIS^,
+    AssertionName := 'HistoryCleared');
+FFreshRequest.Initialize(Parent := THIS^,
+    AssertionName := 'FreshRequest');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{49490000-0000-4000-8000-000000000021}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous resource needs abort processing.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{49490000-0000-4000-8000-000000000023}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates stored observations after the bounded three-step script.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND (FStep = CheckResults);
+FCommandsCleared(Enable := Evaluate,
+    State := State,
+    IN := FCommandsClearedMatches);
+FProjectionPreserved(Enable := Evaluate,
+    State := State,
+    IN := FProjectionPreservedMatches);
+FNoRequests(Enable := Evaluate,
+    State := State,
+    IN := FNoRequestsMatches);
+FHistoryCleared(Enable := Evaluate,
+    State := State,
+    IN := FHistoryClearedMatches);
+FFreshRequest(Enable := Evaluate,
+    State := State,
+    IN := FFreshRequestMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{49490000-0000-4000-8000-000000000022}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; this test has no Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{49490000-0000-4000-8000-000000000020}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets the test script; subject initialization remains the operation under test.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := InitializeSubject;
+FChecked := FALSE;
+FOwner.Clear();
+FCommandsCleared.Reset();
+FCommandsClearedMatches := FALSE;
+FProjectionPreserved.Reset();
+FProjectionPreservedMatches := FALSE;
+FNoRequests.Reset();
+FNoRequestsMatches := FALSE;
+FHistoryCleared.Reset();
+FHistoryClearedMatches := FALSE;
+FFreshRequest.Reset();
+FFreshRequestMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{49490000-0000-4000-8000-000000000025}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes before cyclic use, then checks history through two fresh samples.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+CASE FStep OF
+    InitializeSubject:
+        SeedControl();
+        FOwner.Clear();
+        IF PrimeHistory THEN
+            // Establish stale TRUE samples through the public call, never by editing private history.
+            FSubject(RunControl := FOwner,
+                Commands := FControl.Cmd);
+            FNoRequestsMatches := (FOwner.StartCount = 0) AND (FOwner.AbortCount = 0) AND (FOwner.ResetCount = 0);
+        ELSE
+            FNoRequestsMatches := TRUE;
+        END_IF;
+        FSubject.Initialize(ControlData := FControl);
+        FCommandsClearedMatches := NOT FControl.Cmd.Start AND NOT FControl.Cmd.Abort AND NOT FControl.Cmd.Reset
+            AND NOT FControl.BufferCmd.Reset AND (FControl.BufferCmd.DeleteSequenceId = 0);
+        FProjectionPreservedMatches := (FControl.Name = 'PreservedRoot')
+            AND (FControl.Status.Execution.State = FExpectedStatus.Execution.State)
+            AND (FControl.Status.Execution.ExecutionStatus = FExpectedStatus.Execution.ExecutionStatus)
+            AND (FControl.Status.Execution.Result = FExpectedStatus.Execution.Result)
+            AND (FControl.Status.Execution.Uninitialized = FExpectedStatus.Execution.Uninitialized)
+            AND (FControl.Status.Execution.ConfigError = FExpectedStatus.Execution.ConfigError)
+            AND (FControl.Status.Execution.Ready = FExpectedStatus.Execution.Ready)
+            AND (FControl.Status.Execution.Running = FExpectedStatus.Execution.Running)
+            AND (FControl.Status.Execution.Completed = FExpectedStatus.Execution.Completed)
+            AND (FControl.Status.Execution.Aborted = FExpectedStatus.Execution.Aborted)
+            AND (FControl.Status.Execution.Inactive = FExpectedStatus.Execution.Inactive)
+            AND (FControl.Status.Execution.Error = FExpectedStatus.Execution.Error)
+            AND (FControl.Status.SuiteCountTotal = FExpectedStatus.SuiteCountTotal)
+            AND (FControl.Status.SuiteCountInactive = FExpectedStatus.SuiteCountInactive)
+            AND (FControl.Status.SuiteCountIdle = FExpectedStatus.SuiteCountIdle)
+            AND (FControl.Status.SuiteCountRunning = FExpectedStatus.SuiteCountRunning)
+            AND (FControl.Status.SuiteCountCompleted = FExpectedStatus.SuiteCountCompleted)
+            AND (FControl.Status.SuiteCountPassed = FExpectedStatus.SuiteCountPassed)
+            AND (FControl.Status.SuiteCountFailed = FExpectedStatus.SuiteCountFailed)
+            AND (FControl.Status.SuiteCountError = FExpectedStatus.SuiteCountError)
+            AND (FControl.Status.Runtime = FExpectedStatus.Runtime);
+        FNoRequestsMatches := FNoRequestsMatches AND (FOwner.StartCount = 0) AND (FOwner.AbortCount = 0) AND (FOwner.ResetCount = 0);
+        FStep := FirstSample;
+    FirstSample:
+        FControl.Cmd.Start := TRUE;
+        FControl.Cmd.Abort := TRUE;
+        FControl.Cmd.Reset := TRUE;
+        FSubject(RunControl := FOwner,
+            Commands := FControl.Cmd);
+        FHistoryClearedMatches := (FOwner.StartCount = 0) AND (FOwner.AbortCount = 0) AND (FOwner.ResetCount = 0)
+            AND FControl.Cmd.Start AND FControl.Cmd.Abort AND FControl.Cmd.Reset;
+        FStep := SecondSample;
+    SecondSample:
+        FSubject(RunControl := FOwner,
+            Commands := FControl.Cmd);
+        FFreshRequestMatches := (FOwner.StartCount = 1) AND (FOwner.AbortCount = 1)
+            AND (FOwner.ResetCount = 1) AND NOT FControl.Cmd.Start AND NOT FControl.Cmd.Abort AND NOT FControl.Cmd.Reset;
+        FStep := CheckResults;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SeedControl" Id="{49490000-0000-4000-8000-000000000024}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Uses distinctive projection sentinels, deliberately not a valid lifecycle snapshot.</summary>
+*)
+{endregion}
+METHOD PRIVATE SeedControl]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FControl.Name := 'PreservedRoot';
+FControl.Status.Execution.State := E_State.Completed;
+FControl.Status.Execution.ExecutionStatus := E_ExecutionStatus.Completed;
+FControl.Status.Execution.Result := E_Result.Failed;
+FControl.Status.Execution.Uninitialized := TRUE;
+FControl.Status.Execution.ConfigError := TRUE;
+FControl.Status.Execution.Ready := TRUE;
+FControl.Status.Execution.Running := TRUE;
+FControl.Status.Execution.Completed := TRUE;
+FControl.Status.Execution.Aborted := TRUE;
+FControl.Status.Execution.Inactive := TRUE;
+FControl.Status.Execution.Error := TRUE;
+FControl.Status.SuiteCountTotal := 1;
+FControl.Status.SuiteCountInactive := 2;
+FControl.Status.SuiteCountIdle := 3;
+FControl.Status.SuiteCountRunning := 4;
+FControl.Status.SuiteCountCompleted := 5;
+FControl.Status.SuiteCountPassed := 6;
+FControl.Status.SuiteCountFailed := 7;
+FControl.Status.SuiteCountError := 8;
+FControl.Status.Runtime := T#123ms;
+FExpectedStatus := FControl.Status;
+FControl.Cmd.Start := TRUE;
+FControl.Cmd.Abort := TRUE;
+FControl.Cmd.Reset := TRUE;
+FControl.BufferCmd.Reset := TRUE;
+FControl.BufferCmd.DeleteSequenceId := 123;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

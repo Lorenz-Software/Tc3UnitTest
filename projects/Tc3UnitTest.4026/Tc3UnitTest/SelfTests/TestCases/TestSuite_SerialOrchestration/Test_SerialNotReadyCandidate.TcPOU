@@ -1,0 +1,92 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SerialNotReadyCandidate" Id="{ca7057f7-d27c-4d7f-b261-77409564e091}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects the next serial candidate when not ready; no reservation or later Start is permitted.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SerialNotReadyCandidate EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{88838225-22c0-419d-a1d5-8fd8012732a8}" />
+    <Method Name="ConfigureScenario" Id="{7e4bdc59-8e67-4e70-9dfe-a1ccd47cb038}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines independent stimuli and expected requests, reservations, task status and diagnostic counts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 7;
+
+{region "01 - Idle readiness before child processing"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "02 - Start first child; next child loses readiness"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[2].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "03 - First child completes; next remains not ready"}
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Result := E_Result.Passed;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "04 - Reconcile first child and select second slot"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Result := E_Result.Passed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].ExpectedSlot := 2;
+FSteps[4].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "05 - Reject not-ready candidate"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Result := E_Result.Passed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].ExpectedSlot := 2;
+FSteps[5].ExpectedDiagnosticCount := 1;
+FSteps[5].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "06 - Repeated failure does not publish again"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Result := E_Result.Passed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].ExpectedSlot := 2;
+FSteps[6].ExpectedDiagnosticCount := 1;
+FSteps[6].ExpectedResult := E_Result.Error;
+{endregion}
+
+{region "07 - Idle stops dispatch but retains the error"}
+FSteps[7].Task := E_OrchestratorTask.Idle;
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].ExpectedDiagnosticCount := 1;
+FSteps[7].ExpectedResult := E_Result.Error;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

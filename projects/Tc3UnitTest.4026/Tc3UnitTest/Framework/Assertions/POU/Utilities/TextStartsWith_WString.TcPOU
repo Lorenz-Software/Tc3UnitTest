@@ -1,0 +1,35 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TextStartsWith_WString" Id="{5b744984-1b27-454e-8f24-fbd1d68fbf62}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Exact prefix comparison without copies; an empty prefix matches. Caller supplies valid, stable references and content within the configured assertion capacity.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL TextStartsWith_WString : BOOL //! TRUE when Value starts with Prefix; an empty Prefix matches.
+VAR_IN_OUT CONSTANT
+    Value : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only source text; must be terminated within the configured capacity and stable during the call.
+    Prefix : WSTRING(Param_Assertions.AssertionWStringLength); //! Read-only prefix compared by code unit; an empty value matches in this helper.
+END_VAR
+VAR
+    CharacterIndex : DINT;
+END_VAR
+VAR CONSTANT
+    Terminator : WORD := 0;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[TextStartsWith_WString := FALSE;
+
+FOR CharacterIndex := 0 TO UINT_TO_DINT(Param_Assertions.AssertionWStringLength) DO
+    IF Prefix[CharacterIndex] = Terminator THEN
+        TextStartsWith_WString := TRUE;
+        RETURN;
+    END_IF;
+
+    IF Value[CharacterIndex] <> Prefix[CharacterIndex] THEN
+        RETURN;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

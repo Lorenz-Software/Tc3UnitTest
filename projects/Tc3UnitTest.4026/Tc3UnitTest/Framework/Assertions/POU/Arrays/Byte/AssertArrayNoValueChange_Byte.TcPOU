@@ -1,0 +1,198 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertArrayNoValueChange_Byte" Id="{2908b1d5-3c8b-4c6f-9db6-d75cdb7fe115}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Captures one snapshot until Reset; Disable/Re-Enable never replaces it.</summary>
+<description>
+
+Disabling observation preserves the original snapshot. Re-enabling requires a fresh
+preceding observation before comparisons resume; it does not replace that snapshot.
+
+StartIndex is an absolute IN index and Length selects 1..255 elements within IN. Memory
+must have at least Length elements from its own lower bound. Invalid references or ranges
+report Error.
+
+The caller provides dedicated writable Memory that must not overlap IN; overlap is not
+checked. Keep bindings, selected range and snapshot contents stable until Reset. Reset
+invalidates the snapshot without clearing Memory bytes.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertArrayNoValueChange_Byte EXTENDS AssertionBase
+VAR_INPUT
+    Mask : BYTE := BYTE#16#FF; //! Bits included in each element comparison.
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of monitored elements, from 1 through 255.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF BYTE; //! Read-only actual data; the selected range must remain stable during the call.
+END_VAR
+VAR_IN_OUT
+    Memory : ARRAY[*] OF BYTE; //! Dedicated snapshot storage; only this assertion writes its selected elements.
+END_VAR
+VAR
+    FSnapshotValid : BOOL;
+    FObservationPrevious : BOOL;
+    FEvaluationActive : BOOL;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{4d1088ad-a2e0-4bea-bb35-a741741b7f80}" />
+    <Method Name="Assert" Id="{b9b9e17b-2ed6-484b-a807-0908b7a78b6f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Capture once or compare against the retained snapshot after range validation.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    MemoryLowerIndex : DINT;
+    MemoryUpperIndex : DINT;
+    MemoryEndIndex : LINT;
+    EndIndex : LINT;
+    Offset : LINT;
+    InIndex : DINT;
+    MemoryIndex : DINT;
+    Message : STRING(GVL_Constants.MessageLength);
+    ReferenceText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR
+VAR CONSTANT
+    HexDigitCount : USINT := 2;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEvaluationActive := ObservationActive AND FObservationPrevious AND FSnapshotValid;
+FObservationPrevious := ObservationActive;
+
+IF NOT ObservationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Memory) THEN
+    Error(Message := 'Assertion error: Memory reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+MemoryLowerIndex := LOWER_BOUND(Memory, 1);
+MemoryUpperIndex := UPPER_BOUND(Memory, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+MemoryEndIndex := DINT_TO_LINT(MemoryLowerIndex) + USINT_TO_LINT(Length) - 1;
+
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex))
+    OR (MemoryEndIndex > DINT_TO_LINT(MemoryUpperIndex)) THEN
+    Message := CONCAT('Assertion error: array or memory range is invalid. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', EndIndex = ');
+    Message := CONCAT(Message, LINT_TO_STRING(EndIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Message := CONCAT(Message, '.');
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF NOT FSnapshotValid THEN
+    FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+        InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+        MemoryIndex := LINT_TO_DINT(DINT_TO_LINT(MemoryLowerIndex) + Offset);
+        Memory[MemoryIndex] := IN[InIndex];
+    END_FOR;
+    FSnapshotValid := TRUE;
+    RETURN;
+END_IF;
+
+IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FOR Offset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + Offset);
+    MemoryIndex := LINT_TO_DINT(DINT_TO_LINT(MemoryLowerIndex) + Offset);
+    IF (IN[InIndex] AND Mask) <> (Memory[MemoryIndex] AND Mask) THEN
+        ReferenceText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Memory[MemoryIndex]),
+            DigitCount := HexDigitCount);
+        ActualText := CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(IN[InIndex]),
+            DigitCount := HexDigitCount);
+        Message := CONCAT('Assertion failed: array value changed. Reference[',
+            DINT_TO_STRING(MemoryIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ReferenceText);
+        Message := CONCAT(Message, ', IN[');
+        Message := CONCAT(Message, DINT_TO_STRING(InIndex));
+        Message := CONCAT(Message, '] = ');
+        Message := CONCAT(Message, ActualText);
+        Message := CONCAT(Message, '.');
+        Message := CONCAT(Message, ' Mask = ');
+        Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := BYTE_TO_LWORD(Mask),
+            DigitCount := HexDigitCount));
+        Fail(Message := Message);
+        RETURN;
+    END_IF;
+END_FOR;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EvaluationActive" Id="{326113db-e105-49c3-b23a-69d4021491c5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current/last call has consecutive observation and an existing snapshot.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC EvaluationActive : BOOL //! Current/last call has consecutive observation and an existing snapshot.]]></Declaration>
+      <Get Name="Get" Id="{0a7ddfad-9a5c-4a1b-80c2-69e071e4219e}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[EvaluationActive := FEvaluationActive;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="ResetAssertion" Id="{3b5e83e9-8722-4d2d-acf9-f1b56e019657}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Invalidate the snapshot and observation history.</summary>
+<description>
+
+Does not clear external Memory. The next active observation captures a new snapshot
+before comparison.
+
+</description>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSnapshotValid := FALSE;
+FObservationPrevious := FALSE;
+FEvaluationActive := FALSE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

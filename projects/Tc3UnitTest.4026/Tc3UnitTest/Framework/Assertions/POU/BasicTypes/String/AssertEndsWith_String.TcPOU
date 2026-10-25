@@ -1,0 +1,101 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertEndsWith_String" Id="{a7344e67-0496-4112-a5c9-fde3d2efed35}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks whether text ends with the expected suffix, case-sensitively.</summary>
+<description>
+
+Read-only text must remain stable during the call and fit the configured Param_Assertions
+text capacity. Invalid references or a missing terminator within that capacity report
+Error.
+
+The searched fragment, prefix or suffix must be nonempty; empty search text reports
+Error. Matching is case-sensitive, without trimming or wildcard rules.
+
+Diagnostic previews are shortened; the comparison still covers the complete validated
+text.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertEndsWith_String EXTENDS AssertionBase
+VAR_IN_OUT CONSTANT
+    IN : STRING(Param_Assertions.AssertionStringLength); //! Actual text.
+    Suffix : STRING(Param_Assertions.AssertionStringLength); //! Expected suffix; must not be empty.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{66169382-d6e7-4b38-8b33-70e5ae0aa086}" />
+    <Method Name="Assert" Id="{a8557632-c51f-47fe-8806-5cb0bac429f0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates inputs before comparing and escalating the result.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    Message : STRING(GVL_Constants.MessageLength);
+    SuffixText : STRING(GVL_Constants.AssertionValueLength);
+    ActualText : STRING(GVL_Constants.AssertionValueLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB inputs are checked here before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Suffix) THEN
+    Error(Message := 'Assertion error: Suffix reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := IN) THEN
+    Error(Message := 'Assertion error: IN exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+IF NOT IsAssertionStringLengthValid(Value := Suffix) THEN
+    Error(Message := 'Assertion error: Suffix exceeds configured STRING length.');
+    RETURN;
+END_IF;
+
+IF Suffix = '' THEN
+    Error(Message := 'Assertion error: Suffix must not be empty.');
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+IF NOT TextEndsWith_String(Value := IN,
+    Suffix := Suffix) THEN
+    SuffixText := CreateAssertionTextValue_String(Value := Suffix);
+    ActualText := CreateAssertionTextValue_String(Value := IN);
+    Message := CONCAT('Assertion failed: text does not end with expected suffix. Suffix = ',
+        SuffixText);
+    Message := CONCAT(Message, ', Actual = ');
+    Message := CONCAT(Message, ActualText);
+    Message := CONCAT(Message, '.');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_OrchestrationCycle" Id="{8ab878b9-a949-45f7-8a56-5614a93460cf}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Retained evidence for one helper call followed by one call per registered child.</summary>
+*)
+{endregion}
+TYPE ST_OrchestrationCycle :
+STRUCT
+    Calls : ARRAY[1..3] OF ST_OrchestrationCalls; //! Per-child interface-call trace for this fixture cycle.
+    BeforeChildren : ARRAY[1..3] OF ST_OrchestrationObservation; //! Child views after helper execution and before concrete child-body calls.
+    AfterChildren : ARRAY[1..3] OF ST_OrchestrationObservation; //! Child views after concrete child-body calls.
+    Reservations : ARRAY[1..3] OF UINT; //! Per-child local admission markers after this cycle.
+    ActiveSlot : UINT; //! Helper execution slot observed for this cycle.
+    ExecutionFinished : BOOL; //! Helper execution-completion indication for this cycle.
+    Result : E_Result; //! Helper technical result for this cycle.
+    Ready : BOOL; //! Helper readiness indication for this cycle.
+    Task : E_OrchestratorTask; //! Task assigned to the helper for this cycle.
+    HelperDidNotCallChildren : BOOL; //! TRUE if helper execution left all concrete child-body counters unchanged.
+    RequestsDidNotChangeState : BOOL; //! TRUE if helper requests left the child observations unchanged before their body calls.
+    ActiveChildCount : UINT; //! Number of children requested to Start in this cycle or observed in Starting through Completing before their body calls.
+    ResetFinished : BOOL; //! Helper Reset-completion indication for this cycle.
+    AbortFinished : BOOL; //! Helper Abort-completion indication for this cycle.
+    TaskComplete : BOOL; //! Helper completion indication for the assigned task.
+    ResetActive : BOOL; //! Helper assigned-task indication for Reset.
+    ExecutionActive : BOOL; //! Helper assigned-task indication for Execution.
+    AbortActive : BOOL; //! Helper assigned-task indication for Abort.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

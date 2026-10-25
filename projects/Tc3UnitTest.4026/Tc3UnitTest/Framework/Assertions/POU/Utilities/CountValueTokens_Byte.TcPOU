@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CountValueTokens_Byte" Id="{73426395-f3d1-4364-9d54-6ac774707a92}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts all masked value matches in the selected range. Caller validates stable references, a nonempty in-bounds range.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CountValueTokens_Byte : UINT //! Number of masked value matches in the selected range.
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+    Token : BYTE; //! Value searched for in the selected range; Mask selects the compared bits.
+    Mask : BYTE; //! Bits included in the comparison; bits outside the mask are ignored.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF BYTE; //! Read-only actual data; the selected range must remain stable during the call.
+END_VAR
+VAR
+    CandidateOffset : LINT;
+    InIndex : DINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CountValueTokens_Byte := 0;
+
+FOR CandidateOffset := 0 TO USINT_TO_LINT(Length) - 1 DO
+    InIndex := LINT_TO_DINT(DINT_TO_LINT(StartIndex) + CandidateOffset);
+    IF (IN[InIndex] AND Mask) = (Token AND Mask) THEN
+        CountValueTokens_Byte := CountValueTokens_Byte + 1;
+    END_IF;
+END_FOR;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,96 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SlotsAbortAtBoundary" Id="{d30fdf9f-754e-49d8-af51-6e5afe0be09b}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Accepts an immediately completed pending Start when Abort replaces execution at the slot boundary.</summary>
+<description>
+Both children in slot 1 complete directly after their respective Start requests.
+Before the second Start is confirmed, the owner selects Abort. Confirmation and
+reservation cleanup must finish without starting child 3 or aborting already stopped children.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SlotsAbortAtBoundary EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{adcb4610-53ab-4cfa-8e99-000000000006}" />
+    <Method Name="ConfigureScenario" Id="{adcb4620-53ab-4cfa-8e99-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines boundary stimuli and expected child requests, reservation cleanup and isolated diagnostics.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildSlots[1] := 1;
+FChildSlots[2] := 1;
+FChildSlots[3] := 2;
+FStepCount := 5;
+
+{region "01 - Observe initial readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+FSteps[1].MaxActiveChildCount := 0;
+{endregion}
+
+{region "02 - Child 1 completes immediately after Start"}
+FSteps[2].Children[1].State := E_State.Completed;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].Children[1].Complete := TRUE;
+FSteps[2].Children[1].Result := E_Result.Passed;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+FSteps[2].MaxActiveChildCount := 1;
+{endregion}
+
+{region "03 - Child 2 completes immediately with Start confirmation pending"}
+FSteps[3].Children[1].State := E_State.Completed;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].Children[1].Complete := TRUE;
+FSteps[3].Children[1].Result := E_Result.Passed;
+FSteps[3].Children[2].State := E_State.Completed;
+FSteps[3].Children[2].Ready := FALSE;
+FSteps[3].Children[2].Complete := TRUE;
+FSteps[3].Children[2].Result := E_Result.Passed;
+FSteps[3].ExpectedStartChild := 2;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[2] := 1;
+FSteps[3].ExpectedReleasedEntries[1] := 1;
+FSteps[3].MaxActiveChildCount := 1;
+{endregion}
+
+{region "04 - Abort confirms completion and releases the pending reservation"}
+FSteps[4].Task := E_OrchestratorTask.Abort;
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[1].Result := E_Result.Passed;
+FSteps[4].Children[2].State := E_State.Completed;
+FSteps[4].Children[2].Ready := FALSE;
+FSteps[4].Children[2].Complete := TRUE;
+FSteps[4].Children[2].Result := E_Result.Passed;
+FSteps[4].ExpectedAbortFinished := TRUE;
+FSteps[4].ExpectedReleasedEntries[2] := 1;
+FSteps[4].MaxActiveChildCount := 0;
+{endregion}
+
+{region "05 - Keep Abort complete without starting the next slot"}
+FSteps[5].Task := E_OrchestratorTask.Abort;
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Passed;
+FSteps[5].Children[2].State := E_State.Completed;
+FSteps[5].Children[2].Ready := FALSE;
+FSteps[5].Children[2].Complete := TRUE;
+FSteps[5].Children[2].Result := E_Result.Passed;
+FSteps[5].ExpectedAbortFinished := TRUE;
+FSteps[5].MaxActiveChildCount := 0;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

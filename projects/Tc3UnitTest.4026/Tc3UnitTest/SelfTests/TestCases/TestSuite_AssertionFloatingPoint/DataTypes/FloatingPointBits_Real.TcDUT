@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="FloatingPointBits_Real" Id="{30752720-fe1a-40e9-ba07-b22e591cc74a}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selftest-only IEEE REAL bit view; no numeric conversion or stored addresses.</summary>
+*)
+{endregion}
+TYPE FloatingPointBits_Real :
+UNION
+    Bits : DWORD; //! Raw IEEE binary32 bit view of the shared storage; no numeric conversion.
+    Value : REAL; //! 32-bit floating-point view of the same shared storage.
+END_UNION
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

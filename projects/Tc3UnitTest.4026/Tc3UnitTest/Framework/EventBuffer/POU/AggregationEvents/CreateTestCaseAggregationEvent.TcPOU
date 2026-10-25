@@ -1,0 +1,58 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateTestCaseAggregationEvent" Id="{28a74256-3bae-454f-9dab-58ba0dc3c2ed}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Test Case aggregation event from an already aggregated status snapshot.</summary>
+<description>
+Runtime is rendered as unsigned milliseconds; the caller owns publication.
+
+
+Compact JSON fields are total, passed, failed, error and runtime. Counts and runtime are unsigned decimal numbers. This formats the supplied snapshot without validating completion or recomputing aggregation; the owner controls finalization order and publication.
+</description>
+*)
+{endregion}
+FUNCTION CreateTestCaseAggregationEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    Status : ST_TestCaseStatus; //! Already aggregated owner status snapshot; the function formats it without observing children.
+END_VAR
+VAR
+    RuntimeMilliseconds : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[RuntimeMilliseconds := TIME_TO_UDINT(Status.Runtime);
+
+CreateTestCaseAggregationEvent.SequenceId := 0;
+CreateTestCaseAggregationEvent.Timestamp := 0;
+CreateTestCaseAggregationEvent.OwnerScope := E_OwnerScope.TestCase;
+CreateTestCaseAggregationEvent.EventType := E_EventType.Aggregation;
+CreateTestCaseAggregationEvent.Severity := SelectResultSeverity(Result := Status.Execution.Result);
+CreateTestCaseAggregationEvent.Name := Name;
+CreateTestCaseAggregationEvent.ResourceName := ResourceName;
+CreateTestCaseAggregationEvent.State := Status.Execution.State;
+CreateTestCaseAggregationEvent.Result := Status.Execution.Result;
+
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := '{"total":',
+    STR2 := UINT_TO_STRING(Status.AssertionCountTotal));
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := ',"passed":');
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.AssertionCountPassed));
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := ',"failed":');
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.AssertionCountFailed));
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := ',"error":');
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.AssertionCountError));
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := ',"runtime":');
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message,
+    STR2 := UDINT_TO_STRING(RuntimeMilliseconds));
+CreateTestCaseAggregationEvent.Message := CONCAT(STR1 := CreateTestCaseAggregationEvent.Message, STR2 := '}');]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

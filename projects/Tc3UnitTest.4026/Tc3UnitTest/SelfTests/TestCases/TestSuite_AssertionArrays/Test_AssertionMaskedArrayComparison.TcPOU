@@ -1,0 +1,610 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionMaskedArrayComparison" Id="{1455809d-75a0-4901-a723-ae68609e422c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks BYTE masked equality/prefix and WORD masked suffix boundaries.</summary>
+<description>
+Independent scenarios use a bound reset call followed by an evaluation call.
+ProcessAssertions checks each observation before ProcessTests advances.
+SelectScenario defines literal expected results; production algorithms are inherited.
+Only the explicitly marked continuation retains a previous subject result.
+Inputs belong to this Test Case and are compared with their pre-call values.
+Expected subject findings remain in the local capture, never the outer event stream.
+FirstFailedScenario and FailedDuringEvaluation retain the first mismatch.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionMaskedArrayComparison EXTENDS TestCaseBase
+VAR
+    FEqual : AssertEqualArray_Byte;
+    FEqualExpectedResult : E_Result;
+    FEqualExpectedFinding : BOOL;
+    FPrefix : AssertArrayStartsWithArray_Byte;
+    FPrefixExpectedResult : E_Result;
+    FPrefixExpectedFinding : BOOL;
+    FSuffix : AssertArrayEndsWithArray_Word;
+    FSuffixExpectedResult : E_Result;
+    FSuffixExpectedFinding : BOOL;
+    FData : ARRAY[-2..3] OF BYTE;
+    FDataBefore : ARRAY[-2..3] OF BYTE;
+    FExpected : ARRAY[4..5] OF BYTE;
+    FExpectedBefore : ARRAY[4..5] OF BYTE;
+    FWideData : ARRAY[10..15] OF WORD;
+    FWideDataBefore : ARRAY[10..15] OF WORD;
+    FWideExpected : ARRAY[-5..-4] OF WORD;
+    FWideExpectedBefore : ARRAY[-5..-4] OF WORD;
+    FStartIndex : DINT;
+    FWideStartIndex : DINT;
+    FLength : USINT;
+    FMask : BYTE;
+    FWideMask : WORD;
+    FSubjectEnable : BOOL;
+    FContinueScenario : BOOL;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FSetupValid : BOOL;
+    FScenario : UINT;
+    FChecked : BOOL;
+    FEvaluateSubjects : BOOL;
+    FObservationReady : BOOL;
+    FFirstFailedScenario : UINT;
+    FFailedDuringEvaluation : BOOL;
+    FResultsMatch : BOOL;
+    FResults : AssertTrue;
+    FActivityMatch : BOOL;
+    FActivity : AssertTrue;
+    FInputsMatch : BOOL;
+    FInputs : AssertTrue;
+    FFindingsMatch : BOOL;
+    FFindings : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    ScenarioMatchingBoundaries : UINT := 1;
+    ScenarioIgnoredBits : UINT := 2;
+    ScenarioFirstIncludedMismatch : UINT := 3;
+    ScenarioLastIncludedMismatch : UINT := 4;
+    ScenarioZeroMask : UINT := 5;
+    ScenarioWrongBoundaryOnly : UINT := 6;
+    ScenarioPatternEqualsRange : UINT := 7;
+    ScenarioOversizedPattern : UINT := 8;
+    ScenarioEmptyRange : UINT := 9;
+    ScenarioBelowLowerBound : UINT := 10;
+    ScenarioEndOutsideRange : UINT := 11;
+    LastScenario : UINT := ScenarioEndOutsideRange;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{ff9994d4-7031-407b-af55-9bb93062246d}" />
+    <Method Name="AggregateResults" Id="{6b9348fe-e865-46c2-b318-2560a959e5e3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregates only outer checks, not intentionally failing subjects.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FResults);
+Aggregator.AddProvider(Provider := FActivity);
+Aggregator.AddProvider(Provider := FInputs);
+Aggregator.AddProvider(Provider := FFindings);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{2f699cc0-d577-477b-a710-c6d0ad3a4aae}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production subject once with caller-owned input storage.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqual(Enable := FSubjectEnable,
+    State := E_State.Running,
+    Mask := FMask,
+    StartIndex := FStartIndex,
+    IN := FData,
+    Expected := FExpected);
+FPrefix(Enable := FSubjectEnable,
+    State := E_State.Running,
+    Mask := FMask,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FData,
+    Expected := FExpected);
+FSuffix(Enable := FSubjectEnable,
+    State := E_State.Running,
+    Mask := FWideMask,
+    StartIndex := FWideStartIndex,
+    Length := FLength,
+    IN := FWideData,
+    Expected := FWideExpected);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFinding" Id="{0d6c9a99-4d65-4037-a134-e4a4fbfbb214}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks one subject finding in call order; expected outcomes come from the scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFinding : BOOL //! TRUE when the required finding checks pass; calls requiring no finding also succeed.
+VAR_INPUT
+    Subject : I_Assertion; //! Assertion interface supplying the expected finding identity.
+    ExpectedResult : E_Result; //! Independently authored result expected in the captured finding.
+    ExpectedFinding : BOOL; //! TRUE when this scenario requires a finding during active evaluation.
+END_VAR
+VAR_IN_OUT
+    Index : UINT; //! One-based next finding index; advanced when this call checks a required finding.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckFinding := TRUE;
+IF FEvaluateSubjects AND ExpectedFinding THEN
+    CheckFinding := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Name = Subject.Name)
+        AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+        AND (FEvents[Index].EventType = E_EventType.Result)
+        AND (FEvents[Index].State = E_State.Running)
+        AND (FEvents[Index].Result = ExpectedResult)
+        AND (FEvents[Index].Message <> '');
+    Index := Index + 1;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckFindings" Id="{14d6041b-6900-4117-8911-a131bb6b1e7a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact finding count and identities; at most one finding per subject.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckFindings
+VAR
+    Index : UINT;
+    Matches : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Index := 1;
+FFindingsMatch := TRUE;
+Matches := CheckFinding(Subject := FEqual,
+    ExpectedResult := FEqualExpectedResult,
+    ExpectedFinding := FEqualExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+Matches := CheckFinding(Subject := FPrefix,
+    ExpectedResult := FPrefixExpectedResult,
+    ExpectedFinding := FPrefixExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+Matches := CheckFinding(Subject := FSuffix,
+    ExpectedResult := FSuffixExpectedResult,
+    ExpectedFinding := FSuffixExpectedFinding,
+    Index := Index);
+FFindingsMatch := FFindingsMatch AND Matches;
+FFindingsMatch := FFindingsMatch
+    AND (FCaptureStatus.SequenceId = UINT_TO_UDINT(Index - 1))
+    AND (FCaptureStatus.LostEventCount = 0);
+IF FEvaluateSubjects AND (FScenario = ScenarioLastIncludedMismatch) THEN
+    // SA0175: Fixed byte-substring checks of bounded diagnostic messages; no character offsets.
+    {analysis -175}
+    FFindingsMatch := FFindingsMatch
+        AND (FIND(FEvents[1].Message, 'Expected[5]') > 0)
+        AND (FIND(FEvents[1].Message, 'IN[-1]') > 0)
+        AND (FIND(FEvents[3].Message, 'Expected[-4]') > 0)
+        AND (FIND(FEvents[3].Message, 'IN[15]') > 0);
+    {analysis +175}
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{74c70554-309f-4dde-8333-bd53924692dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects incomplete subject, capture or outer Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FResults.IsInitialized
+    AND FActivity.IsInitialized
+    AND FInputs.IsInitialized
+    AND FFindings.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Array selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{cd91d9af-4eed-430e-85ed-a65f65ae3ee8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks literal evaluation results, or NotEvaluated on the reset call.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FEvaluateSubjects THEN
+    FResultsMatch := (FEqual.Result = FEqualExpectedResult)
+        AND (FPrefix.Result = FPrefixExpectedResult)
+        AND (FSuffix.Result = FSuffixExpectedResult);
+ELSE
+    FResultsMatch := (FEqual.Result = E_Result.NotEvaluated)
+        AND (FPrefix.Result = E_Result.NotEvaluated)
+        AND (FSuffix.Result = E_Result.NotEvaluated);
+END_IF;
+FActivityMatch := (FEqual.Enabled = FSubjectEnable)
+    AND (FEqual.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FEqual.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FPrefix.Enabled = FSubjectEnable)
+    AND (FPrefix.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FPrefix.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FSuffix.Enabled = FSubjectEnable)
+    AND (FSuffix.ObservationActive = (FEvaluateSubjects AND FSubjectEnable))
+    AND (FSuffix.EvaluationActive = (FEvaluateSubjects AND FSubjectEnable));]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{234f44b0-b2b7-41cd-9b10-9fdd1a45ef76}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes outer checks and isolates intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FResults.Initialize(Parent := THIS^,
+    AssertionName := 'Results');
+FActivity.Initialize(Parent := THIS^,
+    AssertionName := 'Activity');
+FInputs.Initialize(Parent := THIS^,
+    AssertionName := 'Inputs');
+FFindings.Initialize(Parent := THIS^,
+    AssertionName := 'Findings');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FEqual.BindPublisher(Publisher := FCapture);
+Initialized := FEqual.Initialize(Parent := THIS^,
+    AssertionName := 'Equal');
+FSetupValid := FSetupValid AND Initialized;
+FPrefix.BindPublisher(Publisher := FCapture);
+Initialized := FPrefix.Initialize(Parent := THIS^,
+    AssertionName := 'Prefix');
+FSetupValid := FSetupValid AND Initialized;
+FSuffix.BindPublisher(Publisher := FCapture);
+Initialized := FSuffix.Initialize(Parent := THIS^,
+    AssertionName := 'Suffix');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{cf830665-3e01-4602-a187-3031718e9f8c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort; no asynchronous resource is owned.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{1402add8-75fd-485c-91ee-3c266e849a4f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches this call's checks before progression is permitted.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Check : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Check := Enable AND FObservationReady;
+FResults(Enable := Check,
+    State := State,
+    IN := FResultsMatch);
+FActivity(Enable := Check,
+    State := State,
+    IN := FActivityMatch);
+FInputs(Enable := Check,
+    State := State,
+    IN := FInputsMatch);
+FFindings(Enable := Check,
+    State := State,
+    IN := FFindingsMatch);
+IF Check THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{707dc52f-4957-4e3b-b003-a0834d1bafbd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{793d19fb-be04-4df1-8abd-4f432e9af8bb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the scenario sequence and outer checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FScenario := ScenarioMatchingBoundaries;
+FChecked := FALSE;
+FSubjectEnable := FALSE;
+FContinueScenario := FALSE;
+FEvaluateSubjects := FALSE;
+FObservationReady := FALSE;
+FFirstFailedScenario := 0;
+FFailedDuringEvaluation := FALSE;
+FCapture.Reset();
+ResetSubjects();
+FResults.Reset();
+FActivity.Reset();
+FInputs.Reset();
+FFindings.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{51b61ac2-abc1-41f1-b0ae-1a817f16abf5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Consumes reset before each independent scenario; continuation retains subject state.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FEvaluateSubjects THEN
+        IF FScenario = LastScenario THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FScenario := FScenario + 1;
+    END_IF;
+    FEvaluateSubjects := NOT FEvaluateSubjects;
+END_IF;
+
+IF NOT SelectScenario() THEN
+    RETURN;
+END_IF;
+IF FContinueScenario THEN
+    FEvaluateSubjects := TRUE;
+END_IF;
+FCapture.Reset();
+IF NOT FEvaluateSubjects THEN
+    ResetSubjects();
+END_IF;
+FDataBefore := FData;
+FExpectedBefore := FExpected;
+FWideDataBefore := FWideData;
+FWideExpectedBefore := FWideExpected;
+CallSubjects();
+CheckResults();
+FInputsMatch := (FData[-2] = FDataBefore[-2])
+    AND (FData[-1] = FDataBefore[-1])
+    AND (FData[0] = FDataBefore[0])
+    AND (FData[1] = FDataBefore[1])
+    AND (FData[2] = FDataBefore[2])
+    AND (FData[3] = FDataBefore[3])
+    AND (FExpected[4] = FExpectedBefore[4])
+    AND (FExpected[5] = FExpectedBefore[5])
+    AND (FWideData[10] = FWideDataBefore[10])
+    AND (FWideData[11] = FWideDataBefore[11])
+    AND (FWideData[12] = FWideDataBefore[12])
+    AND (FWideData[13] = FWideDataBefore[13])
+    AND (FWideData[14] = FWideDataBefore[14])
+    AND (FWideData[15] = FWideDataBefore[15])
+    AND (FWideExpected[-5] = FWideExpectedBefore[-5])
+    AND (FWideExpected[-4] = FWideExpectedBefore[-4]);
+CheckFindings();
+IF (FFirstFailedScenario = 0)
+    AND NOT (FResultsMatch AND FActivityMatch AND FInputsMatch AND FFindingsMatch) THEN
+    FFirstFailedScenario := FScenario;
+    FFailedDuringEvaluation := FEvaluateSubjects;
+END_IF;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{e096d2a6-d8dc-42f7-ab1b-15b9897d4e9b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues reset; the next bound FB call consumes it without evaluating.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqual.Reset();
+FPrefix.Reset();
+FSuffix.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectScenario" Id="{f4b18aeb-5c6d-49db-be52-d67e2ba22476}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects explicit stimuli and expected results for one scenario.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectScenario : BOOL //! TRUE after selecting a supported scenario and its literal expectations; FALSE reports an unknown scenario.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectScenario := FALSE;
+FSubjectEnable := TRUE;
+FContinueScenario := FALSE;
+FData[-2] := BYTE#16#12;
+FData[-1] := BYTE#16#34;
+FData[0] := BYTE#16#77;
+FData[1] := BYTE#16#88;
+FData[2] := BYTE#16#12;
+FData[3] := BYTE#16#34;
+FExpected[4] := BYTE#16#12;
+FExpected[5] := BYTE#16#34;
+FWideData[10] := WORD#16#1212;
+FWideData[11] := WORD#16#3434;
+FWideData[12] := WORD#16#7788;
+FWideData[13] := WORD#16#8899;
+FWideData[14] := WORD#16#1212;
+FWideData[15] := WORD#16#3434;
+FWideExpected[-5] := WORD#16#1212;
+FWideExpected[-4] := WORD#16#3434;
+FStartIndex := -2;
+FWideStartIndex := 10;
+FLength := 6;
+FMask := BYTE#16#FF;
+FWideMask := WORD#16#FFFF;
+CASE FScenario OF
+    ScenarioMatchingBoundaries:
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Passed;
+        FPrefixExpectedFinding := FALSE;
+        FSuffixExpectedResult := E_Result.Passed;
+        FSuffixExpectedFinding := FALSE;
+    ScenarioIgnoredBits:
+        FMask := BYTE#16#0F;
+        FWideMask := WORD#16#00FF;
+        FData[-2] := BYTE#16#A2;
+        FData[-1] := BYTE#16#B4;
+        FWideData[14] := WORD#16#AB12;
+        FWideData[15] := WORD#16#CD34;
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Passed;
+        FPrefixExpectedFinding := FALSE;
+        FSuffixExpectedResult := E_Result.Passed;
+        FSuffixExpectedFinding := FALSE;
+    ScenarioFirstIncludedMismatch:
+        FData[-2] := BYTE#16#13;
+        FWideData[14] := WORD#16#1312;
+        FEqualExpectedResult := E_Result.Failed;
+        FEqualExpectedFinding := TRUE;
+        FPrefixExpectedResult := E_Result.Failed;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Failed;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioLastIncludedMismatch:
+        FData[-1] := BYTE#16#35;
+        FWideData[15] := WORD#16#3534;
+        FEqualExpectedResult := E_Result.Failed;
+        FEqualExpectedFinding := TRUE;
+        FPrefixExpectedResult := E_Result.Failed;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Failed;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioZeroMask:
+        FMask := 0;
+        FWideMask := 0;
+        FData[-2] := 0;
+        FWideData[15] := 0;
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Passed;
+        FPrefixExpectedFinding := FALSE;
+        FSuffixExpectedResult := E_Result.Passed;
+        FSuffixExpectedFinding := FALSE;
+    ScenarioWrongBoundaryOnly:
+        FStartIndex := 0;
+        FWideStartIndex := 10;
+        FLength := 4;
+        FEqualExpectedResult := E_Result.Failed;
+        FEqualExpectedFinding := TRUE;
+        FPrefixExpectedResult := E_Result.Failed;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Failed;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioPatternEqualsRange:
+        FLength := 2;
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Passed;
+        FPrefixExpectedFinding := FALSE;
+        FSuffixExpectedResult := E_Result.Passed;
+        FSuffixExpectedFinding := FALSE;
+    ScenarioOversizedPattern:
+        FLength := 1;
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Error;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Error;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioEmptyRange:
+        FLength := 0;
+        FEqualExpectedResult := E_Result.Passed;
+        FEqualExpectedFinding := FALSE;
+        FPrefixExpectedResult := E_Result.Error;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Error;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioBelowLowerBound:
+        FStartIndex := -3;
+        FWideStartIndex := 9;
+        FEqualExpectedResult := E_Result.Error;
+        FEqualExpectedFinding := TRUE;
+        FPrefixExpectedResult := E_Result.Error;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Error;
+        FSuffixExpectedFinding := TRUE;
+    ScenarioEndOutsideRange:
+        FStartIndex := 3;
+        FWideStartIndex := 15;
+        FLength := 2;
+        FEqualExpectedResult := E_Result.Error;
+        FEqualExpectedFinding := TRUE;
+        FPrefixExpectedResult := E_Result.Error;
+        FPrefixExpectedFinding := TRUE;
+        FSuffixExpectedResult := E_Result.Error;
+        FSuffixExpectedFinding := TRUE;
+ELSE
+    Error(Message := 'Unknown array Assertion scenario.');
+    RETURN;
+END_CASE;
+SelectScenario := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

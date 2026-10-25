@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuiteMockProbe" Id="{2136c843-20cb-470a-8201-60cb31108b05}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds an isolated publisher before initialization; all mock lifecycle processing remains inherited.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuiteMockProbe EXTENDS TestSuiteMock]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{d799bcef-5303-494d-8155-a776278c8fa4}" />
+    <Method Name="BindPublisher" Id="{42138790-a95b-4e4f-849d-7cc9af2bc32d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the local capture before the first Initialize without modifying the global publisher.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindPublisher
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero borrowed capture retained for the subject lifetime.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

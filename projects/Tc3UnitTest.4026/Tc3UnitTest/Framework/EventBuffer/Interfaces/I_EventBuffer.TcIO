@@ -1,0 +1,85 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_EventBuffer" Id="{c53a7d39-1a75-4796-b449-799c27a2de23}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Event storage initialization, administration, and value snapshots.</summary>
+<description>
+Bind one-based event storage and producer-owned status fields before administration. Keep them alive and stable and reinitialize after online change. The default service is single-task. Exactly one logical consumer acknowledges an epoch. External command handling and hierarchical reservation release belong to Run Control rather than this interface.
+</description>
+*)
+{endregion}
+INTERFACE I_EventBuffer]]></Declaration>
+    <Property Name="FifoStatus" Id="{d25b6ae0-f825-426d-bd4e-ff0d3667c938}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Value snapshot of readable-range metadata.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY FifoStatus : ST_FifoStatus //! Value snapshot of readable-range metadata.]]></Declaration>
+      <Get Name="Get" Id="{c35d3fcf-8b14-4f1f-bedd-3b0aa984ccf7}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+    <Method Name="Initialize" Id="{58b83312-39a9-4473-bf18-50a2066859c2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Bind one-based event storage and its producer-owned status fields for the service lifetime.</summary>
+<description>
+Establish an empty epoch; update the status fields internally after storage operations.
+
+The default service requires lower bound 1 and physical length 3..32767; one ring position remains unused. Successful initialization clears the payload and begins a new empty epoch. Initialize owner reservation ledgers consistently; isolated reinitialization during execution is unsupported.
+</description>
+*)
+{endregion}
+METHOD Initialize : BOOL //! TRUE when storage is bound and usable; FALSE leaves the service uninitialized.
+VAR_IN_OUT
+    Buffer : ARRAY[*] OF ST_Event; //! Caller-owned event array, bound by address until reinitialization; keep storage alive and unchanged.
+    FifoControl : ST_FifoStatus; //! Caller-owned FIFO status storage, retained and updated after buffer operations; must outlive the service.
+    Status : ST_EventBufferStatus; //! Caller-owned event-sequence/loss snapshot, retained and updated by the service; must outlive it.
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="ProcessDeleteRequest" Id="{23af3446-2ac7-4381-9f88-396485da836c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Release through the captured watermark; clear the caller&#x27;s field only if unchanged.</summary>
+<description>
+Use a current-epoch contiguous watermark after processing all preceding unread events. Zero is a no-op. Rejection or partial progress can still clear an unchanged request; inspect the actual DeletedSequenceId rather than treating command clearing as successful acknowledgement.
+</description>
+*)
+{endregion}
+METHOD ProcessDeleteRequest
+VAR_IN_OUT
+    SequenceId : UDINT; //! Inclusive deletion watermark; zero means no request. Cleared only if unchanged after processing.
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="Reset" Id="{b7baf56d-93f3-41e6-ab8a-9b788dcdbada}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear storage and epoch state while retaining a valid initialized binding.</summary>
+<description>
+A valid binding is required. The default service clears event storage, FIFO state, sequence, deletion watermark, loss count and aggregate reservations, retaining the binding. Owner-local accounting and external commands are handled by the Run Control integration path; they are not repaired here. Old-epoch acknowledgements become invalid.
+</description>
+*)
+{endregion}
+METHOD Reset]]></Declaration>
+    </Method>
+    <Property Name="Status" Id="{5817cb20-08ee-4b40-8495-2df2eecc33e9}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Value snapshot of sequence, deletion and loss status.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY Status : ST_EventBufferStatus //! Value snapshot of sequence, deletion and loss status.]]></Declaration>
+      <Get Name="Get" Id="{54be3e0e-1841-49ed-af40-67de7cf0b18f}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+      </Get>
+    </Property>
+  </Itf>
+</TcPlcObject>

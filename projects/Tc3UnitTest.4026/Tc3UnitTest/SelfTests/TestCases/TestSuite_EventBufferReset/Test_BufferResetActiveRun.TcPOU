@@ -1,0 +1,412 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_BufferResetActiveRun" Id="{65eddb36-8e26-4f17-a303-e66cfb7ffda7}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks a hard Buffer Reset during a real reserved run and its normal orchestration error path.</summary>
+<description>
+The existing real root, Suite and Test Cases are called once per test cycle with isolated event storage.
+Reset is submitted only after the first child is Running with a reservation. A thin buffer probe
+captures the reset boundary before normal lifecycle processing can refill the new epoch.
+Error-driven Abort afterwards is expected; no additional lifecycle Reset or automatic restart is requested.
+New-epoch event checks retain all events until completion and reject loss or capacity exhaustion.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_BufferResetActiveRun EXTENDS TestCaseBase
+VAR
+    FSubject : ActiveResetBufferProbe;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FRoot : RunControlIntegrationSubject;
+    FControl : ST_RunControl;
+    FSuite : I_TestSuite;
+    FChild : I_TestCase;
+    FSecondChild : I_TestCase;
+    FPhase : USINT;
+    FActiveRun : AssertTrue;
+    FActiveRunMatches : BOOL;
+    FResetBoundary : AssertTrue;
+    FResetBoundaryMatches : BOOL;
+    FReservationsReleased : AssertTrue;
+    FReservationsReleasedMatches : BOOL;
+    FErrorPath : AssertTrue;
+    FErrorPathMatches : BOOL;
+    FNoLifecycleReset : AssertTrue;
+    FNoLifecycleResetMatches : BOOL;
+    FNewEpoch : AssertTrue;
+    FNewEpochMatches : BOOL;
+    FFinalization : AssertTrue;
+    FFinalizationMatches : BOOL;
+    FConfigurationPreserved : AssertTrue;
+    FConfigurationPreservedMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 257;
+    SetupPhase : USINT := 0;
+    AwaitIdlePhase : USINT := 1;
+    AwaitActivePhase : USINT := 2;
+    ResetPhase : USINT := 3;
+    AwaitCompletionPhase : USINT := 4;
+    OldEpochMarker : STRING := 'Discarded active-run marker';
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{47f4210d-99b4-4fbc-acef-4efaf4151ce0}" />
+    <Method Name="AggregateResults" Id="{dbc35c29-23b2-4577-80d3-89e01ee91ca6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FActiveRun);
+Aggregator.AddProvider(Provider := FResetBoundary);
+Aggregator.AddProvider(Provider := FReservationsReleased);
+Aggregator.AddProvider(Provider := FErrorPath);
+Aggregator.AddProvider(Provider := FNoLifecycleReset);
+Aggregator.AddProvider(Provider := FNewEpoch);
+Aggregator.AddProvider(Provider := FFinalization);
+Aggregator.AddProvider(Provider := FConfigurationPreserved);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{a0a6fba3-29cb-453c-b4b9-2b5f3722dbec}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FActiveRun.IsInitialized
+    AND FResetBoundary.IsInitialized
+    AND FReservationsReleased.IsInitialized
+    AND FErrorPath.IsInitialized
+    AND FNoLifecycleReset.IsInitialized
+    AND FNewEpoch.IsInitialized
+    AND FFinalization.IsInitialized
+    AND FConfigurationPreserved.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckNewEpoch" Id="{d3c267a9-1b0e-4af5-82f5-d8690e6f9ac0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the retained new epoch for the existing error path and stable root finalization.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckNewEpoch
+VAR
+    Index : UINT;
+    MissingReservationReported : BOOL;
+    RootErrorResultCount : UINT;
+    RootCompletedCount : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FNewEpochMatches := (FFifo.ElementCount > 0) AND (FFifo.ElementCount < BufferLength - 1)
+    AND (FFifo.IndexOut = 1) AND NOT FFifo.BufferFull AND NOT FFifo.BufferAlmostFull
+    AND (FBufferStatus.LostEventCount = 0) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.SequenceId = UINT_TO_UDINT(FFifo.ElementCount));
+FNoLifecycleResetMatches := TRUE;
+FOR Index := 1 TO FFifo.ElementCount DO
+    FNewEpochMatches := FNewEpochMatches AND (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+        AND (FEvents[Index].Message <> OldEpochMarker);
+    IF (FEvents[Index].EventType = E_EventType.Framework)
+        AND (FEvents[Index].Severity = E_EventSeverity.Error)
+        AND ((FEvents[Index].Message = CONCAT('Active child has no event reservation: ', FSuite.Name))
+            OR (FEvents[Index].Message = CONCAT('Active child has no event reservation: ', FChild.Name))) THEN
+        MissingReservationReported := TRUE;
+    END_IF;
+    IF (FEvents[Index].EventType = E_EventType.StateTransition)
+        AND (FEvents[Index].State = E_State.Reset) THEN
+        FNoLifecycleResetMatches := FALSE;
+    END_IF;
+    IF (FEvents[Index].Name = FRoot.Name) AND (FEvents[Index].OwnerScope = E_OwnerScope.RunControl) THEN
+        IF (FEvents[Index].EventType = E_EventType.Result)
+            AND (FEvents[Index].Result = E_Result.Error) THEN
+            RootErrorResultCount := RootErrorResultCount + 1;
+        END_IF;
+        IF (FEvents[Index].EventType = E_EventType.StateTransition)
+            AND (FEvents[Index].State = E_State.Completed) THEN
+            RootCompletedCount := RootCompletedCount + 1;
+        END_IF;
+    END_IF;
+END_FOR;
+FErrorPathMatches := MissingReservationReported;
+FFinalizationMatches := (RootErrorResultCount = 1) AND (RootCompletedCount = 1);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{0e692818-d8ac-47a3-aee5-5a40bbc857f1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FActiveRun.Initialize(Parent := THIS^,
+    AssertionName := 'ActiveRun');
+FResetBoundary.Initialize(Parent := THIS^,
+    AssertionName := 'ResetBoundary');
+FReservationsReleased.Initialize(Parent := THIS^,
+    AssertionName := 'ReservationsReleased');
+FErrorPath.Initialize(Parent := THIS^,
+    AssertionName := 'ErrorPath');
+FNoLifecycleReset.Initialize(Parent := THIS^,
+    AssertionName := 'NoLifecycleReset');
+FNewEpoch.Initialize(Parent := THIS^,
+    AssertionName := 'NewEpoch');
+FFinalization.Initialize(Parent := THIS^,
+    AssertionName := 'Finalization');
+FConfigurationPreserved.Initialize(Parent := THIS^,
+    AssertionName := 'ConfigurationPreserved');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{94ed4b32-1a65-478c-a548-7c5d0a6f38f6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{7f1ff8d7-0b8e-46f1-ba84-47c5732f98dc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FActiveRun(Enable := Evaluate,
+    State := State,
+    IN := FActiveRunMatches);
+FResetBoundary(Enable := Evaluate,
+    State := State,
+    IN := FResetBoundaryMatches);
+FReservationsReleased(Enable := Evaluate,
+    State := State,
+    IN := FReservationsReleasedMatches);
+FErrorPath(Enable := Evaluate,
+    State := State,
+    IN := FErrorPathMatches);
+FNoLifecycleReset(Enable := Evaluate,
+    State := State,
+    IN := FNoLifecycleResetMatches);
+FNewEpoch(Enable := Evaluate,
+    State := State,
+    IN := FNewEpochMatches);
+FFinalization(Enable := Evaluate,
+    State := State,
+    IN := FFinalizationMatches);
+FConfigurationPreserved(Enable := Evaluate,
+    State := State,
+    IN := FConfigurationPreservedMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{2b15270b-4334-4cce-a706-55de07142aa0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{0381e462-36fb-49c4-92b9-de3bb0d93024}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FPhase := SetupPhase;
+FSuite := 0;
+FChild := 0;
+FSecondChild := 0;
+FActiveRun.Reset();
+FActiveRunMatches := FALSE;
+FResetBoundary.Reset();
+FResetBoundaryMatches := FALSE;
+FReservationsReleased.Reset();
+FReservationsReleasedMatches := FALSE;
+FErrorPath.Reset();
+FErrorPathMatches := FALSE;
+FNoLifecycleReset.Reset();
+FNoLifecycleResetMatches := FALSE;
+FNewEpoch.Reset();
+FNewEpochMatches := FALSE;
+FFinalization.Reset();
+FFinalizationMatches := FALSE;
+FConfigurationPreserved.Reset();
+FConfigurationPreservedMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{e3b4a86d-b34d-4a56-8e9e-2ecbafda1315}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    StateMachine();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{671ab235-0635-4497-baeb-a67b3b9fd26a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the real hierarchy once per cycle and separates reset boundary from error completion.</summary>
+*)
+{endregion}
+METHOD PRIVATE StateMachine
+VAR
+    EmptyControl : ST_RunControl;
+    SeedEvent : ST_Event;
+    Published : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FPhase OF
+    SetupPhase:
+        FControl := EmptyControl;
+        IF NOT FSubject.Initialize(Buffer := FEvents,
+            FifoControl := FFifo,
+            Status := FBufferStatus) THEN
+            Error(Message := 'Active reset buffer initialization failed.');
+            RETURN;
+        END_IF;
+        FRoot.BindPublisher(Publisher := FSubject);
+        IF NOT FRoot.Initialize(Name := 'ActiveReset',
+            EventBuffer := FSubject) THEN
+            Error(Message := 'Active reset hierarchy initialization failed.');
+            RETURN;
+        END_IF;
+        FSuite := FRoot.GetTestSuite(Index := FRoot.ChildArrayLowerBound);
+        FChild := FRoot.GetTestCase(Index := FRoot.TestCaseLowerBound);
+        FSecondChild := FRoot.GetTestCase(Index := FRoot.TestCaseLowerBound + 1);
+        IF (FSuite = 0) OR (FChild = 0) OR (FSecondChild = 0) THEN
+            Error(Message := 'Active reset hierarchy is incomplete.');
+            RETURN;
+        END_IF;
+        FPhase := AwaitIdlePhase;
+
+    AwaitIdlePhase:
+        FRoot(ControlData := FControl);
+        IF FRoot.HasError THEN
+            Error(Message := 'Active reset hierarchy did not establish Idle.');
+            RETURN;
+        END_IF;
+        IF FRoot.IsReady THEN
+            FRoot.RequestStart();
+            FPhase := AwaitActivePhase;
+        END_IF;
+
+    AwaitActivePhase:
+        FRoot(ControlData := FControl);
+        IF FRoot.HasError OR FRoot.IsComplete THEN
+            Error(Message := 'Hierarchy ended before the active reset precondition.');
+            RETURN;
+        END_IF;
+        IF FChild.State = E_State.Running THEN
+            FActiveRunMatches := (FRoot.State = E_State.Running) AND (FSuite.State = E_State.Running)
+                AND (FSuite.ReservedEntryCount > 0) AND (FChild.ReservedEntryCount > 0)
+                AND (FSubject.ReservedEntryCount > 0);
+            SeedEvent := CreateFrameworkEvent(Name := 'ActiveReset',
+                ResourceName := 'ActiveResetFixture',
+                State := E_State.Running,
+                Severity := E_EventSeverity.Info,
+                Message := OldEpochMarker);
+            Published := FSubject.PublishEvent(Event := SeedEvent);
+            FActiveRunMatches := FActiveRunMatches AND (Published > 0);
+            FSubject.Arm(Root := FRoot,
+                Suite := FSuite,
+                Child := FChild);
+            FPhase := ResetPhase;
+        END_IF;
+
+    ResetPhase:
+        FControl.BufferCmd.Reset := TRUE;
+        FRoot(ControlData := FControl);
+        FResetBoundaryMatches := FSubject.Observed AND FSubject.LifecycleUnchanged
+            AND FSubject.EpochCleared AND NOT FControl.BufferCmd.Reset
+            AND (FControl.BufferCmd.DeleteSequenceId = 0);
+        FReservationsReleasedMatches := FSubject.OwnersReleased
+            AND (FSuite.ReservedEntryCount = 0) AND (FChild.ReservedEntryCount = 0)
+            AND (FSecondChild.ReservedEntryCount = 0);
+        FPhase := AwaitCompletionPhase;
+
+    AwaitCompletionPhase:
+        FRoot(ControlData := FControl);
+        IF FRoot.IsComplete THEN
+            CheckNewEpoch();
+            FFinalizationMatches := FFinalizationMatches AND (FRoot.Result = E_Result.Error)
+                AND FRoot.HasError;
+            FConfigurationPreservedMatches := FRoot.ConfigurationUnchanged AND FRoot.ChildCallsMatch;
+            FPerformed := TRUE;
+        END_IF;
+
+    ELSE
+        Error(Message := 'Unknown active buffer reset phase.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

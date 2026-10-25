@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_OwnerScope" Id="{9dbc7a71-427d-407e-b130-239d28bda061}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Semantic owner or technical diagnostic scope of an event.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_OwnerScope :
+(
+    Unknown := 0, //! No defined owner category.
+    Framework := 5, //! Framework-wide technical diagnostic.
+    // SA0027: Qualified enum member; retained despite the analyzer's name-collision report.
+    {attribute 'analysis' := '-27'}
+    RunControl := 10, //! Root Run Control owner.
+    TestSuiteOrchestrator := 15, //! Technical Suite-scheduling scope retained for event compatibility.
+    TestSuite := 20, //! Test Suite owner.
+    TestCaseOrchestrator := 25, //! Technical Test-Case-scheduling scope retained for event compatibility.
+    TestCase := 30, //! Test Case owner.
+    Assertion := 40, //! Assertion finding.
+    Preparation := 50 //! Preparation diagnostic.
+) USINT := Unknown;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_Smoke" Id="{6a6b798b-0aa2-47d6-9a29-d03c22a81488}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the single successful smoke Test Case through the production Suite lifecycle.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_Smoke EXTENDS TestSuiteBase
+VAR
+    FSmoke : Test_Smoke;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 1;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{18d38f31-f8a3-4c8c-8852-a9b3f3320d71}" />
+    <Method Name="Configure" Id="{e557e66d-b9e9-47c3-be14-d244b744f970}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the smoke Test Case and registers it for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+
+FSmoke.Initialize(Parent := THIS^,
+    TestName := 'Execution',
+    Config := TestConfig);
+Builder.Register(TestCase := FSmoke);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{295e7308-0e9e-4281-8565-86c4556b7b9b}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered Test Case from the same array used during configuration.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{c036d3df-8e1d-45e7-b1d0-eb9b59968580}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the owned Test Case once per initialized Suite cycle, including completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSmoke();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

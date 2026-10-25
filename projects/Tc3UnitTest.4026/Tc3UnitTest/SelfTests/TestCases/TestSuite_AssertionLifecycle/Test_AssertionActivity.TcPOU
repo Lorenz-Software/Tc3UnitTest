@@ -1,0 +1,399 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionActivity" Id="{a64640da-1c02-4e5c-a6e2-082680b8b620}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks both Assertion activity strategies with literal cycle expectations.</summary>
+<description>
+The Suite selects ObserveFirstCycle before initialization and keeps it fixed.
+Each active cycle calls each subject once. The script includes independent Evaluate
+while disabled and on the first excluded observation call, plus disable/re-enable.
+Expected steps are specified here, not obtained from the subject's gate formulas.
+Initial reset consumes bound inputs and suppresses both gates even when requested.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionActivity EXTENDS TestCaseBase
+VAR_INPUT
+    ObserveFirstCycle : BOOL := TRUE; //! First-cycle observation strategy selected before initialization and held fixed by the containing Suite.
+END_VAR
+VAR
+    FDirect : AssertionLifecycleSubject;
+    FExplicit : AssertionEvaluationSubject;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : UINT;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FEnable : BOOL;
+    FEvaluate : BOOL;
+    FExpectedObservation : BOOL;
+    FExpectedExplicitEvaluation : BOOL;
+    FExpectedObservationCount : UINT;
+    FExpectedExplicitCount : UINT;
+END_VAR
+VAR
+    FInitialization : AssertTrue;
+    FInitializationMatches : BOOL;
+    FEnabled : AssertTrue;
+    FEnabledMatches : BOOL;
+    FObservation : AssertTrue;
+    FObservationMatches : BOOL;
+    FDirectEvaluation : AssertTrue;
+    FDirectEvaluationMatches : BOOL;
+    FExplicitEvaluation : AssertTrue;
+    FExplicitEvaluationMatches : BOOL;
+    FHookDispatch : AssertTrue;
+    FHookDispatchMatches : BOOL;
+    FStableProperties : AssertTrue;
+    FStablePropertiesMatches : BOOL;
+    FNoFindings : AssertTrue;
+    FNoFindingsMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    InitializeSubjects : UINT := 0;
+    ConsumeInitialReset : UINT := 1;
+    DisabledCall : UINT := 2;
+    FirstEnabledCall : UINT := 3;
+    ObservationOnly : UINT := 4;
+    EvaluationOnly : UINT := 5;
+    FirstReenabledCall : UINT := 6;
+    ContinuedCall : UINT := 7;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{fc78665f-c94a-4a3e-bee8-28ebf3d6440c}" />
+    <Method Name="AggregateResults" Id="{598ae02a-43e2-4515-91c7-a4217320b19e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInitialization);
+Aggregator.AddProvider(Provider := FEnabled);
+Aggregator.AddProvider(Provider := FObservation);
+Aggregator.AddProvider(Provider := FDirectEvaluation);
+Aggregator.AddProvider(Provider := FExplicitEvaluation);
+Aggregator.AddProvider(Provider := FHookDispatch);
+Aggregator.AddProvider(Provider := FStableProperties);
+Aggregator.AddProvider(Provider := FNoFindings);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{6ee84898-e944-449d-bfc5-f44dc317f2c9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FInitialization.Initialize(Parent := THIS^,
+    AssertionName := 'Initialization');
+FEnabled.Initialize(Parent := THIS^,
+    AssertionName := 'Enabled');
+FObservation.Initialize(Parent := THIS^,
+    AssertionName := 'Observation');
+FDirectEvaluation.Initialize(Parent := THIS^,
+    AssertionName := 'DirectEvaluation');
+FExplicitEvaluation.Initialize(Parent := THIS^,
+    AssertionName := 'ExplicitEvaluation');
+FHookDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'HookDispatch');
+FStableProperties.Initialize(Parent := THIS^,
+    AssertionName := 'StableProperties');
+FNoFindings.Initialize(Parent := THIS^,
+    AssertionName := 'NoFindings');
+FDirect.BindPublisher(Publisher := FCapture);
+FExplicit.BindPublisher(Publisher := FCapture);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeActivitySubjects" Id="{e0e03b93-bdaf-4a01-9c96-b7e4494416ff}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes both subjects and checks their immediately inactive state.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeActivitySubjects
+VAR
+    DirectInitialized : BOOL;
+    ExplicitInitialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    Error(Message := 'Assertion activity capture setup failed.');
+    RETURN;
+END_IF;
+FDirect.ClearTrace();
+FExplicit.ClearTrace();
+DirectInitialized := FDirect.Initialize(Parent := THIS^,
+    AssertionName := 'DirectSubject',
+    ObserveFirstCycle := ObserveFirstCycle);
+ExplicitInitialized := FExplicit.Initialize(Parent := THIS^,
+    AssertionName := 'ExplicitSubject',
+    ObserveFirstCycle := ObserveFirstCycle);
+FInitializationMatches := DirectInitialized AND ExplicitInitialized
+    AND FDirect.IsInitialized AND FExplicit.IsInitialized
+    AND NOT FDirect.Enabled AND NOT FExplicit.Enabled
+    AND NOT FDirect.ObservationActive AND NOT FExplicit.ObservationActive
+    AND NOT FDirect.EvaluationActive AND NOT FExplicit.EvaluationActive
+    AND (FDirect.ResetCallCount = 0) AND (FExplicit.ResetCallCount = 0)
+    AND (FDirect.Result = E_Result.NotEvaluated) AND (FExplicit.Result = E_Result.NotEvaluated);
+FStep := ConsumeInitialReset;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ObserveCall" Id="{b0c6a22f-6bc7-4a0d-8784-d8ee983d499b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes both subjects once and checks gates, hook counts and retained results.</summary>
+*)
+{endregion}
+METHOD PRIVATE ObserveCall]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FDirect(Enable := FEnable,
+    State := E_State.Running,
+    Sample := FStep);
+FExplicit(Enable := FEnable,
+    Evaluate := FEvaluate,
+    State := E_State.Running,
+    Sample := FStep);
+IF FExpectedObservation THEN
+    FExpectedObservationCount := FExpectedObservationCount + 1;
+END_IF;
+IF FExpectedExplicitEvaluation THEN
+    FExpectedExplicitCount := FExpectedExplicitCount + 1;
+END_IF;
+
+FEnabledMatches := (FDirect.Enabled = FEnable) AND (FExplicit.Enabled = FEnable);
+FObservationMatches := (FDirect.ObservationActive = FExpectedObservation)
+    AND (FExplicit.ObservationActive = FExpectedObservation)
+    AND (FDirect.ObservationCount = FExpectedObservationCount)
+    AND (FExplicit.ObservationCount = FExpectedObservationCount);
+FDirectEvaluationMatches := (FDirect.EvaluationActive = FExpectedObservation)
+    AND (FDirect.EvaluationCount = FExpectedObservationCount);
+FExplicitEvaluationMatches := (FExplicit.EvaluationActive = FExpectedExplicitEvaluation)
+    AND (FExplicit.EvaluationCount = FExpectedExplicitCount);
+IF FExpectedObservationCount = 0 THEN
+    FDirectEvaluationMatches := FDirectEvaluationMatches AND (FDirect.Result = E_Result.NotEvaluated);
+ELSE
+    FDirectEvaluationMatches := FDirectEvaluationMatches AND (FDirect.Result = E_Result.Passed);
+END_IF;
+IF FExpectedExplicitCount = 0 THEN
+    FExplicitEvaluationMatches := FExplicitEvaluationMatches AND (FExplicit.Result = E_Result.NotEvaluated);
+ELSE
+    FExplicitEvaluationMatches := FExplicitEvaluationMatches AND (FExplicit.Result = E_Result.Passed);
+END_IF;
+
+FHookDispatchMatches := (FDirect.ResetCallCount = 1) AND (FExplicit.ResetCallCount = 1)
+    AND (FDirect.ResetSample = ConsumeInitialReset) AND (FExplicit.ResetSample = ConsumeInitialReset)
+    AND (FDirect.AssertCallCount = FStep - ConsumeInitialReset)
+    AND (FExplicit.AssertCallCount = FStep - ConsumeInitialReset);
+FStablePropertiesMatches := TRUE;
+IF FStep <> ConsumeInitialReset THEN
+    FStablePropertiesMatches := (FDirect.ObservationDuringAssert = FDirect.ObservationActive)
+        AND (FDirect.EvaluationDuringAssert = FDirect.EvaluationActive)
+        AND (FExplicit.ObservationDuringAssert = FExplicit.ObservationActive)
+        AND (FExplicit.EvaluationDuringAssert = FExplicit.EvaluationActive);
+END_IF;
+// Repeat reads must neither advance history nor change the last call's effective gates.
+FStablePropertiesMatches := FStablePropertiesMatches
+    AND (FDirect.ObservationActive = FExpectedObservation)
+    AND (FDirect.EvaluationActive = FExpectedObservation)
+    AND (FExplicit.ObservationActive = FExpectedObservation)
+    AND (FExplicit.EvaluationActive = FExpectedExplicitEvaluation);
+FNoFindingsMatches := (FCaptureStatus.SequenceId = 0) AND (FCaptureStatus.LostEventCount = 0);
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{cb0cb1a4-c261-4790-b0f8-32420ba166f8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{a740849e-f29f-46e6-9b8b-2445f18d1770}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FInitialization(Enable := Evaluate,
+    State := State,
+    IN := FInitializationMatches);
+FEnabled(Enable := Evaluate,
+    State := State,
+    IN := FEnabledMatches);
+FObservation(Enable := Evaluate,
+    State := State,
+    IN := FObservationMatches);
+FDirectEvaluation(Enable := Evaluate,
+    State := State,
+    IN := FDirectEvaluationMatches);
+FExplicitEvaluation(Enable := Evaluate,
+    State := State,
+    IN := FExplicitEvaluationMatches);
+FHookDispatch(Enable := Evaluate,
+    State := State,
+    IN := FHookDispatchMatches);
+FStableProperties(Enable := Evaluate,
+    State := State,
+    IN := FStablePropertiesMatches);
+FNoFindings(Enable := Evaluate,
+    State := State,
+    IN := FNoFindingsMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{51d2d16d-c1a1-4ec8-9fd6-8a2c20a01935}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{d39ab33b-edc7-4830-a56d-f16a8552b4ea}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := InitializeSubjects;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FExpectedObservationCount := 0;
+FExpectedExplicitCount := 0;
+FInitialization.Reset();
+FInitializationMatches := TRUE;
+FEnabled.Reset();
+FEnabledMatches := TRUE;
+FObservation.Reset();
+FObservationMatches := TRUE;
+FDirectEvaluation.Reset();
+FDirectEvaluationMatches := TRUE;
+FExplicitEvaluation.Reset();
+FExplicitEvaluationMatches := TRUE;
+FHookDispatch.Reset();
+FHookDispatchMatches := TRUE;
+FStableProperties.Reset();
+FStablePropertiesMatches := TRUE;
+FNoFindings.Reset();
+FNoFindingsMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{28b6cced-9307-4cb7-88b9-034740cbba5c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FStep = ContinuedCall THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStep := FStep + 1;
+END_IF;
+IF FStep = InitializeSubjects THEN
+    InitializeActivitySubjects();
+    RETURN;
+END_IF;
+SelectCall();
+ObserveCall();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectCall" Id="{e64c312d-2d40-4a77-8561-93a315d36ba9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal inputs and expected gates for the current trace step.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectCall]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEnable := FALSE;
+FEvaluate := FALSE;
+FExpectedObservation := FALSE;
+FExpectedExplicitEvaluation := FALSE;
+CASE FStep OF
+    ConsumeInitialReset:
+        FEnable := TRUE;
+        FEvaluate := TRUE;
+    DisabledCall:
+        FEnable := FALSE;
+    FirstEnabledCall, FirstReenabledCall:
+        FEnable := TRUE;
+        FEvaluate := TRUE;
+        FExpectedObservation := ObserveFirstCycle;
+        FExpectedExplicitEvaluation := TRUE;
+    ObservationOnly:
+        FEnable := TRUE;
+        FExpectedObservation := TRUE;
+    EvaluationOnly:
+        FEvaluate := TRUE;
+        FExpectedExplicitEvaluation := TRUE;
+    ContinuedCall:
+        FEnable := TRUE;
+        FEvaluate := TRUE;
+        FExpectedObservation := TRUE;
+        FExpectedExplicitEvaluation := TRUE;
+ELSE
+    Error(Message := 'Unknown Assertion activity step.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

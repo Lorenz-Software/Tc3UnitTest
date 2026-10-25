@@ -1,0 +1,314 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventRingOrder" Id="{d977e6a8-9db6-4c5f-a585-4f75b9893693}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies readable sequence order across the physical ring boundary and after draining.</summary>
+<description>
+Five events are published, then a valid watermark releases the first four. Four new events
+occupy physical positions 6, 7, 8 and 1. Reading from IndexOut to IndexIn must yield
+sequences 5 through 9, not physical array order. Valid deletion only arranges these states;
+invalid watermark behavior belongs to separate tests. Draining does not reset the epoch.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventRingOrder EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FSetup : AssertTrue;
+    FSetupMatches : BOOL;
+    FWrappedProjection : AssertTrue;
+    FWrappedProjectionMatches : BOOL;
+    FReadableOrder : AssertTrue;
+    FReadableOrderMatches : BOOL;
+    FDrained : AssertTrue;
+    FDrainedMatches : BOOL;
+    FContinuedSequence : AssertTrue;
+    FContinuedSequenceMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 8;
+    InitialEventCount : UINT := 5;
+    LastWrappedSequence : UDINT := 9;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500002-0050-4050-8050-00000000007c}" />
+    <Method Name="AggregateResults" Id="{00500002-0050-4050-8050-00000000007f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FSetup);
+Aggregator.AddProvider(Provider := FWrappedProjection);
+Aggregator.AddProvider(Provider := FReadableOrder);
+Aggregator.AddProvider(Provider := FDrained);
+Aggregator.AddProvider(Provider := FContinuedSequence);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500002-0050-4050-8050-00000000007e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetup.IsInitialized
+    AND FWrappedProjection.IsInitialized
+    AND FReadableOrder.IsInitialized
+    AND FDrained.IsInitialized
+    AND FContinuedSequence.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500002-0050-4050-8050-00000000007d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FSetup.Initialize(Parent := THIS^,
+    AssertionName := 'Setup');
+FWrappedProjection.Initialize(Parent := THIS^,
+    AssertionName := 'WrappedProjection');
+FReadableOrder.Initialize(Parent := THIS^,
+    AssertionName := 'ReadableOrder');
+FDrained.Initialize(Parent := THIS^,
+    AssertionName := 'Drained');
+FContinuedSequence.Initialize(Parent := THIS^,
+    AssertionName := 'ContinuedSequence');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ExerciseBuffer" Id="{00500002-0050-4050-8050-000000000085}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Creates a wrapped readable range, drains it and publishes into the same epoch again.</summary>
+*)
+{endregion}
+METHOD PRIVATE ExerciseBuffer
+VAR
+    Event : ST_Event;
+    WriteResult : INT;
+    Sequence : UDINT;
+    DeleteSequence : UDINT;
+    Index : UINT;
+    Offset : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FSubject.Initialize(Buffer := FEvents,
+    FifoControl := FFifo,
+    Status := FBufferStatus) THEN
+    Error(Message := 'Local Event Buffer initialization failed.');
+    RETURN;
+END_IF;
+
+FSetupMatches := TRUE;
+FOR Sequence := 1 TO InitialEventCount DO
+    Event := CreateFrameworkEvent(Name := 'LocalRing',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UDINT_TO_STRING(Sequence));
+    WriteResult := FSubject.PublishEvent(Event := Event);
+    FSetupMatches := FSetupMatches AND (WriteResult = UDINT_TO_INT(Sequence));
+END_FOR;
+DeleteSequence := 4;
+FSubject.ProcessDeleteRequest(SequenceId := DeleteSequence);
+FSetupMatches := FSetupMatches AND (DeleteSequence = 0)
+    AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 6) AND (FFifo.ElementCount = 1)
+    AND (FBufferStatus.SequenceId = 5) AND (FBufferStatus.DeletedSequenceId = 4)
+    AND (FBufferStatus.LostEventCount = 0);
+
+FOR Sequence := 6 TO LastWrappedSequence DO
+    Event := CreateFrameworkEvent(Name := 'LocalRing',
+        State := E_State.Running,
+        Severity := E_EventSeverity.Info,
+        Message := UDINT_TO_STRING(Sequence));
+    WriteResult := FSubject.PublishEvent(Event := Event);
+    FSetupMatches := FSetupMatches AND (WriteResult > TO_INT(E_FifoResult.NoTransfer));
+END_FOR;
+FWrappedProjectionMatches := NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND NOT FFifo.BufferEmpty AND NOT FFifo.BufferFull AND NOT FFifo.BufferAlmostFull
+    AND (FFifo.BufferLength = BufferLength) AND (FFifo.ElementCount = 5)
+    AND (FFifo.IndexOut = 5) AND (FFifo.IndexIn = 2)
+    AND (FSubject.FreeEntryCount = 2)
+    AND (FBufferStatus.SequenceId = LastWrappedSequence)
+    AND (FBufferStatus.DeletedSequenceId = 4) AND (FBufferStatus.LostEventCount = 0);
+FReadableOrderMatches := FALSE;
+IF FWrappedProjectionMatches THEN
+    // Table F traversal: start at IndexOut, wrap at BufferLength, exclude IndexIn.
+    FReadableOrderMatches := TRUE;
+    FOR Offset := 0 TO 4 DO
+        Index := ((FFifo.IndexOut - 1 + Offset) MOD FFifo.BufferLength) + 1;
+        FReadableOrderMatches := FReadableOrderMatches
+            AND (FEvents[Index].SequenceId = UINT_TO_UDINT(5 + Offset))
+            AND (FEvents[Index].Name = 'LocalRing')
+            AND (FEvents[Index].Message = UINT_TO_STRING(5 + Offset));
+    END_FOR;
+END_IF;
+
+DeleteSequence := LastWrappedSequence;
+FSubject.ProcessDeleteRequest(SequenceId := DeleteSequence);
+FDrainedMatches := (DeleteSequence = 0) AND FFifo.BufferEmpty AND NOT FFifo.BufferFull
+    AND (FFifo.ElementCount = 0) AND (FFifo.IndexOut = 2) AND (FFifo.IndexIn = 2)
+    AND (FSubject.FreeEntryCount = BufferLength - 1)
+    AND (FBufferStatus.SequenceId = LastWrappedSequence)
+    AND (FBufferStatus.DeletedSequenceId = LastWrappedSequence)
+    AND (FBufferStatus.LostEventCount = 0);
+FOR Index := 1 TO BufferLength DO
+    FDrainedMatches := FDrainedMatches AND (FEvents[Index].SequenceId = 0);
+END_FOR;
+
+WriteResult := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalRing',
+    State := E_State.Running,
+    Severity := E_EventSeverity.Info,
+    Message := 'After drain'));
+FContinuedSequenceMatches := (WriteResult = 2)
+    AND (FEvents[2].SequenceId = LastWrappedSequence + 1)
+    AND (FEvents[2].Message = 'After drain')
+    AND NOT FFifo.BufferEmpty AND (FFifo.ElementCount = 1)
+    AND (FFifo.IndexOut = 2) AND (FFifo.IndexIn = 3)
+    AND (FBufferStatus.SequenceId = LastWrappedSequence + 1)
+    AND (FBufferStatus.DeletedSequenceId = LastWrappedSequence)
+    AND (FBufferStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500002-0050-4050-8050-000000000081}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500002-0050-4050-8050-000000000084}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FSetup(Enable := Evaluate,
+    State := State,
+    IN := FSetupMatches);
+FWrappedProjection(Enable := Evaluate,
+    State := State,
+    IN := FWrappedProjectionMatches);
+FReadableOrder(Enable := Evaluate,
+    State := State,
+    IN := FReadableOrderMatches);
+FDrained(Enable := Evaluate,
+    State := State,
+    IN := FDrainedMatches);
+FContinuedSequence(Enable := Evaluate,
+    State := State,
+    IN := FContinuedSequenceMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500002-0050-4050-8050-000000000082}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500002-0050-4050-8050-000000000080}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FSetup.Reset();
+FSetupMatches := FALSE;
+FWrappedProjection.Reset();
+FWrappedProjectionMatches := FALSE;
+FReadableOrder.Reset();
+FReadableOrderMatches := FALSE;
+FDrained.Reset();
+FDrainedMatches := FALSE;
+FContinuedSequence.Reset();
+FContinuedSequenceMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500002-0050-4050-8050-000000000083}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the bounded scenario once before Assertion evaluation.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    ExerciseBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

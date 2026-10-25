@@ -1,0 +1,499 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionInitialization" Id="{785577de-f6a7-4c92-ba9d-5d33d934eb0c}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks Assertion identity validation and deferred reset dispatch.</summary>
+<description>
+Each attempt changes one identity/configuration condition. Initialize is checked before
+any FB call; three later calls verify reset dispatch, valid activity or rejected passivity.
+Checking Assertions latch every attempt, while intentional diagnostics stay local.
+Publisher checks cover zero rejection, explicit replacement and unchanged lifecycle/history
+before and after subject calls. A separate untouched Assertion verifies the lazy default.
+Repeated runs use the same subject and reinitialize it; they do not claim fresh memory.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionInitialization EXTENDS TestCaseBase
+VAR
+    FSubject : AssertionLifecycleSubject;
+    FDefaultSubject : AssertTrue;
+    FAlternativeCapture : EventBuffer;
+    FAlternativeEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FAlternativeFifo : ST_FifoStatus;
+    FAlternativeStatus : ST_EventBufferStatus;
+    FParent : AssertionParentIdentity;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FAttempt : UINT;
+    FCall : UINT;
+    FAttemptStarted : BOOL;
+    FExpectedInitialized : BOOL;
+    FExpectedObserveFirstCycle : BOOL;
+    FExpectedName : STRING(GVL_Constants.NameLength);
+    FExpectedResource : STRING(GVL_Constants.ResourceNameLength);
+    FExpectedEvents : UDINT;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+END_VAR
+VAR
+    FPublisherBinding : AssertTrue;
+    FPublisherBindingMatches : BOOL;
+    FInitialization : AssertTrue;
+    FInitializationMatches : BOOL;
+    FIdentity : AssertTrue;
+    FIdentityMatches : BOOL;
+    FSettings : AssertTrue;
+    FSettingsMatches : BOOL;
+    FDispatch : AssertTrue;
+    FDispatchMatches : BOOL;
+    FActivity : AssertTrue;
+    FActivityMatches : BOOL;
+    FDiagnostics : AssertTrue;
+    FDiagnosticsMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    DefaultSettings : UINT := 1;
+    DottedSuffix : UINT := 2;
+    ExactCapacity : UINT := 3;
+    OverCapacity : UINT := 4;
+    MissingParent : UINT := 5;
+    EmptySuffix : UINT := 6;
+    InvalidParent : UINT := 7;
+    NonAsciiSuffix : UINT := 8;
+    ExplicitSettings : UINT := 9;
+    LastAttempt : UINT := ExplicitSettings;
+    ResetCall : UINT := 1;
+    SecondCheckCall : UINT := 3;
+    ResetSampleValue : UINT := 17;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3f285c6a-8d93-4e6d-8da3-9019c8024de9}" />
+    <Method Name="AggregateResults" Id="{efce1d86-de66-4903-8358-3fc8a805f908}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FPublisherBinding);
+Aggregator.AddProvider(Provider := FInitialization);
+Aggregator.AddProvider(Provider := FIdentity);
+Aggregator.AddProvider(Provider := FSettings);
+Aggregator.AddProvider(Provider := FDispatch);
+Aggregator.AddProvider(Provider := FActivity);
+Aggregator.AddProvider(Provider := FDiagnostics);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BeginAttempt" Id="{e24e7c32-e2d2-43cb-847d-5f44337b259c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Varies one setup condition and observes Initialize before cyclic processing.</summary>
+*)
+{endregion}
+METHOD PRIVATE BeginAttempt
+VAR
+    Parent : I_TestCase;
+    ParentName : STRING(GVL_Constants.NameLength);
+    LocalName : STRING(GVL_Constants.NameLength);
+    FullName : STRING(2 * GVL_Constants.NameLength + 1);
+    Initialized : BOOL;
+    SuffixLength : INT;
+    Index : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    Error(Message := 'Assertion initialization capture setup failed.');
+    RETURN;
+END_IF;
+
+IF NOT FAlternativeCapture.Initialize(Buffer := FAlternativeEvents,
+    FifoControl := FAlternativeFifo,
+    Status := FAlternativeStatus) THEN
+    Error(Message := 'Alternative Assertion publisher setup failed.');
+    RETURN;
+END_IF;
+
+CheckPublisherBinding();
+ParentName := 'Root.Suite.Case';
+LocalName := 'Subject';
+FExpectedInitialized := TRUE;
+FExpectedObserveFirstCycle := TRUE;
+FExpectedResource := '';
+CASE FAttempt OF
+    DefaultSettings:
+        LocalName := 'Subject';
+    DottedSuffix:
+        LocalName := 'Value.With.Detail';
+    ExactCapacity, OverCapacity:
+        LocalName := '';
+        SuffixLength := UINT_TO_INT(GVL_Constants.NameLength) - LEN(ParentName) - 1;
+        IF FAttempt = OverCapacity THEN
+            SuffixLength := SuffixLength + 1;
+            FExpectedInitialized := FALSE;
+        END_IF;
+        FOR Index := 1 TO SuffixLength DO
+            LocalName := CONCAT(LocalName, 'x');
+        END_FOR;
+    MissingParent:
+        FExpectedInitialized := FALSE;
+    EmptySuffix:
+        LocalName := '';
+        FExpectedInitialized := FALSE;
+    InvalidParent:
+        ParentName := 'Root..Case';
+        FExpectedInitialized := FALSE;
+    NonAsciiSuffix:
+        // SA0175: Deliberately invalid non-ASCII identity input for the rejection test.
+        {analysis -175}
+        LocalName := '$E4';
+        {analysis +175}
+        FExpectedInitialized := FALSE;
+    ExplicitSettings:
+        FExpectedResource := 'Resource';
+        FExpectedObserveFirstCycle := FALSE;
+ELSE
+    Error(Message := 'Unknown Assertion initialization attempt.');
+    RETURN;
+END_CASE;
+
+FParent.SetIdentity(Value := ParentName);
+Parent := FParent;
+IF FAttempt = MissingParent THEN
+    Parent := 0;
+    FExpectedName := LocalName;
+ELSE
+    FullName := CONCAT(CONCAT(ParentName, '.'), LocalName);
+    // SA0175: The expected diagnostic projection is deliberately bounded ASCII-byte truncation.
+    {analysis -175}
+    FExpectedName := LEFT(FullName, UINT_TO_INT(GVL_Constants.NameLength));
+    {analysis +175}
+END_IF;
+
+FSubject.ClearTrace();
+IF FAttempt = ExplicitSettings THEN
+    Initialized := FSubject.Initialize(Parent := Parent,
+        AssertionName := LocalName,
+        ResourceName := FExpectedResource,
+        ObserveFirstCycle := FExpectedObserveFirstCycle);
+ELSE
+    Initialized := FSubject.Initialize(Parent := Parent,
+        AssertionName := LocalName);
+END_IF;
+FInitializationMatches := (Initialized = FExpectedInitialized)
+    AND (FSubject.IsInitialized = FExpectedInitialized)
+    AND (FSubject.Result = E_Result.NotEvaluated);
+FIdentityMatches := TRUE;
+FSettingsMatches := TRUE;
+IF FAttempt <> MissingParent THEN
+    FIdentityMatches := FSubject.Name = FExpectedName;
+    FSettingsMatches := (FSubject.ResourceName = FExpectedResource)
+        AND (FSubject.ObserveFirstCycle = FExpectedObserveFirstCycle);
+END_IF;
+FDispatchMatches := (FSubject.ResetCallCount = 0) AND (FSubject.AssertCallCount = 0);
+FActivityMatches := NOT FSubject.Enabled
+    AND NOT FSubject.ObservationActive AND NOT FSubject.EvaluationActive;
+FExpectedEvents := 0;
+FDiagnosticsMatches := TRUE;
+IF NOT FExpectedInitialized THEN
+    FExpectedEvents := 1;
+    FDiagnosticsMatches := (FEvents[1].Name = FExpectedName)
+        AND (FEvents[1].OwnerScope = E_OwnerScope.Framework)
+        AND (FEvents[1].EventType = E_EventType.Framework)
+        AND (FEvents[1].Severity = E_EventSeverity.Error)
+        AND (FEvents[1].State = E_State.Uninitialized);
+END_IF;
+FDiagnosticsMatches := FDiagnosticsMatches AND (FCaptureStatus.SequenceId = FExpectedEvents);
+FCaptureIntegrityMatches := FCaptureStatus.LostEventCount = 0;
+FAttemptStarted := TRUE;
+FCall := ResetCall;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckPublisherBinding" Id="{18c35b65-1111-4422-b833-03eddf524002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks binding without changing subject lifecycle, history or event counts.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckPublisherBinding
+VAR
+    PrimaryPublisher : I_EventPublisher;
+    AlternativePublisher : I_EventPublisher;
+    DefaultPublisher : I_EventPublisher;
+    ResultBefore : E_Result;
+    InitializedBefore : BOOL;
+    EnabledBefore : BOOL;
+    ObservationBefore : BOOL;
+    EvaluationBefore : BOOL;
+    NameBefore : STRING(GVL_Constants.NameLength);
+    SequenceBefore : UDINT;
+    AlternativeSequenceBefore : UDINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[PrimaryPublisher := FCapture;
+AlternativePublisher := FAlternativeCapture;
+DefaultPublisher := GVL_EventBuffer.Publisher;
+FDefaultSubject.BindPublisher(Publisher := 0);
+FPublisherBindingMatches := FPublisherBindingMatches
+    AND (FDefaultSubject.EventPublisher = DefaultPublisher);
+
+ResultBefore := FSubject.Result;
+InitializedBefore := FSubject.IsInitialized;
+EnabledBefore := FSubject.Enabled;
+ObservationBefore := FSubject.ObservationActive;
+EvaluationBefore := FSubject.EvaluationActive;
+NameBefore := FSubject.Name;
+SequenceBefore := FCaptureStatus.SequenceId;
+AlternativeSequenceBefore := FAlternativeStatus.SequenceId;
+
+FSubject.BindPublisher(Publisher := AlternativePublisher);
+FPublisherBindingMatches := FPublisherBindingMatches
+    AND (FSubject.EventPublisher = AlternativePublisher);
+FSubject.BindPublisher(Publisher := 0);
+FPublisherBindingMatches := FPublisherBindingMatches
+    AND (FSubject.EventPublisher = AlternativePublisher);
+FSubject.BindPublisher(Publisher := PrimaryPublisher);
+FPublisherBindingMatches := FPublisherBindingMatches
+    AND (FSubject.EventPublisher = PrimaryPublisher)
+    AND (FSubject.Result = ResultBefore)
+    AND (FSubject.IsInitialized = InitializedBefore)
+    AND (FSubject.Enabled = EnabledBefore)
+    AND (FSubject.ObservationActive = ObservationBefore)
+    AND (FSubject.EvaluationActive = EvaluationBefore)
+    AND (FSubject.Name = NameBefore)
+    AND (FCaptureStatus.SequenceId = SequenceBefore)
+    AND (FAlternativeStatus.SequenceId = AlternativeSequenceBefore);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{52d94093-4f17-41ef-b78c-2191b5d1960a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FPublisherBinding.Initialize(Parent := THIS^,
+    AssertionName := 'PublisherBinding');
+FInitialization.Initialize(Parent := THIS^,
+    AssertionName := 'Initialization');
+FIdentity.Initialize(Parent := THIS^,
+    AssertionName := 'Identity');
+FSettings.Initialize(Parent := THIS^,
+    AssertionName := 'Settings');
+FDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'Dispatch');
+FActivity.Initialize(Parent := THIS^,
+    AssertionName := 'Activity');
+FDiagnostics.Initialize(Parent := THIS^,
+    AssertionName := 'Diagnostics');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSubject.BindPublisher(Publisher := FCapture);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ObserveCall" Id="{378da174-ab3d-4ed7-b1a9-be8f63e9eeb7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks reset and subsequent dispatch using one subject call per cycle.</summary>
+*)
+{endregion}
+METHOD PRIVATE ObserveCall
+VAR
+    ExpectedActive : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubject(Enable := TRUE,
+    State := E_State.Running,
+    Sample := ResetSampleValue);
+FDispatchMatches := FDispatchMatches
+    AND (FSubject.ResetCallCount = 1) AND (FSubject.ResetSample = ResetSampleValue);
+IF FCall = ResetCall THEN
+    FDispatchMatches := FDispatchMatches AND (FSubject.AssertCallCount = 0)
+        AND (FSubject.ObservedSample = 0);
+    FActivityMatches := FActivityMatches AND FSubject.Enabled
+        AND NOT FSubject.ObservationActive AND NOT FSubject.EvaluationActive
+        AND (FSubject.Result = E_Result.NotEvaluated);
+ELSIF FExpectedInitialized THEN
+    FDispatchMatches := FDispatchMatches AND (FSubject.AssertCallCount = FCall - 1);
+    ExpectedActive := FExpectedObserveFirstCycle OR (FCall = SecondCheckCall);
+    FActivityMatches := FActivityMatches AND FSubject.Enabled
+        AND (FSubject.ObservationActive = ExpectedActive)
+        AND (FSubject.EvaluationActive = ExpectedActive);
+    IF ExpectedActive THEN
+        FActivityMatches := FActivityMatches AND (FSubject.Result = E_Result.Passed);
+    ELSE
+        FActivityMatches := FActivityMatches AND (FSubject.Result = E_Result.NotEvaluated);
+    END_IF;
+ELSE
+    FDispatchMatches := FDispatchMatches AND (FSubject.AssertCallCount = 0);
+    FActivityMatches := FActivityMatches AND NOT FSubject.ObservationActive
+        AND NOT FSubject.EvaluationActive AND (FSubject.Result = E_Result.NotEvaluated);
+END_IF;
+FDiagnosticsMatches := FDiagnosticsMatches AND (FCaptureStatus.SequenceId = FExpectedEvents);
+FCaptureIntegrityMatches := FCaptureIntegrityMatches AND (FCaptureStatus.LostEventCount = 0);
+CheckPublisherBinding();
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{63fc619e-63a5-4614-8db3-e5b324a781bb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{766df004-5003-4093-8258-7b3049ea4993}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FPublisherBinding(Enable := Evaluate,
+    State := State,
+    IN := FPublisherBindingMatches);
+FInitialization(Enable := Evaluate,
+    State := State,
+    IN := FInitializationMatches);
+FIdentity(Enable := Evaluate,
+    State := State,
+    IN := FIdentityMatches);
+FSettings(Enable := Evaluate,
+    State := State,
+    IN := FSettingsMatches);
+FDispatch(Enable := Evaluate,
+    State := State,
+    IN := FDispatchMatches);
+FActivity(Enable := Evaluate,
+    State := State,
+    IN := FActivityMatches);
+FDiagnostics(Enable := Evaluate,
+    State := State,
+    IN := FDiagnosticsMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{84ec9f5b-35dc-4539-ab79-f8f12f99ff2f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{7a5019f1-9fa7-447e-95ff-899410bf56cf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPublisherBinding.Reset();
+FPublisherBindingMatches := TRUE;
+FAttempt := DefaultSettings;
+FCall := ResetCall;
+FAttemptStarted := FALSE;
+FObservationReady := FALSE;
+FChecked := FALSE;
+FInitialization.Reset();
+FInitializationMatches := TRUE;
+FIdentity.Reset();
+FIdentityMatches := TRUE;
+FSettings.Reset();
+FSettingsMatches := TRUE;
+FDispatch.Reset();
+FDispatchMatches := TRUE;
+FActivity.Reset();
+FActivityMatches := TRUE;
+FDiagnostics.Reset();
+FDiagnosticsMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{2c712c3f-007a-4493-b6f8-cf001b1282bf}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FCall = SecondCheckCall THEN
+        IF FAttempt = LastAttempt THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FAttempt := FAttempt + 1;
+        FAttemptStarted := FALSE;
+    ELSE
+        FCall := FCall + 1;
+    END_IF;
+END_IF;
+IF NOT FAttemptStarted THEN
+    BeginAttempt();
+    RETURN;
+END_IF;
+ObserveCall();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

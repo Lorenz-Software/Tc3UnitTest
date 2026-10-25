@@ -1,0 +1,195 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SerialUnequalDurations" Id="{a52ee18e-16a0-4271-8320-0f04a32f04ef}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks long, immediate and shorter children; Completing is not terminal completion.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SerialUnequalDurations EXTENDS OrchestrationTestBase]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{4d5a7881-dae9-4e40-a5e2-2dde7fa83510}" />
+    <Method Name="ConfigureScenario" Id="{2a2f435d-eb02-41e5-a42d-0269b647288f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines this scenario independently of the subject's internal fields.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FArrayLayout := E_OrchestrationArrayLayout.Ordinary;
+FChildCount := 3;
+FStepCount := 15;
+
+{region "Cycle 01 - Idle readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "Cycle 02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 03 - Child progress"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 04 - Child progress"}
+FSteps[4].Children[1].State := E_State.Running;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 05 - Child progress"}
+FSteps[5].Children[1].State := E_State.Running;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].ExpectedSlot := 1;
+FSteps[5].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 06 - Child progress"}
+FSteps[6].Children[1].State := E_State.Completing;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].ExpectedSlot := 1;
+FSteps[6].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 07 - Child progress"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].ExpectedSlot := 1;
+FSteps[7].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 08 - Reconcile completed child 1"}
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Passed;
+FSteps[8].ExpectedSlot := 2;
+FSteps[8].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "Cycle 09 - Start child 2"}
+FSteps[9].Children[1].State := E_State.Completed;
+FSteps[9].Children[1].Ready := FALSE;
+FSteps[9].Children[1].Complete := TRUE;
+FSteps[9].Children[1].Result := E_Result.Passed;
+FSteps[9].Children[2].State := E_State.Completed;
+FSteps[9].Children[2].Ready := FALSE;
+FSteps[9].Children[2].Complete := TRUE;
+FSteps[9].Children[2].Result := E_Result.Passed;
+FSteps[9].ExpectedStartChild := 2;
+FSteps[9].ExpectedSlot := 2;
+FSteps[9].ExpectedReservations[2] := 1;
+{endregion}
+
+{region "Cycle 10 - Reconcile completed child 2"}
+FSteps[10].Children[1].State := E_State.Completed;
+FSteps[10].Children[1].Ready := FALSE;
+FSteps[10].Children[1].Complete := TRUE;
+FSteps[10].Children[1].Result := E_Result.Passed;
+FSteps[10].Children[2].State := E_State.Completed;
+FSteps[10].Children[2].Ready := FALSE;
+FSteps[10].Children[2].Complete := TRUE;
+FSteps[10].Children[2].Result := E_Result.Passed;
+FSteps[10].ExpectedSlot := 3;
+FSteps[10].ExpectedReleasedEntries[2] := 1;
+{endregion}
+
+{region "Cycle 11 - Start child 3"}
+FSteps[11].Children[1].State := E_State.Completed;
+FSteps[11].Children[1].Ready := FALSE;
+FSteps[11].Children[1].Complete := TRUE;
+FSteps[11].Children[1].Result := E_Result.Passed;
+FSteps[11].Children[2].State := E_State.Completed;
+FSteps[11].Children[2].Ready := FALSE;
+FSteps[11].Children[2].Complete := TRUE;
+FSteps[11].Children[2].Result := E_Result.Passed;
+FSteps[11].Children[3].State := E_State.Running;
+FSteps[11].Children[3].Ready := FALSE;
+FSteps[11].ExpectedStartChild := 3;
+FSteps[11].ExpectedSlot := 3;
+FSteps[11].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "Cycle 12 - Child progress"}
+FSteps[12].Children[1].State := E_State.Completed;
+FSteps[12].Children[1].Ready := FALSE;
+FSteps[12].Children[1].Complete := TRUE;
+FSteps[12].Children[1].Result := E_Result.Passed;
+FSteps[12].Children[2].State := E_State.Completed;
+FSteps[12].Children[2].Ready := FALSE;
+FSteps[12].Children[2].Complete := TRUE;
+FSteps[12].Children[2].Result := E_Result.Passed;
+FSteps[12].Children[3].State := E_State.Running;
+FSteps[12].Children[3].Ready := FALSE;
+FSteps[12].ExpectedSlot := 3;
+FSteps[12].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "Cycle 13 - Child progress"}
+FSteps[13].Children[1].State := E_State.Completed;
+FSteps[13].Children[1].Ready := FALSE;
+FSteps[13].Children[1].Complete := TRUE;
+FSteps[13].Children[1].Result := E_Result.Passed;
+FSteps[13].Children[2].State := E_State.Completed;
+FSteps[13].Children[2].Ready := FALSE;
+FSteps[13].Children[2].Complete := TRUE;
+FSteps[13].Children[2].Result := E_Result.Passed;
+FSteps[13].Children[3].State := E_State.Completed;
+FSteps[13].Children[3].Ready := FALSE;
+FSteps[13].Children[3].Complete := TRUE;
+FSteps[13].Children[3].Result := E_Result.Passed;
+FSteps[13].ExpectedSlot := 3;
+FSteps[13].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "Cycle 14 - Completed observation"}
+FSteps[14].Children[1].State := E_State.Completed;
+FSteps[14].Children[1].Ready := FALSE;
+FSteps[14].Children[1].Complete := TRUE;
+FSteps[14].Children[1].Result := E_Result.Passed;
+FSteps[14].Children[2].State := E_State.Completed;
+FSteps[14].Children[2].Ready := FALSE;
+FSteps[14].Children[2].Complete := TRUE;
+FSteps[14].Children[2].Result := E_Result.Passed;
+FSteps[14].Children[3].State := E_State.Completed;
+FSteps[14].Children[3].Ready := FALSE;
+FSteps[14].Children[3].Complete := TRUE;
+FSteps[14].Children[3].Result := E_Result.Passed;
+FSteps[14].ExpectedReleasedEntries[3] := 1;
+FSteps[14].ExpectedFinished := TRUE;
+{endregion}
+
+{region "Cycle 15 - Completed observation"}
+FSteps[15].Children[1].State := E_State.Completed;
+FSteps[15].Children[1].Ready := FALSE;
+FSteps[15].Children[1].Complete := TRUE;
+FSteps[15].Children[1].Result := E_Result.Passed;
+FSteps[15].Children[2].State := E_State.Completed;
+FSteps[15].Children[2].Ready := FALSE;
+FSteps[15].Children[2].Complete := TRUE;
+FSteps[15].Children[2].Result := E_Result.Passed;
+FSteps[15].Children[3].State := E_State.Completed;
+FSteps[15].Children[3].Ready := FALSE;
+FSteps[15].Children[3].Complete := TRUE;
+FSteps[15].Children[3].Result := E_Result.Passed;
+FSteps[15].ExpectedFinished := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

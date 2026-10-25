@@ -1,0 +1,78 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateRunAggregationEvent" Id="{e7265209-d807-4bae-941c-035222f88f53}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a Run aggregation event from an already aggregated status snapshot.</summary>
+<description>
+Runtime is rendered as unsigned milliseconds; the caller owns publication.
+
+
+Compact JSON fields are total, inactive, idle, running, completed, passed, failed, error, runtime and lostEvents. Counts and runtime are unsigned decimal numbers. This formats the supplied snapshot without validating completion or recomputing aggregation; the owner controls finalization order and publication.
+</description>
+*)
+{endregion}
+FUNCTION CreateRunAggregationEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    Status : ST_RunControlStatus; //! Already aggregated owner status snapshot; the function formats it without observing children.
+    LostEventCount : UINT; //! Publisher's cumulative lost-event count included in the Run aggregation.
+END_VAR
+VAR
+    RuntimeMilliseconds : UDINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[RuntimeMilliseconds := TIME_TO_UDINT(Status.Runtime);
+
+CreateRunAggregationEvent.SequenceId := 0;
+CreateRunAggregationEvent.Timestamp := 0;
+CreateRunAggregationEvent.OwnerScope := E_OwnerScope.RunControl;
+CreateRunAggregationEvent.EventType := E_EventType.Aggregation;
+CreateRunAggregationEvent.Severity := SelectResultSeverity(Result := Status.Execution.Result);
+CreateRunAggregationEvent.Name := Name;
+CreateRunAggregationEvent.ResourceName := '';
+CreateRunAggregationEvent.State := Status.Execution.State;
+CreateRunAggregationEvent.Result := Status.Execution.Result;
+
+CreateRunAggregationEvent.Message := CONCAT(STR1 := '{"total":',
+    STR2 := UINT_TO_STRING(Status.SuiteCountTotal));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"inactive":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountInactive));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"idle":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountIdle));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"running":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountRunning));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"completed":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountCompleted));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"passed":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountPassed));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"failed":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountFailed));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"error":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(Status.SuiteCountError));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"runtime":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UDINT_TO_STRING(RuntimeMilliseconds));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := ',"lostEvents":');
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message,
+    STR2 := UINT_TO_STRING(LostEventCount));
+CreateRunAggregationEvent.Message := CONCAT(STR1 := CreateRunAggregationEvent.Message, STR2 := '}');]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,48 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateAssertionTextValue_Hex" Id="{004335f3-bf07-4d6c-b00e-9c096af23759}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Formats a bit-string value as fixed-width uppercase hexadecimal text.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL CreateAssertionTextValue_Hex : STRING(GVL_Constants.AssertionValueLength) //! Bounded diagnostic text; not a value for subsequent numeric comparison.
+VAR_INPUT
+    Value : LWORD; //! Value to render as diagnostic text; formatting does not change comparison semantics.
+    DigitCount : USINT; //! Hexadecimal width, 1..16 digits (2 for BYTE); invalid widths return empty text.
+END_VAR
+VAR
+    RemainingValue : LWORD;
+    DigitIndex : INT;
+    Nibble : USINT;
+    TextValue : STRING(16);
+END_VAR
+VAR CONSTANT
+    HexDigits : STRING(16) := '0123456789ABCDEF';
+    MaximumDigits : USINT := 16;
+    BitsPerDigit : USINT := 4;
+    NibbleMask : LWORD := LWORD#16#F;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF (DigitCount = 0) OR (DigitCount > MaximumDigits) THEN
+    RETURN;
+END_IF;
+
+TextValue := '0000000000000000';
+// SA0175: DigitCount is 1..16, indices fit STRING(16), masked nibbles are 0..15.
+{analysis -175}
+TextValue[DigitCount] := 0;
+{analysis +175}
+RemainingValue := Value;
+FOR DigitIndex := USINT_TO_INT(DigitCount) - 1 TO 0 BY -1 DO
+    Nibble := LWORD_TO_USINT(RemainingValue AND NibbleMask);
+    // SA0175: DigitCount is 1..16, indices fit STRING(16), masked nibbles are 0..15.
+    {analysis -175}
+    TextValue[DigitIndex] := HexDigits[Nibble];
+    {analysis +175}
+    RemainingValue := SHR(RemainingValue, BitsPerDigit);
+END_FOR;
+CreateAssertionTextValue_Hex := CONCAT('16#', TextValue);]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

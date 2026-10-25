@@ -1,0 +1,117 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="BufferReleaseSuiteDouble" Id="{c4ac3a53-4bff-45f0-a078-1bbb5215dce1}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Controlled Suite release boundary with a real local buffer contribution.</summary>
+<description>
+PrepareRelease borrows the test-owned buffer and reserves a fixed contribution through its public API.
+A rejected release deliberately retains that contribution. Later hard reset clears only the buffer
+aggregate, not this failed local value. This double does not simulate a child hierarchy or admission
+policy; the real hierarchy is exercised separately. No production state is modified for fault injection.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK BufferReleaseSuiteDouble EXTENDS RunControlSuiteDouble
+VAR
+    FBuffer : REFERENCE TO BufferCommandProbe;
+    FContribution : UINT;
+    FRejectRelease : BOOL;
+    FReleaseOrder : UINT;
+    FReleaseCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(ObservationInput := ObservationInput);]]></ST>
+    </Implementation>
+    <Method Name="FreeReservedEvents" Id="{1952ded7-fb29-474d-8373-1ba99f9c483f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Records every attempt; selected failure retains the local contribution.</summary>
+*)
+{endregion}
+METHOD PUBLIC FreeReservedEvents : BOOL //! TRUE when the contribution was released; FALSE for scripted rejection or inherited buffer release failure.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReleaseCount := FReleaseCount + 1;
+FReleaseOrder := FBuffer.RecordRelease();
+FreeReservedEvents := FALSE;
+IF FRejectRelease THEN
+    RETURN;
+END_IF;
+FreeReservedEvents := FBuffer.FreeReservedSpace(EntryCount := FContribution,
+    OwnerReservedEntryCount := FContribution);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PrepareRelease" Id="{a6d14ca5-34f3-4aae-bc77-bb51ea1aa436}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds stable local storage and reserves the controlled Suite contribution.</summary>
+*)
+{endregion}
+METHOD PUBLIC PrepareRelease : BOOL //! TRUE when the requested test contribution was reserved in the borrowed buffer.
+VAR_INPUT
+    RejectRelease : BOOL; //! TRUE makes subsequent release calls reject without freeing the contribution.
+    EntryCount : UINT; //! Number of entries requested for this Suite double with zero headroom.
+END_VAR
+VAR_IN_OUT
+    // SA0167: Borrowed test-owned buffer; no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Buffer : BufferCommandProbe; //! Borrowed test-owned buffer retained for reservation and release; keep it alive until the binding is replaced.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FBuffer REF= Buffer;
+FContribution := 0;
+FRejectRelease := RejectRelease;
+FReleaseOrder := 0;
+FReleaseCount := 0;
+PrepareRelease := FBuffer.ReserveSpace(EntryCount := EntryCount,
+    HeadroomEntryCount := 0,
+    OwnerReservedEntryCount := FContribution);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ReleaseCount" Id="{c5da2aed-caa6-4141-b44a-d267aa18a14f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded ReleaseCount for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReleaseCount : UINT //! Recorded ReleaseCount for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{e8e08eb5-5074-4b88-a8dd-360fb3be80a9}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReleaseCount := FReleaseCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ReleaseOrder" Id="{93a9d463-9f19-4c13-b490-25d5e49d5d67}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded ReleaseOrder for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReleaseOrder : UINT //! Recorded ReleaseOrder for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{346f7da1-e764-4fe8-ae83-2e2126e92741}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReleaseOrder := FReleaseOrder;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="ReservedEntryCount" Id="{c8bfa065-5703-45ed-a306-ab0bf9b0677f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Recorded ReservedEntryCount for command-order verification.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ReservedEntryCount : UINT //! Recorded ReservedEntryCount for command-order verification.]]></Declaration>
+      <Get Name="Get" Id="{632f4e83-ad1f-4715-8ec4-4fa457a0dfca}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ReservedEntryCount := FContribution;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,19 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="GetFrameworkVersion" Id="{7eef0e66-557a-4f1d-8720-34a0896bcd14}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns Major.Minor.Build from the generated library metadata; revision is omitted.</summary>
+*)
+{endregion}
+FUNCTION GetFrameworkVersion : STRING(GVL_Constants.VersionLength) //! Library version as Major.Minor.Build without revision, within VersionLength.
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[GetFrameworkVersion := UINT_TO_STRING(Global_Version.stLibVersion_Tc3_UnitTest.iMajor);
+GetFrameworkVersion := CONCAT(GetFrameworkVersion, '.');
+GetFrameworkVersion := CONCAT(GetFrameworkVersion, UINT_TO_STRING(Global_Version.stLibVersion_Tc3_UnitTest.iMinor));
+GetFrameworkVersion := CONCAT(GetFrameworkVersion, '.');
+GetFrameworkVersion := CONCAT(GetFrameworkVersion, UINT_TO_STRING(Global_Version.stLibVersion_Tc3_UnitTest.iBuild));]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

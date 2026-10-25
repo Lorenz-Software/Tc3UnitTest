@@ -1,0 +1,34 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="CreateResultEvent" Id="{a43468a4-a8c1-44b2-8265-17343ba0e455}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Constructs a result event without evaluating or publishing it.</summary>
+<description>
+The caller supplies the complete ASCII name, resource context and finding message.
+</description>
+*)
+{endregion}
+FUNCTION CreateResultEvent : ST_Event //! Constructed event value; not published. The publisher assigns SequenceId and Timestamp.
+VAR_INPUT
+    OwnerScope : E_OwnerScope; //! Semantic owner category recorded in the event.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+    State : E_State; //! Owner lifecycle state recorded in the event.
+    Result : E_Result; //! Evaluation result to include or classify; its numeric value is not severity order.
+    Message : STRING(GVL_Constants.MessageLength); //! Diagnostic text copied into the event within MessageLength.
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[CreateResultEvent.SequenceId := 0;
+CreateResultEvent.Timestamp := 0;
+CreateResultEvent.OwnerScope := OwnerScope;
+CreateResultEvent.EventType := E_EventType.Result;
+CreateResultEvent.Severity := SelectResultSeverity(Result := Result);
+CreateResultEvent.Name := Name;
+CreateResultEvent.ResourceName := ResourceName;
+CreateResultEvent.State := State;
+CreateResultEvent.Result := Result;
+CreateResultEvent.Message := Message;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

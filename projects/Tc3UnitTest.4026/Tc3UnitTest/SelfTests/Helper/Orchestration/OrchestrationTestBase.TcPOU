@@ -1,0 +1,771 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="OrchestrationTestBase" Id="{a358775c-de56-4c05-ad0b-41cc07fc8d4d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs explicit per-cycle scenarios against the real shared Orchestrator.</summary>
+<description>
+
+Roles
+
+FSubject is the unchanged production Orchestrator with local diagnostic capture.
+FChildren are interface doubles, not TestCaseBase copies. FCollection exposes the
+registered prefix at the selected array's real indices; unused capacity stays empty.
+Only the outer Assertions publish into the normal selftest Event Stream.
+
+Scenario composition
+
+ConfigureScenario assigns FChildSlots before fixture initialization. Defaults are
+1, 2, 3 for Serial; Parallel scenarios assign slot 1 to every participating child.
+Each row states MaxActiveChildCount, defaulting to the existing Serial limit of one.
+Activity includes this call's Start request and prior active child observations.
+The limit applies during Execution; per-child request checks still allow only one Start.
+
+One checkpoint per task cycle
+
+ConfigureScenario supplies independent child observations and helper expectations.
+ProcessTests clears call evidence and installs reservation responses for the current row,
+calls the helper once, then each registered child once.
+Accepted responses are the default. Unaccepted reservation expectations count additional
+WaitingForCapacity or Error attempts without Start/Reset; they do not imply dispatch.
+Child requests are recorded before the script's next observation is applied.
+ProcessAssertions compares this cycle before the next checkpoint can advance.
+No extra call is made to acknowledge a Start; the next helper call sees the prior child call.
+
+Trace and scope
+
+FTrace retains before/after observations, requests, releases and helper outputs.
+The table is an explicit regression trace for this call order, not a second scheduler.
+Reservation markers check interface ordering, not real Event Buffer budget arithmetic.
+Outer Reset rebuilds the isolated fixture. The ordinary subject Reset is a separate task.
+
+Errors and interruptions
+
+ExpectedDiagnosticCount is cumulative within the scenario, including across subject Reset.
+Held errors must not generate repeated events. Captured payloads are checked by
+classification and owner context, not by diagnostic message wording.
+Reset/Abort requests and task-specific completion are explicit per-cycle expectations;
+Reset completion and helper readiness remain distinct observations.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT OrchestrationTestBase EXTENDS TestCaseBase
+VAR
+    FSubject : OrchestratorProbe;
+    FCollection : OrchestrationCollectionDouble;
+    FChildren : ARRAY[1..3] OF OrchestrationChildDouble;
+    FOrdinaryChildren : ARRAY[1..3] OF I_Orchestratable;
+    FShiftedChildren : ARRAY[7..9] OF I_Orchestratable;
+    FNegativeChildren : ARRAY[-3..-1] OF I_Orchestratable;
+    FSpareChildren : ARRAY[1..6] OF I_Orchestratable;
+    FArrayLayout : E_OrchestrationArrayLayout := E_OrchestrationArrayLayout.Ordinary;
+    FChildCount : UINT := 3;
+    FChildSlots : ARRAY[1..3] OF UINT := [1, 2, 3];
+    FSteps : ARRAY[1..StepCapacity] OF ST_OrchestrationStep;
+    FTrace : ARRAY[1..StepCapacity] OF ST_OrchestrationCycle;
+    FStepCount : INT;
+    FStepIndex : INT := 1;
+    FCheckPerformed : BOOL;
+    FObservationReady : BOOL;
+    FFixtureValid : BOOL;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FCheckRequests : AssertTrue;
+    FCheckOtherRequests : AssertTrue;
+    FCheckReservations : AssertTrue;
+    FCheckChildCalls : AssertTrue;
+    FCheckCollectionAccess : AssertTrue;
+    FCheckActiveChildren : AssertTrue;
+    FCheckSlot : AssertEqual_UInt;
+    FCheckCompletion : AssertEqual_Bool;
+    FCheckReady : AssertEqual_Bool;
+    FCheckTask : AssertEqual_Int;
+    FCheckResult : AssertEqual_Int;
+    FCheckDiagnostics : AssertEqual_UDInt;
+    FCheckTaskStatus : AssertTrue;
+    FCheckDiagnosticPayload : AssertTrue;
+END_VAR
+VAR CONSTANT
+    StepCapacity : INT := 24;
+    CaptureLength : UINT := 32;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3c4efcb0-e13d-4061-bd01-5cdb6261bbb4}" />
+    <Method Name="AggregateResults" Id="{50752794-e3c3-4d03-9b34-e4f3854cd548}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes every outer Assertion once without running the isolated scheduler.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FCheckRequests);
+Aggregator.AddProvider(Provider := FCheckOtherRequests);
+Aggregator.AddProvider(Provider := FCheckReservations);
+Aggregator.AddProvider(Provider := FCheckChildCalls);
+Aggregator.AddProvider(Provider := FCheckCollectionAccess);
+Aggregator.AddProvider(Provider := FCheckActiveChildren);
+Aggregator.AddProvider(Provider := FCheckSlot);
+Aggregator.AddProvider(Provider := FCheckCompletion);
+Aggregator.AddProvider(Provider := FCheckReady);
+Aggregator.AddProvider(Provider := FCheckTask);
+Aggregator.AddProvider(Provider := FCheckResult);
+Aggregator.AddProvider(Provider := FCheckDiagnostics);
+Aggregator.AddProvider(Provider := FCheckTaskStatus);
+Aggregator.AddProvider(Provider := FCheckDiagnosticPayload);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="AreDiagnosticsValid" Id="{4e19d23a-ea35-4810-9f37-61d6460c88d3}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validates isolated Framework diagnostics without depending on their message wording.</summary>
+<description>
+The local buffer is neither deleted nor overwritten during a scenario.
+Sequence count detects missing or repeated publication. This check validates
+classification, owner context and storage integrity of every captured entry.
+</description>
+*)
+{endregion}
+METHOD PRIVATE AreDiagnosticsValid : BOOL //! TRUE when capture accounting and every retained diagnostic match the expected Framework error context.
+VAR
+    Index : UINT;
+    Diagnostic : REFERENCE TO ST_Event;
+    ExpectedName : STRING(GVL_Constants.NameLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[AreDiagnosticsValid := FALSE;
+IF FCaptureFifo.ConfigError OR FCaptureFifo.IndexError
+    OR (FCaptureStatus.LostEventCount <> 0)
+    OR (FCaptureFifo.ElementCount >= CaptureLength)
+    OR (FCaptureFifo.IndexOut <> 1)
+    OR (FCaptureStatus.SequenceId <> UINT_TO_UDINT(FCaptureFifo.ElementCount)) THEN
+    RETURN;
+END_IF;
+
+ExpectedName := CONCAT(Name, '.Orchestrator');
+FOR Index := 1 TO FCaptureFifo.ElementCount DO
+    Diagnostic REF= FEvents[Index];
+    IF (Diagnostic.SequenceId <> UINT_TO_UDINT(Index))
+        OR (Diagnostic.OwnerScope <> E_OwnerScope.Framework)
+        OR (Diagnostic.EventType <> E_EventType.Framework)
+        OR (Diagnostic.Severity <> E_EventSeverity.Error)
+        OR (Diagnostic.State <> E_State.Error)
+        OR (Diagnostic.Result <> E_Result.NotEvaluated)
+        OR (Diagnostic.Name <> ExpectedName)
+        OR (Diagnostic.ResourceName <> '')
+        OR (Diagnostic.Message = '') THEN
+        RETURN;
+    END_IF;
+END_FOR;
+AreDiagnosticsValid := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{b640a63c-2f41-4dff-bce3-0d022638ceae}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Includes scenario bounds, fixture binding and evaluating Assertions in initialization validity.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+IF NOT FFixtureValid OR (FStepCount < 1) OR (FStepCount > StepCapacity) THEN
+    RETURN;
+END_IF;
+IF NOT FCheckRequests.IsInitialized
+    OR NOT FCheckOtherRequests.IsInitialized
+    OR NOT FCheckReservations.IsInitialized
+    OR NOT FCheckChildCalls.IsInitialized
+    OR NOT FCheckCollectionAccess.IsInitialized
+    OR NOT FCheckActiveChildren.IsInitialized
+    OR NOT FCheckSlot.IsInitialized
+    OR NOT FCheckCompletion.IsInitialized
+    OR NOT FCheckReady.IsInitialized
+    OR NOT FCheckTask.IsInitialized
+    OR NOT FCheckResult.IsInitialized
+    OR NOT FCheckDiagnostics.IsInitialized
+    OR NOT FCheckTaskStatus.IsInitialized
+    OR NOT FCheckDiagnosticPayload.IsInitialized THEN
+    RETURN;
+END_IF;
+CheckInitialization := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{dc00a36f-178c-4a8a-97c7-1be4278205ea}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines scenario tables and initializes the isolated fixture and outer Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Index : INT;
+    EmptyStep : ST_OrchestrationStep;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := 1 TO StepCapacity DO
+    FSteps[Index] := EmptyStep;
+END_FOR;
+FStepCount := 0;
+FChildCount := 3;
+FArrayLayout := E_OrchestrationArrayLayout.Ordinary;
+FOR Index := 1 TO 3 DO
+    FChildSlots[Index] := INT_TO_UINT(Index);
+END_FOR;
+ConfigureScenario();
+FPreparationStateCount := 0;
+FTestStateCount := FStepCount;
+FFixtureValid := InitializeFixture();
+FCheckRequests.Initialize(Parent := THIS^,
+    AssertionName := 'Requests');
+FCheckOtherRequests.Initialize(Parent := THIS^,
+    AssertionName := 'OtherRequests');
+FCheckReservations.Initialize(Parent := THIS^,
+    AssertionName := 'Reservations');
+FCheckChildCalls.Initialize(Parent := THIS^,
+    AssertionName := 'ChildCalls');
+FCheckCollectionAccess.Initialize(Parent := THIS^,
+    AssertionName := 'CollectionAccess');
+FCheckActiveChildren.Initialize(Parent := THIS^,
+    AssertionName := 'ActiveChildren');
+FCheckSlot.Initialize(Parent := THIS^,
+    AssertionName := 'Slot');
+FCheckCompletion.Initialize(Parent := THIS^,
+    AssertionName := 'Completion');
+FCheckReady.Initialize(Parent := THIS^,
+    AssertionName := 'Ready');
+FCheckTask.Initialize(Parent := THIS^,
+    AssertionName := 'Task');
+FCheckResult.Initialize(Parent := THIS^,
+    AssertionName := 'Result');
+FCheckDiagnostics.Initialize(Parent := THIS^,
+    AssertionName := 'Diagnostics');
+FCheckTaskStatus.Initialize(Parent := THIS^,
+    AssertionName := 'TaskStatus');
+FCheckDiagnosticPayload.Initialize(Parent := THIS^,
+    AssertionName := 'DiagnosticPayload');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ConfigureScenario" Id="{68396cfe-9e59-4e03-aebc-8e477e35921f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines collection layout, child slots, population and independent cyclic expectations.</summary>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT ConfigureScenario]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ConfigureStandardSequence" Id="{44405b47-fc56-430f-9862-7e1cf24123f9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Defines the same A-B-C request trace for collection-index and capacity variants.</summary>
+*)
+{endregion}
+METHOD PROTECTED ConfigureStandardSequence]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStepCount := 12;
+
+{region "Cycle 01 - Idle readiness"}
+FSteps[1].Task := E_OrchestratorTask.Idle;
+FSteps[1].ExpectedReady := TRUE;
+{endregion}
+
+{region "Cycle 02 - Start child 1"}
+FSteps[2].Children[1].State := E_State.Running;
+FSteps[2].Children[1].Ready := FALSE;
+FSteps[2].ExpectedStartChild := 1;
+FSteps[2].ExpectedSlot := 1;
+FSteps[2].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 03 - Child progress"}
+FSteps[3].Children[1].State := E_State.Running;
+FSteps[3].Children[1].Ready := FALSE;
+FSteps[3].ExpectedSlot := 1;
+FSteps[3].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 04 - Child progress"}
+FSteps[4].Children[1].State := E_State.Completed;
+FSteps[4].Children[1].Ready := FALSE;
+FSteps[4].Children[1].Complete := TRUE;
+FSteps[4].Children[1].Result := E_Result.Passed;
+FSteps[4].ExpectedSlot := 1;
+FSteps[4].ExpectedReservations[1] := 1;
+{endregion}
+
+{region "Cycle 05 - Reconcile completed child 1"}
+FSteps[5].Children[1].State := E_State.Completed;
+FSteps[5].Children[1].Ready := FALSE;
+FSteps[5].Children[1].Complete := TRUE;
+FSteps[5].Children[1].Result := E_Result.Passed;
+FSteps[5].ExpectedSlot := 2;
+FSteps[5].ExpectedReleasedEntries[1] := 1;
+{endregion}
+
+{region "Cycle 06 - Start child 2"}
+FSteps[6].Children[1].State := E_State.Completed;
+FSteps[6].Children[1].Ready := FALSE;
+FSteps[6].Children[1].Complete := TRUE;
+FSteps[6].Children[1].Result := E_Result.Passed;
+FSteps[6].Children[2].State := E_State.Running;
+FSteps[6].Children[2].Ready := FALSE;
+FSteps[6].ExpectedStartChild := 2;
+FSteps[6].ExpectedSlot := 2;
+FSteps[6].ExpectedReservations[2] := 1;
+{endregion}
+
+{region "Cycle 07 - Child progress"}
+FSteps[7].Children[1].State := E_State.Completed;
+FSteps[7].Children[1].Ready := FALSE;
+FSteps[7].Children[1].Complete := TRUE;
+FSteps[7].Children[1].Result := E_Result.Passed;
+FSteps[7].Children[2].State := E_State.Completed;
+FSteps[7].Children[2].Ready := FALSE;
+FSteps[7].Children[2].Complete := TRUE;
+FSteps[7].Children[2].Result := E_Result.Passed;
+FSteps[7].ExpectedSlot := 2;
+FSteps[7].ExpectedReservations[2] := 1;
+{endregion}
+
+{region "Cycle 08 - Reconcile completed child 2"}
+FSteps[8].Children[1].State := E_State.Completed;
+FSteps[8].Children[1].Ready := FALSE;
+FSteps[8].Children[1].Complete := TRUE;
+FSteps[8].Children[1].Result := E_Result.Passed;
+FSteps[8].Children[2].State := E_State.Completed;
+FSteps[8].Children[2].Ready := FALSE;
+FSteps[8].Children[2].Complete := TRUE;
+FSteps[8].Children[2].Result := E_Result.Passed;
+FSteps[8].ExpectedSlot := 3;
+FSteps[8].ExpectedReleasedEntries[2] := 1;
+{endregion}
+
+{region "Cycle 09 - Start child 3"}
+FSteps[9].Children[1].State := E_State.Completed;
+FSteps[9].Children[1].Ready := FALSE;
+FSteps[9].Children[1].Complete := TRUE;
+FSteps[9].Children[1].Result := E_Result.Passed;
+FSteps[9].Children[2].State := E_State.Completed;
+FSteps[9].Children[2].Ready := FALSE;
+FSteps[9].Children[2].Complete := TRUE;
+FSteps[9].Children[2].Result := E_Result.Passed;
+FSteps[9].Children[3].State := E_State.Running;
+FSteps[9].Children[3].Ready := FALSE;
+FSteps[9].ExpectedStartChild := 3;
+FSteps[9].ExpectedSlot := 3;
+FSteps[9].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "Cycle 10 - Child progress"}
+FSteps[10].Children[1].State := E_State.Completed;
+FSteps[10].Children[1].Ready := FALSE;
+FSteps[10].Children[1].Complete := TRUE;
+FSteps[10].Children[1].Result := E_Result.Passed;
+FSteps[10].Children[2].State := E_State.Completed;
+FSteps[10].Children[2].Ready := FALSE;
+FSteps[10].Children[2].Complete := TRUE;
+FSteps[10].Children[2].Result := E_Result.Passed;
+FSteps[10].Children[3].State := E_State.Completed;
+FSteps[10].Children[3].Ready := FALSE;
+FSteps[10].Children[3].Complete := TRUE;
+FSteps[10].Children[3].Result := E_Result.Passed;
+FSteps[10].ExpectedSlot := 3;
+FSteps[10].ExpectedReservations[3] := 1;
+{endregion}
+
+{region "Cycle 11 - Completed observation"}
+FSteps[11].Children[1].State := E_State.Completed;
+FSteps[11].Children[1].Ready := FALSE;
+FSteps[11].Children[1].Complete := TRUE;
+FSteps[11].Children[1].Result := E_Result.Passed;
+FSteps[11].Children[2].State := E_State.Completed;
+FSteps[11].Children[2].Ready := FALSE;
+FSteps[11].Children[2].Complete := TRUE;
+FSteps[11].Children[2].Result := E_Result.Passed;
+FSteps[11].Children[3].State := E_State.Completed;
+FSteps[11].Children[3].Ready := FALSE;
+FSteps[11].Children[3].Complete := TRUE;
+FSteps[11].Children[3].Result := E_Result.Passed;
+FSteps[11].ExpectedReleasedEntries[3] := 1;
+FSteps[11].ExpectedFinished := TRUE;
+{endregion}
+
+{region "Cycle 12 - Completed observation"}
+FSteps[12].Children[1].State := E_State.Completed;
+FSteps[12].Children[1].Ready := FALSE;
+FSteps[12].Children[1].Complete := TRUE;
+FSteps[12].Children[1].Result := E_Result.Passed;
+FSteps[12].Children[2].State := E_State.Completed;
+FSteps[12].Children[2].Ready := FALSE;
+FSteps[12].Children[2].Complete := TRUE;
+FSteps[12].Children[2].Result := E_Result.Passed;
+FSteps[12].Children[3].State := E_State.Completed;
+FSteps[12].Children[3].Ready := FALSE;
+FSteps[12].Children[3].Complete := TRUE;
+FSteps[12].Children[3].Result := E_Result.Passed;
+FSteps[12].ExpectedFinished := TRUE;
+{endregion}]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeFixture" Id="{10a771f9-aa65-4777-a3a6-64e1eacf0feb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rebuilds local capture, children, collection and helper before any scenario call.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeFixture : BOOL //! TRUE when local capture, array layout, collection and real helper initialization all succeed.
+VAR
+    Position : UINT;
+    Index : INT;
+    EmptyCycle : ST_OrchestrationCycle;
+    CollectionValid : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[InitializeFixture := FALSE;
+FStepIndex := 1;
+FCheckPerformed := FALSE;
+FObservationReady := FALSE;
+FOR Index := 1 TO StepCapacity DO
+    FTrace[Index] := EmptyCycle;
+END_FOR;
+IF (FChildCount < 1) OR (FChildCount > 3) THEN
+    RETURN;
+END_IF;
+IF NOT FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus) THEN
+    RETURN;
+END_IF;
+
+FOR Position := 1 TO 3 DO
+    FChildren[Position].Initialize(Name := CONCAT('Child', UINT_TO_STRING(Position)),
+        Slot := FChildSlots[Position]);
+    FOrdinaryChildren[Position] := 0;
+    FShiftedChildren[UINT_TO_INT(Position) + 6] := 0;
+    FNegativeChildren[UINT_TO_INT(Position) - 4] := 0;
+END_FOR;
+FOR Position := 1 TO 6 DO
+    FSpareChildren[Position] := 0;
+END_FOR;
+FOR Position := 1 TO FChildCount DO
+    CASE FArrayLayout OF
+        E_OrchestrationArrayLayout.Ordinary:
+            FOrdinaryChildren[Position] := FChildren[Position];
+        E_OrchestrationArrayLayout.Shifted:
+            FShiftedChildren[UINT_TO_INT(Position) + 6] := FChildren[Position];
+        E_OrchestrationArrayLayout.Negative:
+            FNegativeChildren[UINT_TO_INT(Position) - 4] := FChildren[Position];
+        E_OrchestrationArrayLayout.SpareCapacity:
+            FSpareChildren[Position] := FChildren[Position];
+    ELSE
+        RETURN;
+    END_CASE;
+END_FOR;
+CASE FArrayLayout OF
+    E_OrchestrationArrayLayout.Ordinary:
+        CollectionValid := FCollection.Initialize(Count := FChildCount,
+            Children := FOrdinaryChildren);
+    E_OrchestrationArrayLayout.Shifted:
+        CollectionValid := FCollection.Initialize(Count := FChildCount,
+            Children := FShiftedChildren);
+    E_OrchestrationArrayLayout.Negative:
+        CollectionValid := FCollection.Initialize(Count := FChildCount,
+            Children := FNegativeChildren);
+    E_OrchestrationArrayLayout.SpareCapacity:
+        CollectionValid := FCollection.Initialize(Count := FChildCount,
+            Children := FSpareChildren);
+ELSE
+    RETURN;
+END_CASE;
+IF NOT CollectionValid THEN
+    RETURN;
+END_IF;
+
+FSubject.BindPublisher(Publisher := FCapture);
+InitializeFixture := FSubject.Initialize(Collection := FCollection,
+    Name := Name);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{6b48382f-451d-4ccc-9b0e-1ddd2a439718}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes outer Abort; isolated children have no external resource effects.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{157809f8-b916-48f4-a2e7-6ff248cc60d9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks each explicit row; latched Assertion results retain any earlier mismatch.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    EvaluateChecks : BOOL;
+    Position : UINT;
+    ExpectedStarts : UINT;
+    ExpectedResets : UINT;
+    RequestsMatch : BOOL;
+    OtherRequestsMatch : BOOL;
+    ReservationsMatch : BOOL;
+    ChildCallsMatch : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EvaluateChecks := Enable AND FObservationReady;
+RequestsMatch := TRUE;
+OtherRequestsMatch := TRUE;
+ReservationsMatch := FTrace[FStepIndex].RequestsDidNotChangeState;
+ChildCallsMatch := FTrace[FStepIndex].HelperDidNotCallChildren;
+FOR Position := 1 TO FChildCount DO
+    ExpectedStarts := BOOL_TO_UINT(FSteps[FStepIndex].ExpectedStartChild = Position);
+    ExpectedResets := BOOL_TO_UINT(FSteps[FStepIndex].ExpectedResetChild = Position);
+    RequestsMatch := RequestsMatch
+        AND (FTrace[FStepIndex].Calls[Position].StartCount = ExpectedStarts);
+    OtherRequestsMatch := OtherRequestsMatch
+        AND (FTrace[FStepIndex].Calls[Position].ResetCount = ExpectedResets)
+        AND (FTrace[FStepIndex].Calls[Position].AbortCount = FSteps[FStepIndex].ExpectedAbortRequests[Position])
+        AND (FTrace[FStepIndex].Calls[Position].ResetReservationCount = ExpectedResets
+            + FSteps[FStepIndex].ExpectedUnacceptedResetReservations[Position]);
+    ReservationsMatch := ReservationsMatch
+        AND (FTrace[FStepIndex].Calls[Position].ExecutionReservationCount = ExpectedStarts
+            + FSteps[FStepIndex].ExpectedUnacceptedExecutionReservations[Position])
+        AND NOT FTrace[FStepIndex].Calls[Position].StartWithoutReservation
+        AND NOT FTrace[FStepIndex].Calls[Position].ResetWithoutReservation
+        AND (FTrace[FStepIndex].Reservations[Position] = FSteps[FStepIndex].ExpectedReservations[Position])
+        AND (FTrace[FStepIndex].Calls[Position].ReleasedEntryCount = FSteps[FStepIndex].ExpectedReleasedEntries[Position]);
+    ChildCallsMatch := ChildCallsMatch AND (FTrace[FStepIndex].Calls[Position].BodyCount = 1);
+END_FOR;
+
+FCheckRequests(Enable := EvaluateChecks,
+    State := State,
+    IN := RequestsMatch);
+FCheckOtherRequests(Enable := EvaluateChecks,
+    State := State,
+    IN := OtherRequestsMatch);
+FCheckReservations(Enable := EvaluateChecks,
+    State := State,
+    IN := ReservationsMatch);
+FCheckChildCalls(Enable := EvaluateChecks,
+    State := State,
+    IN := ChildCallsMatch);
+FCheckCollectionAccess(Enable := EvaluateChecks,
+    State := State,
+    IN := NOT FCollection.InvalidAccess AND NOT FCollection.TraceOverflow
+        AND (FCollection.ReadCount > 0));
+FCheckActiveChildren(Enable := EvaluateChecks,
+    State := State,
+    IN := (FSteps[FStepIndex].Task <> E_OrchestratorTask.Execution)
+        OR (FTrace[FStepIndex].ActiveChildCount <= FSteps[FStepIndex].MaxActiveChildCount));
+FCheckSlot(Enable := EvaluateChecks,
+    State := State,
+    IN := FTrace[FStepIndex].ActiveSlot,
+    Expected := FSteps[FStepIndex].ExpectedSlot);
+FCheckCompletion(Enable := EvaluateChecks,
+    State := State,
+    IN := FTrace[FStepIndex].ExecutionFinished,
+    Expected := FSteps[FStepIndex].ExpectedFinished);
+FCheckReady(Enable := EvaluateChecks,
+    State := State,
+    IN := FTrace[FStepIndex].Ready,
+    Expected := FSteps[FStepIndex].ExpectedReady);
+FCheckTask(Enable := EvaluateChecks,
+    State := State,
+    IN := TO_INT(FTrace[FStepIndex].Task),
+    Expected := TO_INT(FSteps[FStepIndex].Task));
+FCheckResult(Enable := EvaluateChecks,
+    State := State,
+    IN := TO_INT(FTrace[FStepIndex].Result),
+    Expected := TO_INT(FSteps[FStepIndex].ExpectedResult));
+FCheckDiagnostics(Enable := EvaluateChecks,
+    State := State,
+    IN := FCaptureStatus.SequenceId,
+    Expected := FSteps[FStepIndex].ExpectedDiagnosticCount);
+FCheckTaskStatus(Enable := EvaluateChecks,
+    State := State,
+    IN := (FTrace[FStepIndex].ResetFinished = FSteps[FStepIndex].ExpectedResetFinished)
+        AND (FTrace[FStepIndex].AbortFinished = FSteps[FStepIndex].ExpectedAbortFinished)
+        AND (FTrace[FStepIndex].TaskComplete = (FSteps[FStepIndex].ExpectedFinished
+            OR FSteps[FStepIndex].ExpectedResetFinished OR FSteps[FStepIndex].ExpectedAbortFinished))
+        AND (FTrace[FStepIndex].ResetActive = (FSteps[FStepIndex].Task = E_OrchestratorTask.Reset))
+        AND (FTrace[FStepIndex].ExecutionActive = (FSteps[FStepIndex].Task = E_OrchestratorTask.Execution))
+        AND (FTrace[FStepIndex].AbortActive = (FSteps[FStepIndex].Task = E_OrchestratorTask.Abort)));
+FCheckDiagnosticPayload(Enable := EvaluateChecks,
+    State := State,
+    IN := AreDiagnosticsValid());
+
+IF EvaluateChecks
+    AND FCheckRequests.EvaluationActive
+    AND FCheckOtherRequests.EvaluationActive
+    AND FCheckReservations.EvaluationActive
+    AND FCheckChildCalls.EvaluationActive
+    AND FCheckCollectionAccess.EvaluationActive
+    AND FCheckActiveChildren.EvaluationActive
+    AND FCheckSlot.EvaluationActive
+    AND FCheckCompletion.EvaluationActive
+    AND FCheckReady.EvaluationActive
+    AND FCheckTask.EvaluationActive
+    AND FCheckResult.EvaluationActive
+    AND FCheckDiagnostics.EvaluationActive
+    AND FCheckTaskStatus.EvaluationActive
+    AND FCheckDiagnosticPayload.EvaluationActive THEN
+    FCheckPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{1847b93e-bed8-41a2-9de4-44d267d4a5ac}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No outer Preparation is required; child views are local scenario data.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook with no Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{a0b9de57-9bdc-4628-9a05-903f56d886cb}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears outer checks and rebuilds the fixture; does not simulate a subject Reset task.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FCheckRequests.Reset();
+FCheckOtherRequests.Reset();
+FCheckReservations.Reset();
+FCheckChildCalls.Reset();
+FCheckCollectionAccess.Reset();
+FCheckActiveChildren.Reset();
+FCheckSlot.Reset();
+FCheckCompletion.Reset();
+FCheckReady.Reset();
+FCheckTask.Reset();
+FCheckResult.Reset();
+FCheckDiagnostics.Reset();
+FCheckTaskStatus.Reset();
+FCheckDiagnosticPayload.Reset();
+FFixtureValid := InitializeFixture();
+IF NOT FFixtureValid THEN
+    Error(Message := 'Orchestration fixture setup failed.');
+END_IF;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{35649eb5-94c9-455f-8f66-00ba200bd95d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs the helper before children exactly once per checkpoint and retains evidence.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Position : UINT;
+    BeforeHelper : ARRAY[1..3] OF ST_OrchestrationObservation;
+    AfterHelper : ST_OrchestrationObservation;
+    Calls : ST_OrchestrationCalls;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FObservationReady := FALSE;
+IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FCheckPerformed THEN
+    FCheckPerformed := FALSE;
+    IF FStepIndex = FStepCount THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FStepIndex := FStepIndex + 1;
+    NextTestState();
+    IF NOT IsTestingActive THEN
+        RETURN;
+    END_IF;
+END_IF;
+
+FOR Position := 1 TO FChildCount DO
+    FChildren[Position].BeginCycle(ExecutionReservationResult := FSteps[FStepIndex].ExecutionReservationResults[Position],
+        ResetReservationResult := FSteps[FStepIndex].ResetReservationResults[Position]);
+    BeforeHelper[Position] := FChildren[Position].Observation;
+END_FOR;
+
+FSubject(Task := FSteps[FStepIndex].Task);
+FTrace[FStepIndex].ActiveSlot := FSubject.ActiveSlot;
+FTrace[FStepIndex].ExecutionFinished := FSubject.IsExecutionFinished;
+FTrace[FStepIndex].ResetFinished := FSubject.IsResetFinished;
+FTrace[FStepIndex].AbortFinished := FSubject.IsAbortFinished;
+FTrace[FStepIndex].TaskComplete := FSubject.IsComplete;
+FTrace[FStepIndex].ResetActive := FSubject.IsResetActive;
+FTrace[FStepIndex].ExecutionActive := FSubject.IsExecutionActive;
+FTrace[FStepIndex].AbortActive := FSubject.IsAbortActive;
+FTrace[FStepIndex].Ready := FSubject.IsReady;
+FTrace[FStepIndex].Result := FSubject.Result;
+FTrace[FStepIndex].Task := FSubject.CurrentTask;
+FTrace[FStepIndex].HelperDidNotCallChildren := TRUE;
+FTrace[FStepIndex].RequestsDidNotChangeState := TRUE;
+
+// Inspect the helper boundary before applying any new child observation.
+FOR Position := 1 TO FChildCount DO
+    Calls := FChildren[Position].Calls;
+    FTrace[FStepIndex].HelperDidNotCallChildren :=
+        FTrace[FStepIndex].HelperDidNotCallChildren AND (Calls.BodyCount = 0);
+    AfterHelper := FChildren[Position].Observation;
+    FTrace[FStepIndex].BeforeChildren[Position] := AfterHelper;
+    FTrace[FStepIndex].RequestsDidNotChangeState :=
+        FTrace[FStepIndex].RequestsDidNotChangeState
+        AND (AfterHelper.State = BeforeHelper[Position].State)
+        AND (AfterHelper.Result = BeforeHelper[Position].Result)
+        AND (AfterHelper.Ready = BeforeHelper[Position].Ready)
+        AND (AfterHelper.Complete = BeforeHelper[Position].Complete);
+    FTrace[FStepIndex].Reservations[Position] := FChildren[Position].ReservedEntryCount;
+    IF (Calls.StartCount > 0)
+        OR ((AfterHelper.State >= E_State.Starting) AND (AfterHelper.State <= E_State.Completing)) THEN
+        FTrace[FStepIndex].ActiveChildCount := FTrace[FStepIndex].ActiveChildCount + 1;
+    END_IF;
+END_FOR;
+
+FOR Position := 1 TO FChildCount DO
+    FChildren[Position](ObservationInput := FSteps[FStepIndex].Children[Position]);
+    FTrace[FStepIndex].Calls[Position] := FChildren[Position].Calls;
+    FTrace[FStepIndex].AfterChildren[Position] := FChildren[Position].Observation;
+END_FOR;
+FObservationReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

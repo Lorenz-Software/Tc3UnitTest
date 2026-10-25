@@ -1,0 +1,111 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="PreparationBase" Id="{db8d08a6-b7d5-4b1d-aa16-97f6ebd405b3}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Optional base for a resource Preparation controlled by level-based Enable.</summary>
+<description>
+Call SUPER^() once per task cycle. Implement Prepare to observe the resource on every call and
+perform resource actions only while Enabled.
+
+The base owns the accepted Enable view and status storage, not initialization, a reset
+protocol, events or timeout supervision. The Test Case owns the Preparation timeout.
+
+Disabled processing must not issue resource or cleanup commands. Removing Enable does not cancel
+an already accepted resource command; the Test Case owns Reset/Abort handling.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ABSTRACT PreparationBase IMPLEMENTS I_Preparation
+VAR_INPUT
+    Enable : BOOL; //! Permits resource-changing preparation work; disabled calls may still observe and report the resource.
+END_VAR
+VAR
+    FEnabled : BOOL;
+    /// Derived Prepare updates all applicable fields consistently with the Preparation contract.
+    FStatus : ST_PreparationStatus;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FEnabled := Enable;
+Prepare();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{309f91ec-5692-42b8-9fc2-a08cccea2615}" />
+    <Property Name="Enabled" Id="{c613fa76-1c4b-4033-8a65-7c9ab2227542}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Enable accepted at the last FB call; not proof of active resource manipulation.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Enabled : BOOL //! Enable accepted at the last FB call; not proof of active resource manipulation.]]></Declaration>
+      <Get Name="Get" Id="{43451ac6-816b-465e-94f4-17afd4e401c9}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Enabled := FEnabled;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Prepare" Id="{2df63df0-2eea-4ccc-89f2-3f965232340e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Observes the resource and maintains its Preparation status on every FB call.</summary>
+<description>
+This abstract hook has no base implementation to call. Use Enabled to gate resource-changing
+work; disabled calls must still report current target, readiness and error observations.
+
+On deactivation, stop resource manipulation and return any internal sequence to its executable
+base state. Completed reports the current target condition, not a latched success. UpdateStatus may
+be used to project consistent flags.
+</description>
+*)
+{endregion}
+METHOD PROTECTED ABSTRACT Prepare]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Status" Id="{d65ca166-f06f-4f93-b34e-47ced876765d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Snapshot of the status maintained by the concrete Preparation.</summary>
+*)
+{endregion}
+PROPERTY PUBLIC Status : ST_PreparationStatus //! Snapshot of the status maintained by the concrete Preparation.]]></Declaration>
+      <Get Name="Get" Id="{86be9150-2974-4491-89a6-aa07e276a3ba}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Status := FStatus;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="UpdateStatus" Id="{def9e459-d79e-4782-8440-002e8559e7bd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Replaces the Preparation snapshot without performing resource work.</summary>
+<description>
+State is diagnostic context, independent of ExecutionStatus. Running, Completed and Error
+follow ExecutionStatus; Ready is suppressed only while Running.
+
+Select E_ExecutionStatus.Idle only when Ready is TRUE and neither work, completion nor error applies; otherwise
+select E_ExecutionStatus.NotReady. This method does not validate that choice, latch completion, publish events or
+supervise timeouts.
+</description>
+*)
+{endregion}
+METHOD PROTECTED UpdateStatus
+VAR_INPUT
+    State : E_State; //! Concrete Preparation's lifecycle state; independent of the execution-status classification.
+    ExecutionStatus : E_ExecutionStatus; //! Execution classification used to derive Running, Completed and Error in the Preparation snapshot.
+    Ready : BOOL; //! Resource can be driven to the target state; suppressed while Running. Does not mean target reached.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStatus.State := State;
+FStatus.ExecutionStatus := ExecutionStatus;
+FStatus.Running := ExecutionStatus = E_ExecutionStatus.Running;
+FStatus.Completed := ExecutionStatus = E_ExecutionStatus.Completed;
+FStatus.Error := ExecutionStatus = E_ExecutionStatus.Error;
+FStatus.Ready := Ready AND NOT FStatus.Running;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

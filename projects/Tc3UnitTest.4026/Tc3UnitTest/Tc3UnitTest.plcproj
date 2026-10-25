@@ -1,0 +1,2736 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <FileVersion>1.0.0.0</FileVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <ProjectGuid>{5f68adea-cf16-4d67-95e4-097f9c9aaccf}</ProjectGuid>
+    <SubObjectsSortedByName>true</SubObjectsSortedByName>
+    <DownloadApplicationInfo>true</DownloadApplicationInfo>
+    <WriteProductVersion>false</WriteProductVersion>
+    <GenerateTpy>false</GenerateTpy>
+    <Name>Tc3UnitTest</Name>
+    <ProgramVersion>3.1.4026.27</ProgramVersion>
+    <Application>{21d2ffdb-b4de-4069-ab29-6c300e0c3221}</Application>
+    <TypeSystem>{1e762aa6-9f77-4adb-8417-4ef02f29ceaf}</TypeSystem>
+    <Implicit_Task_Info>{2f46e875-21c0-4b3d-8628-1a4c89677c8f}</Implicit_Task_Info>
+    <Implicit_KindOfTask>{26db18d5-d216-4980-819c-d91c372c025b}</Implicit_KindOfTask>
+    <Implicit_Jitter_Distribution>{c39311c4-2504-46e2-9e92-770a5127b7b1}</Implicit_Jitter_Distribution>
+    <LibraryReferences>{77fa5c0c-1482-469c-8e9e-03c5bf4dceb1}</LibraryReferences>
+    <Company>Lorenz Software</Company>
+    <Title>Tc3_UnitTest</Title>
+    <ProjectVersion>1.0.0.0</ProjectVersion>
+    <DefaultNamespace>Tc3UnitTest</DefaultNamespace>
+    <GlobalVersionStructureIncluded>true</GlobalVersionStructureIncluded>
+    <Released>false</Released>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Framework\Assertions\DataTypes\AssertionLRealRepresentation.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\DataTypes\AssertionRealRepresentation.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\GlobalVariables\Param_Assertions.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\Interfaces\I_Assertion.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Bool\AssertArrayAllEqual_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Bool\AssertArrayContainsArray_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Bool\AssertArrayContainsValue_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Bool\AssertArrayNoValueChange_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Bool\AssertEqualArray_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayAllEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayContainsArray_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayContainsString_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayContainsValue_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayEndsWithArray_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayEndsWithString_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayEqualString_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayNoValueChange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayStartsWithArray_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertArrayStartsWithString_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\AssertEqualArray_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayGreaterEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayGreaterThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayLessEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayLessThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilArrayNotEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueGreaterEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueGreaterThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueLessEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueLessThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken\AssertLengthUntilValueNotEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntGreaterEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntGreaterThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntInRange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntLessEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntLessThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntNotEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertArrayTokenCntNotInRange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertNoArrayToken_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertNoValueToken_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntGreaterEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntGreaterThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntInRange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntLessEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntLessThan_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntNotEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Byte\TokenCount\AssertValueTokenCntNotInRange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayAllEqual_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayContainsArray_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayContainsString_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayContainsValue_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayEndsWithString_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayEqualString_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayNoValueChange_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertArrayStartsWithString_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Char\AssertEqualArray_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DInt\AssertArrayAllEqual_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DInt\AssertArrayContainsArray_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DInt\AssertArrayContainsValue_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DInt\AssertArrayNoValueChange_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DInt\AssertEqualArray_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DWord\AssertArrayAllEqual_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DWord\AssertArrayContainsArray_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DWord\AssertArrayContainsValue_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DWord\AssertArrayNoValueChange_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\DWord\AssertEqualArray_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Int\AssertArrayAllEqual_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Int\AssertArrayContainsArray_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Int\AssertArrayContainsValue_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Int\AssertArrayNoValueChange_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Int\AssertEqualArray_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LInt\AssertArrayAllEqual_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LInt\AssertArrayContainsArray_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LInt\AssertArrayContainsValue_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LInt\AssertArrayNoValueChange_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LInt\AssertEqualArray_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayAllElementsFinite_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayAllEqual_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayContainsArray_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayContainsInfinity_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayContainsNaN_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayContainsNonFinite_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayContainsValue_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayHasNoInfinity_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayHasNoNaN_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertArrayNoValueChange_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LReal\AssertEqualArray_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LWord\AssertArrayAllEqual_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LWord\AssertArrayContainsArray_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LWord\AssertArrayContainsValue_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LWord\AssertArrayNoValueChange_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\LWord\AssertEqualArray_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayAllElementsFinite_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayAllEqual_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayContainsArray_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayContainsInfinity_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayContainsNaN_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayContainsNonFinite_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayContainsValue_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayHasNoInfinity_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayHasNoNaN_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertArrayNoValueChange_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Real\AssertEqualArray_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\SInt\AssertArrayAllEqual_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\SInt\AssertArrayContainsArray_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\SInt\AssertArrayContainsValue_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\SInt\AssertArrayNoValueChange_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\SInt\AssertEqualArray_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UDInt\AssertArrayAllEqual_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UDInt\AssertArrayContainsArray_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UDInt\AssertArrayContainsValue_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UDInt\AssertArrayNoValueChange_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UDInt\AssertEqualArray_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UInt\AssertArrayAllEqual_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UInt\AssertArrayContainsArray_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UInt\AssertArrayContainsValue_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UInt\AssertArrayNoValueChange_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\UInt\AssertEqualArray_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\ULInt\AssertArrayAllEqual_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\ULInt\AssertArrayContainsArray_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\ULInt\AssertArrayContainsValue_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\ULInt\AssertArrayNoValueChange_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\ULInt\AssertEqualArray_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\USInt\AssertArrayAllEqual_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\USInt\AssertArrayContainsArray_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\USInt\AssertArrayContainsValue_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\USInt\AssertArrayNoValueChange_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\USInt\AssertEqualArray_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayAllEqual_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayContainsArray_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayContainsValue_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayContainsWString_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayEndsWithWString_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayEqualWString_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayNoValueChange_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertArrayStartsWithWString_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\WChar\AssertEqualArray_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayAllEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayContainsArray_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayContainsValue_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayContainsWString_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayEndsWithArray_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayEndsWithWString_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayEqualWString_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayNoValueChange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayStartsWithArray_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertArrayStartsWithWString_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\AssertEqualArray_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayGreaterEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayGreaterThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayLessEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayLessThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilArrayNotEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueGreaterEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueGreaterThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueLessEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueLessThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken\AssertLengthUntilValueNotEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntGreaterEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntGreaterThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntInRange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntLessEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntLessThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntNotEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertArrayTokenCntNotInRange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertNoArrayToken_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertNoValueToken_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntGreaterEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntGreaterThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntInRange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntLessEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntLessThan_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntNotEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Arrays\Word\TokenCount\AssertValueTokenCntNotInRange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\AssertionBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\AssertionWithEvaluationBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\AssertEqual_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\AssertFalse.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\AssertNotEqual_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\AssertNoValueChange_Bool.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\AssertTrue.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntGreaterEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntGreaterThan.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntInRange.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntLessEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntLessThan.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntNotEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertFallingEdgeCntNotInRange.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge\AssertNoFallingEdge.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertNoRisingEdge.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntGreaterEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntGreaterThan.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntInRange.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntLessEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntLessThan.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntNotEqual.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge\AssertRisingEdgeCntNotInRange.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertContainsBit_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertContainsFalse_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertContainsTrue_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertEqualBit_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertEqualMask_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertFalseBit_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertFalseMask_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertNotEqualBit_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertNotEqualMask_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertNotEqual_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertNoValueChange_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertSequence_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertTrueBit_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Byte\AssertTrueMask_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Char\AssertEqual_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Char\AssertNotEqual_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Char\AssertNoValueChange_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertEarlierThan_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertEqual_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertInTimespan_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertLaterThan_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertNotEqual_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertNotInTimespan_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Date\AssertNoValueChange_Date.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertEqual_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertGreaterEqual_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertGreaterThan_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertInRange_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertLessEqual_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertLessThan_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertNotEqual_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertNotInRange_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertNoValueChange_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DInt\AssertSequence_DInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertEarlierThan_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertEqual_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertInTimespan_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertLaterThan_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertNotEqual_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertNotInTimespan_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DT\AssertNoValueChange_DT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertContainsBit_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertContainsFalse_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertContainsTrue_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertEqualBit_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertEqualMask_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertEqual_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertFalseBit_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertFalseMask_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertNotEqualBit_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertNotEqualMask_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertNotEqual_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertNoValueChange_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertSequence_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertTrueBit_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\DWord\AssertTrueMask_DWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertEqual_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertGreaterEqual_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertGreaterThan_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertInRange_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertLessEqual_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertLessThan_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertNotEqual_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertNotInRange_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertNoValueChange_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Int\AssertSequence_Int.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertEarlierThan_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertEqual_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertInTimespan_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertLaterThan_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertNotEqual_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertNotInTimespan_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LDT\AssertNoValueChange_LDT.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertEqual_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertGreaterEqual_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertGreaterThan_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertInRange_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertLessEqual_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertLessThan_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertNotEqual_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertNotInRange_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertNoValueChange_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LInt\AssertSequence_LInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertEqualTolerance_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertEqual_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertGreaterEqual_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertGreaterThan_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertInRange_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertIsFinite_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertIsInfinite_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertIsNaN_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertLessEqual_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertLessThan_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertNotEqualTolerance_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertNotEqual_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertNotInRange_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LReal\AssertNoValueChange_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertEarlierThan_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertEqual_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertInTimespan_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertLaterThan_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertNotEqual_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertNotInTimespan_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTime\AssertNoValueChange_LTime.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertEarlierThan_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertEqual_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertInTimespan_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertLaterThan_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertNotEqual_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertNotInTimespan_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LTOD\AssertNoValueChange_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertContainsBit_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertContainsFalse_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertContainsTrue_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertEqualBit_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertEqualMask_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertEqual_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertFalseBit_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertFalseMask_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertNotEqualBit_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertNotEqualMask_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertNotEqual_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertNoValueChange_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertSequence_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertTrueBit_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\LWord\AssertTrueMask_LWord.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertEqualTolerance_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertEqual_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertGreaterEqual_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertGreaterThan_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertInRange_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertIsFinite_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertIsInfinite_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertIsNaN_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertLessEqual_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertLessThan_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertNotEqualTolerance_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertNotEqual_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertNotInRange_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Real\AssertNoValueChange_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertEqual_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertGreaterEqual_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertGreaterThan_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertInRange_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertLessEqual_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertLessThan_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertNotEqual_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertNotInRange_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertNoValueChange_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\SInt\AssertSequence_SInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertContains_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertEndsWith_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertEqual_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertNotEqual_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertNoValueChange_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\String\AssertStartsWith_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertEarlierThan_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertEqual_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertInTimespan_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertLaterThan_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertNotEqual_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertNotInTimespan_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Time\AssertNoValueChange_Time.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertEarlierThan_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertEqual_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertInTimespan_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertLaterThan_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertNotEqual_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertNotInTimespan_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\TOD\AssertNoValueChange_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertEqual_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertGreaterEqual_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertGreaterThan_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertInRange_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertLessEqual_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertLessThan_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertNotEqual_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertNotInRange_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertNoValueChange_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UDInt\AssertSequence_UDInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertEqual_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertGreaterEqual_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertGreaterThan_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertInRange_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertLessEqual_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertLessThan_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertNotEqual_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertNotInRange_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertNoValueChange_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\UInt\AssertSequence_UInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertEqual_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertGreaterEqual_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertGreaterThan_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertInRange_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertLessEqual_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertLessThan_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertNotEqual_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertNotInRange_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertNoValueChange_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\ULInt\AssertSequence_ULInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertEqual_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertGreaterEqual_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertGreaterThan_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertInRange_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertLessEqual_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertLessThan_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertNotEqual_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertNotInRange_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertNoValueChange_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\USInt\AssertSequence_USInt.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WChar\AssertEqual_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WChar\AssertNotEqual_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WChar\AssertNoValueChange_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertContainsBit_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertContainsFalse_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertContainsTrue_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertEqualBit_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertEqualMask_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertFalseBit_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertFalseMask_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertNotEqualBit_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertNotEqualMask_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertNotEqual_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\AssertionEdgeCountBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertNoValueChange_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertSequence_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertTrueBit_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\Word\AssertTrueMask_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertContains_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertEndsWith_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertEqual_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertNotEqual_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertNoValueChange_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\BasicTypes\WString\AssertStartsWith_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CountArrayTokens_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CountArrayTokens_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CountValueTokens_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CountValueTokens_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_BinaryFloat.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_ByteArray.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_Char.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_Hex.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_WChar.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_WordArray.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\CreateAssertionTextValue_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\DateToDayNumber.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\FindArrayToken_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\FindArrayToken_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\FindValueToken_Byte.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\FindValueToken_Word.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsAssertionStringLengthValid.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsAssertionWStringLengthValid.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsTimeOfDayValid_LTOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsTimeOfDayValid_TOD.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsWithinTolerance_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\IsWithinTolerance_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextContains_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextContains_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextEndsWith_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextStartsWith_String.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextEndsWith_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Assertions\POU\Utilities\TextStartsWith_WString.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\E_ExecutionStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\E_OrchestrationMode.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\E_OrchestratorTask.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\E_Result.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\E_State.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\ST_Command.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\ST_ContractInfo.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\DataTypes\ST_ExecutionStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Fifo\DataTypes\E_FifoResult.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Fifo\POU\Fifo.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Fifo\DataTypes\ST_FifoStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\GlobalVariables\Global_Version.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\GlobalVariables\GVL_Constants.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\GlobalVariables\GVL_UnitTest.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Interfaces\I_Orchestratable.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Interfaces\I_OrchestratableCollection.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Interfaces\I_Orchestrator.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Interfaces\I_ResultAggregator.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\Interfaces\I_ResultProvider.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\POU\Stopwatch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\POU\GetFrameworkVersion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\POU\IsNameValid.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\POU\Orchestrator.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Common\POU\ResultAggregator.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\E_EventPublishResult.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\E_EventReservationResult.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\E_EventSeverity.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\E_EventType.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\E_OwnerScope.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\ST_Event.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\ST_EventBufferCommand.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\ST_EventBufferStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\DataTypes\ST_EventStream.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\GlobalVariables\GVL_EventBuffer.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\GlobalVariables\Param_EventBuffer.TcGVL">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\Interfaces\I_EventBuffer.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\Interfaces\I_EventPublisher.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\AggregationEvents\CreateRunAggregationEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\AggregationEvents\CreateTestCaseAggregationEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\AggregationEvents\CreateTestSuiteAggregationEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\EventBuffer.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\EventBufferDiagConsumer.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\FrameworkEvents\CreateFrameworkEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\FrameworkEvents\CreateInvalidStateTransitionEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\FrameworkEvents\CreateResetWarningEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\ResultEvents\CreateAssertionErrorEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\ResultEvents\CreateAssertionFailedEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\ResultEvents\CreateResultEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\StateTransitionEvents\CreateStateTransitionEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\StateTransitionEvents\CreateTestCaseOrchestratorStateTransitionEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\StateTransitionEvents\CreateTestSuiteOrchestratorStateTransitionEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\TriggerEvents\CreateAbortEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\TriggerEvents\CreateResetEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\TriggerEvents\CreateStartEvent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\EventBuffer\POU\Utilities\SelectResultSeverity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Preparation\DataTypes\ST_PreparationStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Preparation\Interfaces\I_Preparation.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Preparation\POU\PreparationBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\Preparation\POU\PreparationMock.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\DataTypes\ST_RunConfig.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\DataTypes\ST_RunControl.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\DataTypes\ST_RunControlCommunication.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\DataTypes\ST_RunControlStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\DataTypes\ST_TestSuiteCollectionConfig.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\Interfaces\I_RunControl.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\POU\RunControlBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\POU\RunControlCommandAdapter.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\RunControl\POU\RunControlConfigurationBuilder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\DataTypes\ST_TestCaseConfig.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\DataTypes\ST_TestCaseExecutionStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\DataTypes\ST_TestCaseStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\Interfaces\I_TestCase.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\POU\TestCaseBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestCases\POU\TestCaseMock.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\DataTypes\ST_TestCaseCollectionConfig.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\DataTypes\ST_TestSuiteConfig.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\DataTypes\ST_TestSuiteStatus.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\Interfaces\I_TestSuite.TcIO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\POU\TestSuiteBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\POU\TestSuiteConfigurationBuilder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Framework\TestSuites\POU\TestSuiteMock.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Runtime\PlcTask.TcTTO">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="Runtime\MAIN.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\DataTypes\E_OrchestrationArrayLayout.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\DataTypes\ST_OrchestrationCalls.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\DataTypes\ST_OrchestrationCycle.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\DataTypes\ST_OrchestrationObservation.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\DataTypes\ST_OrchestrationStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\OrchestrationChildDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\OrchestrationCollectionDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\OrchestratorProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\Helper\Orchestration\OrchestrationTestBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\RunControl\RunControl.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionArrayComparison.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionArrayPatternSearch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionArrayTextBridge.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionArrayValueSearch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionFloatingPointArray.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionArrays\Test_AssertionMaskedArrayComparison.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionBitEquality.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionBooleanComparisons.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionCharacterEquality.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionDateNormalization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionDurationComparisons.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionLTODDomain.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionScalarDiagnostics.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionSignedRanges.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionSignedRelations.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionTODDomain.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionUnsignedRanges.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionComparisons\Test_AssertionUnsignedRelations.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\DataTypes\FloatingPointBits_LReal.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\DataTypes\FloatingPointBits_Real.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionArrayClassification_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionArrayClassification_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionClassification_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionClassification_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionFiniteBoundaries_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionFiniteBoundaries_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionNonFinite_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionNonFinite_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionRelations_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionRelations_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionTolerance_LReal.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\Test_AssertionTolerance_Real.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Helper\AssertionEvaluationSubject.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Helper\AssertionLifecycleSubject.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Helper\AssertionParentIdentity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Test_AssertionActivity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Test_AssertionEscalation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Test_AssertionInitialization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Test_AssertionResetReuse.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Test_AssertionUninitialized.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionArraySnapshot.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionEdgeCount.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionEdgeObservation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionFloatingSnapshot.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionScalarObservation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionObservation\Test_AssertionSequence.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionArrayTokenCount.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionLengthUntil.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionTextComparison.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionTextDiagnostics.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionTextSearch.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionText\Test_AssertionValueTokenCount.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionVariants\Test_AssertionBitSelection.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionVariants\Test_AssertionCountPredicates.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionVariants\Test_AssertionMaskPredicates.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionVariants\Test_AssertionNarrowIntegers.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_AssertionVariants\Test_AssertionTemporalVariants.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_CommandAdapter\DataTypes\E_AdapterCommand.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_CommandAdapter\Helper\RunControlRequestRecorder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_CommandAdapter\Test_CommandAdapterInitialization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_CommandAdapter\Test_CommandIndependence.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_CommandAdapter\Test_CommandQualification.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Helper\ActiveResetBufferProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Helper\BufferCommandProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Helper\BufferReleaseSuiteDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Helper\BufferResetRunControlProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Test_BufferResetActiveRun.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Test_BufferResetCommands.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventBufferReset\Test_BufferResetEpochs.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventBufferFull.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventContent.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventDeleteCommandBoundary.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventDeleteLostSequence.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventDeleteWatermarks.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventDeleteWrappedFull.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventRingOrder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventDelivery\Test_EventStorageBinding.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Helper\ReservationChildProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Helper\ReservationResetChild.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Helper\ReservationSuiteProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ActiveReservationLoss.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ExecutionReservationAccounting.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_HierarchicalReservationRelease.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ImpossibleExecutionBudget.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ImpossibleResetBudget.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_LateResetReservationRelease.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ReservationAdmission.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_EventReservation\Test_ResetReservationAccounting.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorExecutionBudgetError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorExecutionCapacityWait.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorResetCapacityWait.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorShiftedBounds.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorNegativeBounds.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorUnusedCapacity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorSingleChild.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorIdleReadiness.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorMissingStartReaction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorChildError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorUnexpectedAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorAbortInterruption.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorIdleInterruption.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorResetInterruption.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorResetContinuesAfterError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Orchestrator\Test_OrchestratorRepeatAfterReset.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelAbortMixedProgress.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelChildError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelFailedResultContinues.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelFirstFittingAdmission.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelMissingStartReaction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelReadinessLost.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelResetOverlappingExecution.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelOrchestration\Test_ParallelUnequalDurations.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsAbortAtBoundary.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsFinalGroupCompletion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsFirstFittingAdmission.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsMissingStartReaction.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsNextSlotReadinessLost.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration\Test_SlotsWaitForGroupCompletion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Helper\PreparationResource.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Helper\PreparationStatusProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Helper\Prepare_ValueAtTarget.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Helper\Prepare_ZeroViaOne.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationCompletionTracksTarget.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationDisableAndReenable.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationDisabledObservation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationInitialStatus.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationMockInputs.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationReachesTarget.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationResourceError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Preparation\Test_PreparationStatusProjection.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderCapacity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderFinalizeReuse.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderParallel.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderRegistrationErrors.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderSerial.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder\Test_RunControlBuilderSlotInsertion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\DataTypes\E_RunControlCompletionScenario.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\DataTypes\E_RunControlLifecycleScenario.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Helper\RunControlIntegrationSubject.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Helper\RunControlLifecycleProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Helper\RunControlSuiteDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlCompletion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlExceptionalLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlInitialization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlNormalLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlRealComposition.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlRequests.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Test_RunControlTaskMapping.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_SerialOrchestration\Test_SerialFailedResultContinues.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_SerialOrchestration\Test_SerialImmediateCompletion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_SerialOrchestration\Test_SerialNotReadyCandidate.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_SerialOrchestration\Test_SerialRegistrationOrder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_SerialOrchestration\Test_SerialUnequalDurations.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_Smoke\Test_Smoke.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\DataTypes\E_LifecycleHook.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\DataTypes\ST_LifecycleHook.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\DataTypes\ST_LifecycleStep.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\TestCaseInitializationProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\TestCaseLifecycleProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\TestCaseLifecycleTestBase.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleAbortError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleAbortTimeout.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleAlreadyPrepared.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleExecutionTimeout.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleFailedResult.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleFailedToError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleInitialization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleInvalidPreparationTransition.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleInvalidTestAdvance.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleMultipleStates.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecyclePreparationError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecyclePreparationTimeout.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleRepeatAfterAbort.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleRepeatAfterError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleRepeatAfterFailed.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleRepeatAfterPassed.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleResetDuringExecution.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleResetError.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleResetTimeout.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleSinglePreparation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Test_LifecycleWithoutPreparation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderCapacity.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderFinalizeReuse.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderParallel.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderRegistrationErrors.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderSerial.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder\Test_SuiteBuilderSlotInsertion.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\DataTypes\E_SuiteLifecycleScenario.TcDUT">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\SuiteIntegrationChild.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\SuiteIntegrationSubject.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\SuiteLifecycleChildDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\SuiteOrchestratorDouble.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\TestSuiteLifecycleProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper\TestSuiteMockProbe.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteExceptionalLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteFinalization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteInitialization.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteMockRepeatedReset.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteNormalLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteReadiness.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteRealComposition.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Test_SuiteReservationRelease.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionArrays.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionComparisons.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionFloatingPoint.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionObservation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionText.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_AssertionVariants.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_CommandAdapter.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_EventBufferReset.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_EventDelivery.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_EventReservation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_Orchestrator.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_ParallelOrchestration.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_ParallelSlotsOrchestration.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_Preparation.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_RunControlConfigurationBuilder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_RunControlLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_SerialOrchestration.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_Smoke.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_TestCaseLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_TestSuiteConfigurationBuilder.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="SelfTests\TestSuites\TestSuite_TestSuiteLifecycle.TcPOU">
+      <SubType>Code</SubType>
+    </Compile>
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="Framework" />
+    <Folder Include="Framework\Assertions" />
+    <Folder Include="Framework\Assertions\DataTypes" />
+    <Folder Include="Framework\Assertions\GlobalVariables" />
+    <Folder Include="Framework\Assertions\Interfaces" />
+    <Folder Include="Framework\Assertions\POU" />
+    <Folder Include="Framework\Assertions\POU\Arrays" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Bool" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Byte" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Byte\LengthUntilToken" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Byte\TokenCount" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Char" />
+    <Folder Include="Framework\Assertions\POU\Arrays\DInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\DWord" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Int" />
+    <Folder Include="Framework\Assertions\POU\Arrays\LInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\LReal" />
+    <Folder Include="Framework\Assertions\POU\Arrays\LWord" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Real" />
+    <Folder Include="Framework\Assertions\POU\Arrays\SInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\UDInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\UInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\ULInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\USInt" />
+    <Folder Include="Framework\Assertions\POU\Arrays\WChar" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Word" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Word\LengthUntilToken" />
+    <Folder Include="Framework\Assertions\POU\Arrays\Word\TokenCount" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Bool" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Bool\FallingEdge" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Bool\RisingEdge" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Byte" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Char" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Date" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\DT" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\DWord" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LDT" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LReal" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LTime" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LTOD" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LWord" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Int" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\DInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\LInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Real" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\SInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\String" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Time" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\TOD" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\USInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\ULInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\UInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\UDInt" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\WChar" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\Word" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes" />
+    <Folder Include="Framework\Assertions\POU\BasicTypes\WString" />
+    <Folder Include="Framework\Assertions\POU\Utilities" />
+    <Folder Include="Framework\Common" />
+    <Folder Include="Framework\Common\DataTypes" />
+    <Folder Include="Framework\Common\Fifo" />
+    <Folder Include="Framework\Common\Fifo\DataTypes" />
+    <Folder Include="Framework\Common\Fifo\POU" />
+    <Folder Include="Framework\Common\GlobalVariables" />
+    <Folder Include="Framework\Common\Interfaces" />
+    <Folder Include="Framework\Common\POU" />
+    <Folder Include="Framework\EventBuffer" />
+    <Folder Include="Framework\EventBuffer\DataTypes" />
+    <Folder Include="Framework\EventBuffer\GlobalVariables" />
+    <Folder Include="Framework\EventBuffer\Interfaces" />
+    <Folder Include="Framework\EventBuffer\POU" />
+    <Folder Include="Framework\EventBuffer\POU\FrameworkEvents" />
+    <Folder Include="Framework\EventBuffer\POU\AggregationEvents" />
+    <Folder Include="Framework\EventBuffer\POU\Utilities" />
+    <Folder Include="Framework\EventBuffer\POU\ResultEvents" />
+    <Folder Include="Framework\EventBuffer\POU\StateTransitionEvents" />
+    <Folder Include="Framework\EventBuffer\POU\TriggerEvents" />
+    <Folder Include="Framework\Preparation" />
+    <Folder Include="Framework\Preparation\DataTypes" />
+    <Folder Include="Framework\Preparation\Interfaces" />
+    <Folder Include="Framework\Preparation\POU" />
+    <Folder Include="Framework\RunControl" />
+    <Folder Include="Framework\RunControl\DataTypes" />
+    <Folder Include="Framework\RunControl\Interfaces" />
+    <Folder Include="Framework\RunControl\POU" />
+    <Folder Include="Framework\TestCases" />
+    <Folder Include="Framework\TestCases\DataTypes" />
+    <Folder Include="Framework\TestCases\Interfaces" />
+    <Folder Include="Framework\TestCases\POU" />
+    <Folder Include="Framework\TestSuites" />
+    <Folder Include="Framework\TestSuites\DataTypes" />
+    <Folder Include="Framework\TestSuites\Interfaces" />
+    <Folder Include="Framework\TestSuites\POU" />
+    <Folder Include="Runtime" />
+    <Folder Include="SelfTests" />
+    <Folder Include="SelfTests\Helper" />
+    <Folder Include="SelfTests\Helper\Orchestration" />
+    <Folder Include="SelfTests\Helper\Orchestration\DataTypes" />
+    <Folder Include="SelfTests\RunControl" />
+    <Folder Include="SelfTests\TestCases" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionArrays" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionComparisons" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionFloatingPoint\DataTypes" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionLifecycle" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionLifecycle\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionObservation" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionText" />
+    <Folder Include="SelfTests\TestCases\TestSuite_AssertionVariants" />
+    <Folder Include="SelfTests\TestCases\TestSuite_CommandAdapter" />
+    <Folder Include="SelfTests\TestCases\TestSuite_CommandAdapter\DataTypes" />
+    <Folder Include="SelfTests\TestCases\TestSuite_CommandAdapter\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_EventBufferReset" />
+    <Folder Include="SelfTests\TestCases\TestSuite_EventBufferReset\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_EventDelivery" />
+    <Folder Include="SelfTests\TestCases\TestSuite_EventReservation" />
+    <Folder Include="SelfTests\TestCases\TestSuite_EventReservation\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_Orchestrator" />
+    <Folder Include="SelfTests\TestCases\TestSuite_ParallelOrchestration" />
+    <Folder Include="SelfTests\TestCases\TestSuite_ParallelSlotsOrchestration" />
+    <Folder Include="SelfTests\TestCases\TestSuite_RunControlConfigurationBuilder" />
+    <Folder Include="SelfTests\TestCases\TestSuite_RunControlLifecycle" />
+    <Folder Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\DataTypes" />
+    <Folder Include="SelfTests\TestCases\TestSuite_RunControlLifecycle\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_SerialOrchestration" />
+    <Folder Include="SelfTests\TestCases\TestSuite_Smoke" />
+    <Folder Include="SelfTests\TestCases\TestSuite_Preparation" />
+    <Folder Include="SelfTests\TestCases\TestSuite_Preparation\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestCaseLifecycle\Helper\DataTypes" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestSuiteConfigurationBuilder" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\DataTypes" />
+    <Folder Include="SelfTests\TestCases\TestSuite_TestSuiteLifecycle\Helper" />
+    <Folder Include="SelfTests\TestSuites" />
+  </ItemGroup>
+  <ItemGroup>
+    <PlaceholderReference Include="Tc2_Standard">
+      <DefaultResolution>Tc2_Standard, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Standard</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_System">
+      <DefaultResolution>Tc2_System, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_System</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc2_Utilities">
+      <DefaultResolution>Tc2_Utilities, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc2_Utilities</Namespace>
+    </PlaceholderReference>
+    <PlaceholderReference Include="Tc3_Module">
+      <DefaultResolution>Tc3_Module, * (Beckhoff Automation GmbH)</DefaultResolution>
+      <Namespace>Tc3_Module</Namespace>
+      <SystemLibrary>true</SystemLibrary>
+    </PlaceholderReference>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Tc3UnitTest.tmc">
+      <SubType>Content</SubType>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <PlaceholderResolution Include="Tc2_Utilities">
+      <Resolution>Tc2_Utilities, * (Beckhoff Automation GmbH)</Resolution>
+    </PlaceholderResolution>
+  </ItemGroup>
+  <ProjectExtensions>
+    <PlcProjectOptions>
+      <XmlArchive>
+  <Data>
+    <o xml:space="preserve" t="OptionKey">
+      <v n="Name">"&lt;ProjectRoot&gt;"</v>
+      <d n="SubKeys" t="Hashtable" ckt="String" cvt="OptionKey">
+        <v>{192FAD59-8248-4824-A8DE-9177C94C195A}</v>
+        <o>
+          <v n="Name">"{192FAD59-8248-4824-A8DE-9177C94C195A}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" />
+        </o>
+        <v>{246001F4-279D-43AC-B241-948EB31120E1}</v>
+        <o>
+          <v n="Name">"{246001F4-279D-43AC-B241-948EB31120E1}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" />
+        </o>
+        <v>{29BD8D0C-3586-4548-BB48-497B9A01693F}</v>
+        <o>
+          <v n="Name">"{29BD8D0C-3586-4548-BB48-497B9A01693F}"</v>
+          <d n="SubKeys" t="Hashtable" ckt="String" cvt="OptionKey">
+            <v>NamingConventions</v>
+            <o>
+              <v n="Name">"NamingConventions"</v>
+              <d n="SubKeys" t="Hashtable" />
+              <d n="Values" t="Hashtable" />
+            </o>
+            <v>Rules</v>
+            <o>
+              <v n="Name">"Rules"</v>
+              <d n="SubKeys" t="Hashtable" ckt="String" cvt="OptionKey">
+                <v>167</v>
+                <o>
+                  <v n="Name">"167"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>175</v>
+                <o>
+                  <v n="Name">"175"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>27</v>
+                <o>
+                  <v n="Name">"27"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>28</v>
+                <o>
+                  <v n="Name">"28"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>33</v>
+                <o>
+                  <v n="Name">"33"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>4</v>
+                <o>
+                  <v n="Name">"4"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+                <v>6</v>
+                <o>
+                  <v n="Name">"6"</v>
+                  <d n="SubKeys" t="Hashtable" />
+                  <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+                    <v>bActive</v>
+                    <v>True</v>
+                    <v>bWarning</v>
+                    <v>False</v>
+                  </d>
+                </o>
+              </d>
+              <d n="Values" t="Hashtable" />
+            </o>
+          </d>
+          <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+            <v>PerformStaticAnalyse</v>
+            <v>True</v>
+          </d>
+        </o>
+        <v>{40450F57-0AA3-4216-96F3-5444ECB29763}</v>
+        <o>
+          <v n="Name">"{40450F57-0AA3-4216-96F3-5444ECB29763}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" />
+        </o>
+        <v>{8A0FB252-96EB-4DCC-A5B4-B4804D05E2D6}</v>
+        <o>
+          <v n="Name">"{8A0FB252-96EB-4DCC-A5B4-B4804D05E2D6}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+            <v>WriteLineIDs</v>
+            <v>False</v>
+          </d>
+        </o>
+        <v>{8F99A816-E488-41E4-9FA3-846536012284}</v>
+        <o>
+          <v n="Name">"{8F99A816-E488-41E4-9FA3-846536012284}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" />
+        </o>
+        <v>{eeeeeeee-3909-4298-8022-501ac3238667}</v>
+        <o>
+          <v n="Name">"{eeeeeeee-3909-4298-8022-501ac3238667}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" />
+        </o>
+        <v>{F66C7017-BDD8-4114-926C-81D6D687E35F}</v>
+        <o>
+          <v n="Name">"{F66C7017-BDD8-4114-926C-81D6D687E35F}"</v>
+          <d n="SubKeys" t="Hashtable" />
+          <d n="Values" t="Hashtable" ckt="String" cvt="Boolean">
+            <v>CalcActiveTransOnly</v>
+            <v>True</v>
+          </d>
+        </o>
+      </d>
+      <d n="Values" t="Hashtable" />
+    </o>
+  </Data>
+  <TypeList>
+    <Type n="Boolean">System.Boolean</Type>
+    <Type n="Hashtable">System.Collections.Hashtable</Type>
+    <Type n="OptionKey">{54dd0eac-a6d8-46f2-8c27-2f43c7e49861}</Type>
+    <Type n="String">System.String</Type>
+  </TypeList>
+</XmlArchive>
+    </PlcProjectOptions>
+  </ProjectExtensions>
+</Project>

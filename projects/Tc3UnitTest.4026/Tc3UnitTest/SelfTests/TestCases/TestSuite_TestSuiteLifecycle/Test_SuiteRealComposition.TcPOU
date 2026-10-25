@@ -1,0 +1,441 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_SuiteRealComposition" Id="{d22f96e9-69f6-44b7-954a-14b7f8b338c8}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs one real Suite composition twice with a lifecycle Reset between executions.</summary>
+<description>
+
+Real boundaries
+
+The subject owns two minimal real Test Cases and the production Orchestrator.
+The outer test supplies only parent Reset/Start requests and the Suite's own event budget.
+It does not manufacture child or helper observations.
+
+Repeat and isolation
+
+Initialize runs once. Both executions must finish Passed; Reset must restore Idle,
+NotEvaluated and readiness without rebuilding the collection. While Reset remains active,
+the parent repeats RequestReset on each waiting call; real child/helper progress must survive.
+All subject producers share a local capture retained across both runs.
+Each child's finalization must precede the Suite's finalization, and parent release
+must leave no held reservations. Detailed scheduling remains in its dedicated tests.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_SuiteRealComposition EXTENDS TestCaseBase
+VAR
+    FSubjectParent : I_RunControl;
+    FSubject : SuiteIntegrationSubject;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FStep : INT;
+    FCompletedRuns : UINT;
+    FFinalChecksEvaluated : BOOL;
+    FReadiness : AssertTrue;
+    FReadinessMatches : BOOL := TRUE;
+    FCompletion : AssertTrue;
+    FCompletionMatches : BOOL := TRUE;
+    FRepeat : AssertTrue;
+    FRepeatMatches : BOOL := TRUE;
+    FReservations : AssertTrue;
+    FReservationsMatches : BOOL := TRUE;
+    FChildCalls : AssertTrue;
+    FChildCallsMatches : BOOL := TRUE;
+    FEventStream : AssertTrue;
+    FEventStreamMatches : BOOL := TRUE;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 256;
+    ExpectedChildCount : UINT := 2;
+    RequiredRuns : UINT := 2;
+    Setup : INT := 0;
+    ResetRequested : INT := 1;
+    WaitForReadiness : INT := 2;
+    StartRequested : INT := 3;
+    WaitForCompletion : INT := 4;
+    Finish : INT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{fe90ae01-da8c-45be-b06b-c4437fc9dfcd}" />
+    <Method Name="AggregateResults" Id="{a7bd70f4-c195-41ff-8f05-82709cb757aa}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FReadiness);
+Aggregator.AddProvider(Provider := FCompletion);
+Aggregator.AddProvider(Provider := FRepeat);
+Aggregator.AddProvider(Provider := FReservations);
+Aggregator.AddProvider(Provider := FChildCalls);
+Aggregator.AddProvider(Provider := FEventStream);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindSubjectParent" Id="{436996c4-fdcc-489c-97b0-7e45ba818f74}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies only the root identity; the root never executes this isolated subject.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckEventStream" Id="{9d6c6725-a655-4bb2-afa5-aadaea268840}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks exact finalization counts and latest child-before-owner event order across both executions.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckEventStream
+VAR
+    Index : UINT;
+    SuiteResults : UINT;
+    SuiteAggregations : UINT;
+    SuiteCompletions : UINT;
+    FirstResults : UINT;
+    SecondResults : UINT;
+    FirstCompletions : UINT;
+    SecondCompletions : UINT;
+    SuiteResultSequence : UDINT;
+    SuiteAggregationSequence : UDINT;
+    SuiteCompletionSequence : UDINT;
+    FirstCompletionSequence : UDINT;
+    SecondCompletionSequence : UDINT;
+    FirstChild : I_TestCase;
+    SecondChild : I_TestCase;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FirstChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound);
+SecondChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound + 1);
+FOR Index := 1 TO CaptureLength DO
+    IF FEvents[Index].SequenceId = 0 THEN
+        CONTINUE;
+    END_IF;
+    FEventStreamMatches := FEventStreamMatches
+        AND (FEvents[Index].Severity <> E_EventSeverity.Error);
+    IF FEvents[Index].Name = FSubject.Name THEN
+        CASE FEvents[Index].EventType OF
+            E_EventType.Result:
+                SuiteResults := SuiteResults + 1;
+                SuiteResultSequence := FEvents[Index].SequenceId;
+                FEventStreamMatches := FEventStreamMatches AND (FEvents[Index].Result = E_Result.Passed);
+            E_EventType.Aggregation:
+                SuiteAggregations := SuiteAggregations + 1;
+                SuiteAggregationSequence := FEvents[Index].SequenceId;
+            E_EventType.StateTransition:
+                IF FEvents[Index].State = E_State.Completed THEN
+                    SuiteCompletions := SuiteCompletions + 1;
+                    SuiteCompletionSequence := FEvents[Index].SequenceId;
+                END_IF;
+        END_CASE;
+    ELSIF FEvents[Index].Name = FirstChild.Name THEN
+        IF FEvents[Index].EventType = E_EventType.Result THEN
+            FirstResults := FirstResults + 1;
+        ELSIF (FEvents[Index].EventType = E_EventType.StateTransition)
+            AND (FEvents[Index].State = E_State.Completed) THEN
+            FirstCompletions := FirstCompletions + 1;
+            FirstCompletionSequence := FEvents[Index].SequenceId;
+        END_IF;
+    ELSIF FEvents[Index].Name = SecondChild.Name THEN
+        IF FEvents[Index].EventType = E_EventType.Result THEN
+            SecondResults := SecondResults + 1;
+        ELSIF (FEvents[Index].EventType = E_EventType.StateTransition)
+            AND (FEvents[Index].State = E_State.Completed) THEN
+            SecondCompletions := SecondCompletions + 1;
+            SecondCompletionSequence := FEvents[Index].SequenceId;
+        END_IF;
+    END_IF;
+END_FOR;
+FEventStreamMatches := FEventStreamMatches
+    AND (SuiteResults = FCompletedRuns) AND (SuiteAggregations = FCompletedRuns)
+    AND (SuiteCompletions = FCompletedRuns)
+    AND (FirstResults = FCompletedRuns) AND (SecondResults = FCompletedRuns)
+    AND (FirstCompletions = FCompletedRuns) AND (SecondCompletions = FCompletedRuns)
+    AND (FirstCompletionSequence < SuiteResultSequence)
+    AND (SecondCompletionSequence < SuiteResultSequence)
+    AND (SuiteResultSequence < SuiteAggregationSequence)
+    AND (SuiteAggregationSequence < SuiteCompletionSequence);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{b82d9f0d-339b-49fe-92f8-ad6e5c1fa245}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FReadiness.Initialize(Parent := THIS^,
+    AssertionName := 'Readiness');
+FCompletion.Initialize(Parent := THIS^,
+    AssertionName := 'Completion');
+FRepeat.Initialize(Parent := THIS^,
+    AssertionName := 'Repeat');
+FReservations.Initialize(Parent := THIS^,
+    AssertionName := 'Reservations');
+FChildCalls.Initialize(Parent := THIS^,
+    AssertionName := 'ChildCalls');
+FEventStream.Initialize(Parent := THIS^,
+    AssertionName := 'EventStream');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{69d44b3b-4bbf-4879-893d-c10b397e0b30}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{ed8f61ee-94b9-4609-bfc3-ef3e0a4cec41}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Keeps every observation across both runs; final checks must evaluate before ending the outer Test Case.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FReadiness(Enable := Enable,
+    State := State,
+    IN := FReadinessMatches);
+FCompletion(Enable := Enable,
+    State := State,
+    IN := FCompletionMatches);
+FRepeat(Enable := Enable,
+    State := State,
+    IN := FRepeatMatches);
+FReservations(Enable := Enable,
+    State := State,
+    IN := FReservationsMatches);
+FChildCalls(Enable := Enable,
+    State := State,
+    IN := FChildCallsMatches);
+FEventStream(Enable := Enable,
+    State := State,
+    IN := FEventStreamMatches);
+IF Enable AND (FStep = Finish) THEN
+    FFinalChecksEvaluated := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{a19fa468-d293-40ca-9682-15ce4c4f4d65}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{b00e47dc-08f3-4a8a-ad6d-3404110381c8}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FStep := Setup;
+FCompletedRuns := 0;
+FFinalChecksEvaluated := FALSE;
+FReadinessMatches := TRUE;
+FCompletionMatches := TRUE;
+FRepeatMatches := TRUE;
+FReservationsMatches := TRUE;
+FChildCallsMatches := TRUE;
+FEventStreamMatches := TRUE;
+FReadiness.Reset();
+FCompletion.Reset();
+FRepeat.Reset();
+FReservations.Reset();
+FChildCalls.Reset();
+FEventStream.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{81ed583c-711a-4372-845a-091ce59c585a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF (FStep = Finish) AND FFinalChecksEvaluated THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+RunStep();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReleaseAndCheck" Id="{a6c31e56-475e-4a52-bdbc-90f1ec5706aa}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Performs the parent-owned release and checks global and per-child accounting, including repeated release.</summary>
+*)
+{endregion}
+METHOD PRIVATE ReleaseAndCheck
+VAR
+    FirstChild : I_TestCase;
+    SecondChild : I_TestCase;
+    Released : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Released := FSubject.FreeReservedEvents();
+FReservationsMatches := FReservationsMatches AND Released;
+Released := FSubject.FreeReservedEvents();
+FirstChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound);
+SecondChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound + 1);
+FReservationsMatches := FReservationsMatches AND Released
+    AND (FSubject.ReservedEntryCount = 0)
+    AND (FirstChild.ReservedEntryCount = 0) AND (SecondChild.ReservedEntryCount = 0)
+    AND (FCapture.ReservedEntryCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="RunStep" Id="{1412631d-d340-4a1b-9d6b-ab3078669999}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Issues parent requests once and otherwise lets the real composition progress one FB call per PLC cycle.</summary>
+*)
+{endregion}
+METHOD PRIVATE RunStep
+VAR
+    Config : ST_TestSuiteConfig;
+    Snapshot : ST_TestSuiteStatus;
+    FirstChild : I_TestCase;
+    SecondChild : I_TestCase;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FStep OF
+    Setup:
+        IF NOT FCapture.Initialize(Buffer := FEvents,
+            FifoControl := FCaptureFifo,
+            Status := FCaptureStatus) THEN
+            Error(Message := 'Real Suite composition capture initialization failed.');
+            RETURN;
+        END_IF;
+        FSubject.BindPublisher(Publisher := FCapture);
+        IF NOT FSubject.Initialize(Parent := FSubjectParent,
+            SuiteName := 'RealComposition',
+            Config := Config) THEN
+            Error(Message := 'Real Suite composition initialization failed.');
+            RETURN;
+        END_IF;
+        FStep := ResetRequested;
+
+    ResetRequested:
+        IF FSubject.ReserveResetEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Real Suite composition Reset reservation was rejected.');
+            RETURN;
+        END_IF;
+        FSubject.RequestReset();
+        FStep := WaitForReadiness;
+
+    StartRequested:
+        IF FSubject.ReserveExecutionEvents() <> E_EventReservationResult.Accepted THEN
+            Error(Message := 'Real Suite composition execution reservation was rejected.');
+            RETURN;
+        END_IF;
+        FSubject.RequestStart();
+        FStep := WaitForCompletion;
+
+    WaitForReadiness:
+        IF FSubject.IsResetting THEN
+            FSubject.RequestReset();
+        END_IF;
+
+    WaitForCompletion, Finish:
+        // Waiting retains real child/helper timing; the outer Test Case timeout bounds a stalled subject.
+ELSE
+    Error(Message := 'Unexpected real Suite composition test step.');
+    RETURN;
+END_CASE;
+
+FSubject();
+FChildCallsMatches := FChildCallsMatches AND FSubject.ChildCallsMatch;
+FRepeatMatches := FRepeatMatches AND (FSubject.ConfigureCount = 1)
+    AND (FSubject.ChildCount = ExpectedChildCount);
+FEventStreamMatches := FEventStreamMatches AND (FCaptureStatus.LostEventCount = 0);
+Snapshot := FSubject.Status;
+
+CASE FStep OF
+    WaitForReadiness:
+        IF FSubject.HasError THEN
+            Error(Message := 'Real Suite composition failed during Reset.');
+            RETURN;
+        END_IF;
+        IF FSubject.IsReady THEN
+            FReadinessMatches := FReadinessMatches AND FSubject.IsIdle
+                AND (FSubject.Result = E_Result.NotEvaluated)
+                AND (Snapshot.TestCaseCountIdle = ExpectedChildCount)
+                AND (Snapshot.TestCaseCountCompleted = 0);
+            ReleaseAndCheck();
+            FStep := StartRequested;
+        END_IF;
+
+    WaitForCompletion:
+        IF FSubject.IsComplete THEN
+            FirstChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound);
+            SecondChild := FSubject.GetTestCase(Index := FSubject.ChildArrayLowerBound + 1);
+            FCompletionMatches := FCompletionMatches
+                AND (FSubject.Result = E_Result.Passed)
+                AND (Snapshot.TestCaseCountCompleted = ExpectedChildCount)
+                AND (Snapshot.TestCaseCountPassed = ExpectedChildCount)
+                AND (Snapshot.TestCaseCountFailed = 0) AND (Snapshot.TestCaseCountError = 0)
+                AND FirstChild.IsComplete AND SecondChild.IsComplete
+                AND (FirstChild.Result = E_Result.Passed) AND (SecondChild.Result = E_Result.Passed);
+            FCompletedRuns := FCompletedRuns + 1;
+            ReleaseAndCheck();
+            CheckEventStream();
+            IF FCompletedRuns = RequiredRuns THEN
+                FStep := Finish;
+            ELSE
+                FStep := ResetRequested;
+            END_IF;
+        END_IF;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

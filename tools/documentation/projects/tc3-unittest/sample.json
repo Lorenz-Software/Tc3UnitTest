@@ -1,0 +1,102 @@
+{
+  "sourceRoot": "projects/Tc3UnitTest.4026/Tc3UnitTest/Framework",
+  "product": "TC3 UnitTest",
+  "brandMark": "TC3",
+  "subtitle": "PLC library reference",
+  "edition": "API preview · lifecycle sample, library parameters and constants",
+  "packageFile": "tc3-unittest-help-preview.zip",
+  "stylesheet": "project.css",
+  "overview": {
+    "title": "Library documentation preview",
+    "introduction": "TC3 UnitTest is a testing framework for TwinCAT 3 PLC applications. Your tests execute in the TwinCAT runtime, alongside the logic they exercise. The library provides common execution lifecycles, result handling and diagnostic events; a separate PC runner evaluates the reported outcomes.\n\nYou define the scenario, resource bindings, stimuli and expected behavior. Test Cases contain the individual scenarios, Test Suites group them, and Run Control coordinates the run. Preparations establish a starting condition when needed, while Assertions check the observed behavior.\n\nThis reference is for PLC developers using the supplied library and authors extending its base function blocks. Start with a functional area to understand related elements, or browse by element type when you already know whether you need a block, a data type or an interface. Detail pages describe inputs, properties, methods and protected extension points, including inherited members and their origins.",
+    "sections": [
+      {
+        "heading": "Using this help",
+        "text": "Use the catalog filters to narrow the reference by name or purpose, functional area and element type. The navigation follows your current type rather than listing every member of the library. Class diagrams show inheritance and implemented interfaces; field and member tables lead to the detailed declarations. Full-text search also finds terms in parameter descriptions."
+      },
+      {
+        "heading": "Preview scope",
+        "text": "This package covers five source types and their public or protected members, plus two library parameter lists and the shared constant list. It is a documentation preview, not the complete library reference. Elements outside this sample are shown by name."
+      }
+    ]
+  },
+  "groups": [
+    {
+      "title": "Assertions",
+      "description": "Assertion contracts, shared behavior and concrete checks.",
+      "types": [
+        "AssertionBase",
+        "AssertTrue",
+        "I_Assertion",
+        "I_ResultProvider",
+        "Param_Assertions"
+      ]
+    },
+    {
+      "title": "Events",
+      "description": "Event payload data structures.",
+      "types": [
+        "ST_Event",
+        "Param_EventBuffer"
+      ]
+    },
+    {
+      "title": "Common",
+      "description": "Shared capacities and independently versioned communication contracts.",
+      "types": ["GVL_Constants"]
+    }
+  ],
+  "attribution": {
+    "author": "Lorenz Software",
+    "contactEmail": "mail@lorenz-software.net",
+    "copyright": "Copyright (c) 2026 Lorenz Software",
+    "licenseName": "MIT License",
+    "licenseFile": "LICENSE",
+    "website": "https://www.lorenz-software.solutions/",
+    "logoFile": "assets/lorenz-software.png",
+    "headerLogoFile": "assets/lorenz-software-symbol.png"
+  },
+  "guide": {
+    "title": "Authoring Guide",
+    "introduction": "Learn the framework model, then follow the chapters for writing test elements and coordinating a test run. The guide and API reference share the navigation and full-text search.",
+    "sourceRoot": "docs/authoring",
+    "chapters": [
+      { "file": "framework-model.md", "apiTypes": ["AssertionBase", "I_Assertion", "I_ResultProvider", "TestCaseBase", "TestSuiteBase", "RunControlBase"] },
+      { "file": "test-case.md", "apiTypes": ["TestCaseBase", "AssertionBase"] },
+      { "file": "preparation.md", "apiTypes": ["PreparationBase", "I_Preparation"] },
+      { "file": "assertions.md", "apiTypes": ["AssertionBase", "AssertTrue", "I_Assertion", "I_ResultProvider", "Param_Assertions"] },
+      { "file": "test-suite.md", "apiTypes": ["TestSuiteBase", "I_TestSuite"] },
+      { "file": "run-control.md", "apiTypes": ["RunControlBase", "I_RunControl", "ST_Event", "Param_EventBuffer", "GVL_Constants"] },
+      { "file": "ai-assisted-framework-authoring.md", "apiTypes": ["TestCaseBase", "AssertionBase"] }
+    ]
+  },
+  "includeTypes": [
+    "AssertionBase",
+    "AssertTrue",
+    "I_Assertion",
+    "I_ResultProvider",
+    "ST_Event",
+    "Param_Assertions",
+    "Param_EventBuffer",
+    "GVL_Constants"
+  ],
+  "library": {
+    "projectFile": "projects/Tc3UnitTest.4026/Tc3UnitTest/Tc3UnitTest.plcproj",
+    "generatedVersionFile": "projects/Tc3UnitTest.4026/Tc3UnitTest/Framework/Common/GlobalVariables/Global_Version.TcGVL",
+    "generatedVersionSymbol": "stLibVersion_Tc3_UnitTest",
+    "contracts": [
+      {
+        "title": "Direct Access",
+        "file": "contracts/run-control-contract.md",
+        "constantsFile": "projects/Tc3UnitTest.4026/Tc3UnitTest/Framework/Common/GlobalVariables/GVL_Constants.TcGVL",
+        "constant": "DirectAccessContractVersion"
+      },
+      {
+        "title": "Event Stream",
+        "file": "contracts/event-stream-contract.md",
+        "constantsFile": "projects/Tc3UnitTest.4026/Tc3UnitTest/Framework/Common/GlobalVariables/GVL_Constants.TcGVL",
+        "constant": "EventStreamContractVersion"
+      }
+    ]
+  }
+}

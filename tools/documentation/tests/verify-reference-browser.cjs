@@ -1,0 +1,45 @@
+const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
+const {openBrowser}=require('../../../tools/documentation/generator/scripts/browser-session.cjs');
+const repo=path.resolve(__dirname,'../../..'),output=path.join(repo,'artifacts/documentation/reference');
+const model=JSON.parse(fs.readFileSync(path.join(output,'api-model.json'),'utf8'));
+const site=process.argv[2] ? path.resolve(process.argv[2]) : path.join(output,'site');
+const evidence=path.join(output,'validation/reference');
+(async()=>{let session;try{
+  session=await openBrowser({evidence});
+  await session.cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  await session.navigate(path.join(site,'catalog.html'));
+  assert.equal(await session.evaluate('document.querySelectorAll("tr[data-entry]:not([hidden])").length'),50);
+  assert.match(await session.evaluate('document.querySelector("#catalog-status").textContent'),/516/);
+  await session.evaluate('document.querySelector("#catalog-next").click()');
+  assert.match(await session.evaluate('document.querySelector("#catalog-page").textContent'),/2/);
+  await session.navigate(path.join(site,'catalog.html')+'');
+  await session.evaluate('document.querySelector("#catalog-category").value="data";document.querySelector("#catalog-category").dispatchEvent(new Event("change"))');
+  assert.equal(await session.evaluate('document.querySelectorAll("tr[data-entry]:not([hidden])").length'),31);
+  await session.screenshot(path.join(evidence,'Data-catalog.png'));
+  const samples=['RunControlBase','TestSuiteBase','TestCaseBase','PreparationBase','AssertLengthUntilArrayGreaterEqual_Byte','E_Result','E_EventPublishResult','GVL_UnitTest','GVL_EventBuffer','CreateAssertionErrorEvent'];
+  for(const name of samples){
+    const api=model.find(a=>!a.Owner&&a.Name===name);assert(api,name);
+    await session.navigate(path.join(site,api.Uid+'.html'));
+    assert.equal(await session.evaluate('document.querySelector("article h1").textContent'),name);
+    assert(await session.evaluate('Array.from(document.querySelectorAll(".class-node")).every(g=>{const r=g.querySelector("rect").getBBox(),t=g.querySelector("text:last-child").getBBox();return t.x>=r.x&&t.x+t.width<=r.x+r.width&&t.y+t.height<=r.y+r.height;})'),name+': diagram labels fit nodes');
+    await session.screenshot(path.join(evidence,name+'.png'));
+    if(name==='E_EventPublishResult')assert(await session.evaluate('Array.from(document.querySelectorAll("article a")).some(a=>a.getAttribute("href")==="Tc3UnitTest.E_FifoResult.html")'));
+    if(name==='GVL_UnitTest')assert((await session.evaluate('document.querySelector("article").innerText')).includes('startup values'));
+    await session.cdp('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:2,mobile:true});
+    assert(await session.evaluate('document.documentElement.scrollWidth<=390 && document.querySelector("main").scrollWidth<=document.querySelector("main").clientWidth'),name+': mobile overflow');
+    await session.cdp('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
+  }
+  await session.navigate(path.join(site,'index.html'));
+  assert.equal(await session.evaluate('document.querySelectorAll(".area-card").length'),7);
+  assert((await session.evaluate('document.querySelector("article").innerText')).includes('516'));
+  await session.screenshot(path.join(evidence,'Overview.png'));
+  await session.evaluate('document.querySelector(".theme-toggle").click()');
+  await session.screenshot(path.join(evidence,'Overview-dark.png'));
+  await session.navigate(path.join(site,'Tc3UnitTest.TestSuiteBase.html'));
+  await session.evaluate('document.querySelector(".header-search").click();document.querySelector("#help-search").value="CreateAssertionErrorEvent";document.querySelector("#help-search").dispatchEvent(new Event("input"))');
+  assert(await session.evaluate('Array.from(document.querySelectorAll("#help-results a")).some(a=>a.getAttribute("href")==="Tc3UnitTest.CreateAssertionErrorEvent.html")'));
+  await session.screenshot(path.join(evidence,'Search-function.png'));
+  assert.equal(session.remoteRequests.length,0);
+  const result={result:'PASS',browser:session.version.Browser,realCatalog:516,dataTypes:31,samples,offline:true};
+  fs.writeFileSync(path.join(evidence,'verification.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}catch(error){console.error(error);process.exitCode=1;}finally{await session?.close();}})();

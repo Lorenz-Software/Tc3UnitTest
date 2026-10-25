@@ -1,0 +1,113 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_TestSuiteConfigurationBuilder" Id="{66474b5a-a2da-49aa-8f72-eef478f9f9e2}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the Test Suite builder directly without executing registered child lifecycles.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_TestSuiteConfigurationBuilder EXTENDS TestSuiteBase
+VAR
+    FSerial : Test_SuiteBuilderSerial;
+    FParallel : Test_SuiteBuilderParallel;
+    FSlotInsertion : Test_SuiteBuilderSlotInsertion;
+    FCapacity : Test_SuiteBuilderCapacity;
+    FRegistrationErrors : Test_SuiteBuilderRegistrationErrors;
+    FFinalizeReuse : Test_SuiteBuilderFinalizeReuse;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 6;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00560002-0056-4056-8056-000000000002}" />
+    <Method Name="Configure" Id="{00560002-0056-4056-8056-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the six independent builder scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+
+FSerial.Initialize(Parent := THIS^,
+    TestName := 'Serial',
+    Config := TestConfig);
+Builder.Register(TestCase := FSerial);
+
+FParallel.Initialize(Parent := THIS^,
+    TestName := 'Parallel',
+    Config := TestConfig);
+Builder.Register(TestCase := FParallel);
+
+FSlotInsertion.Initialize(Parent := THIS^,
+    TestName := 'SlotInsertion',
+    Config := TestConfig);
+Builder.Register(TestCase := FSlotInsertion);
+
+FCapacity.Initialize(Parent := THIS^,
+    TestName := 'Capacity',
+    Config := TestConfig);
+Builder.Register(TestCase := FCapacity);
+
+FRegistrationErrors.Initialize(Parent := THIS^,
+    TestName := 'RegistrationErrors',
+    Config := TestConfig);
+Builder.Register(TestCase := FRegistrationErrors);
+
+FFinalizeReuse.Initialize(Parent := THIS^,
+    TestName := 'FinalizeReuse',
+    Config := TestConfig);
+Builder.Register(TestCase := FFinalizeReuse);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{00560002-0056-4056-8056-000000000004}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using the actual array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{00560002-0056-4056-8056-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls the six owned scenarios once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSerial();
+FParallel();
+FSlotInsertion();
+FCapacity();
+FRegistrationErrors();
+FFinalizeReuse();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

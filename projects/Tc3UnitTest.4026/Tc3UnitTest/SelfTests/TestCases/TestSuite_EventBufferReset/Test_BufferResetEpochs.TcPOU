@@ -1,0 +1,515 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_BufferResetEpochs" Id="{9686453d-591a-4160-a134-d47b1eca4a4f}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks coordinated hard reset of empty, populated and full wrapped local Event Buffer epochs.</summary>
+<description>
+RunControlIntegrationSubject executes the real hierarchy once per test cycle until Idle.
+Each scenario reserves through the actual Suite and Test Cases before arranging its buffer.
+Only ControlData.BufferCmd.Reset requests a hard reset; setup uses ordinary publication and deletion.
+The Idle subject must not publish a reset-only event or change lifecycle. Checks accumulate across
+all three scenarios, including typed empty fields in every physical ring position and sequence restart.
+The full wrapped scenario deliberately fills reserved capacity and loses one event as reset input;
+this tests destructive recovery, not normal admission or a promise of loss-free publication.
+The real subject binds only local storage; expected findings remain in that storage.
+Checking Assertions retain the outer selftest publisher. Each run reinitializes the subject.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_BufferResetEpochs EXTENDS TestCaseBase
+VAR
+    FSubject : EventBuffer;
+    FEvents : ARRAY[1..BufferLength] OF ST_Event;
+    FFifo : ST_FifoStatus;
+    FBufferStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FRoot : RunControlIntegrationSubject;
+    FControl : ST_RunControl;
+    FPhase : USINT;
+    FScenario : USINT;
+    FScenarioPrepared : BOOL;
+    FSuite : I_TestSuite;
+    FFirstChild : I_TestCase;
+    FSecondChild : I_TestCase;
+    FSetup : AssertTrue;
+    FSetupMatches : BOOL;
+    FEmptyEpoch : AssertTrue;
+    FEmptyEpochMatches : BOOL;
+    FFilledEpoch : AssertTrue;
+    FFilledEpochMatches : BOOL;
+    FWrappedEpoch : AssertTrue;
+    FWrappedEpochMatches : BOOL;
+    FStorageCleared : AssertTrue;
+    FStorageClearedMatches : BOOL;
+    FReservationsReleased : AssertTrue;
+    FReservationsReleasedMatches : BOOL;
+    FCommandClearing : AssertTrue;
+    FCommandClearingMatches : BOOL;
+    FLifecyclePreserved : AssertTrue;
+    FLifecyclePreservedMatches : BOOL;
+    FNewEpoch : AssertTrue;
+    FNewEpochMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    BufferLength : UINT := 129;
+    SeedEventCount : UINT := 6;
+    DeletedSeedCount : UDINT := 4;
+    EmptyScenario : USINT := 0;
+    FilledScenario : USINT := 1;
+    WrappedScenario : USINT := 2;
+    SetupPhase : USINT := 0;
+    AwaitIdlePhase : USINT := 1;
+    PreparePhase : USINT := 2;
+    ResetPhase : USINT := 3;
+    VerifyPhase : USINT := 4;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{9146fc5b-92ad-7df8-a712-9597865badc9}" />
+    <Method Name="AggregateResults" Id="{e94388a3-5816-52f4-4099-2d0ef77774a7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes each checking Assertion once.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FSetup);
+Aggregator.AddProvider(Provider := FEmptyEpoch);
+Aggregator.AddProvider(Provider := FFilledEpoch);
+Aggregator.AddProvider(Provider := FWrappedEpoch);
+Aggregator.AddProvider(Provider := FStorageCleared);
+Aggregator.AddProvider(Provider := FReservationsReleased);
+Aggregator.AddProvider(Provider := FCommandClearing);
+Aggregator.AddProvider(Provider := FLifecyclePreserved);
+Aggregator.AddProvider(Provider := FNewEpoch);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{f4363c17-70af-9b65-710a-5d255b13f591}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires all checking Assertions to be initialized.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetup.IsInitialized
+    AND FEmptyEpoch.IsInitialized
+    AND FFilledEpoch.IsInitialized
+    AND FWrappedEpoch.IsInitialized
+    AND FStorageCleared.IsInitialized
+    AND FReservationsReleased.IsInitialized
+    AND FCommandClearing.IsInitialized
+    AND FLifecyclePreserved.IsInitialized
+    AND FNewEpoch.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckReset" Id="{c47942ac-bd6a-da55-7bac-501b023047a6}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks typed empty storage, epoch metadata and real hierarchical release after the root call.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckReset
+VAR
+    Index : UINT;
+    EmptyEvent : ST_Event;
+    EpochCleared : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EpochCleared := FFifo.BufferEmpty AND NOT FFifo.BufferFull AND NOT FFifo.BufferAlmostFull
+    AND (FFifo.ElementCount = 0) AND (FFifo.BufferLength = BufferLength)
+    AND (FFifo.IndexIn = 1) AND (FFifo.IndexOut = 1)
+    AND NOT FFifo.ConfigError AND NOT FFifo.IndexError
+    AND (FBufferStatus.SequenceId = 0) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0);
+CASE FScenario OF
+    EmptyScenario:
+        FEmptyEpochMatches := FScenarioPrepared AND EpochCleared;
+    FilledScenario:
+        FFilledEpochMatches := FScenarioPrepared AND EpochCleared;
+    WrappedScenario:
+        FWrappedEpochMatches := FScenarioPrepared AND EpochCleared;
+    ELSE
+        Error(Message := 'Unknown local reset observation scenario.');
+END_CASE;
+
+FOR Index := 1 TO BufferLength DO
+    FStorageClearedMatches := FStorageClearedMatches
+        AND (FEvents[Index].SequenceId = EmptyEvent.SequenceId)
+        AND (FEvents[Index].Timestamp = EmptyEvent.Timestamp)
+        AND (FEvents[Index].OwnerScope = EmptyEvent.OwnerScope)
+        AND (FEvents[Index].EventType = EmptyEvent.EventType)
+        AND (FEvents[Index].Severity = EmptyEvent.Severity)
+        AND (FEvents[Index].Name = EmptyEvent.Name)
+        AND (FEvents[Index].ResourceName = EmptyEvent.ResourceName)
+        AND (FEvents[Index].State = EmptyEvent.State)
+        AND (FEvents[Index].Result = EmptyEvent.Result)
+        AND (FEvents[Index].Message = EmptyEvent.Message);
+END_FOR;
+FReservationsReleasedMatches := FReservationsReleasedMatches
+    AND (FSubject.ReservedEntryCount = 0) AND (FSuite.ReservedEntryCount = 0)
+    AND (FFirstChild.ReservedEntryCount = 0) AND (FSecondChild.ReservedEntryCount = 0);
+FCommandClearingMatches := FCommandClearingMatches
+    AND NOT FControl.BufferCmd.Reset AND (FControl.BufferCmd.DeleteSequenceId = 0);
+FLifecyclePreservedMatches := FLifecyclePreservedMatches AND FRoot.IsIdle AND FRoot.IsReady
+    AND (FSuite.State = E_State.Idle) AND (FFirstChild.State = E_State.Idle)
+    AND (FSecondChild.State = E_State.Idle) AND FRoot.ConfigurationUnchanged
+    AND FRoot.ChildCallsMatch;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{d116aa65-cfc2-8ea7-2bc0-de6be5c4c793}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions for one test state.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FSetup.Initialize(Parent := THIS^,
+    AssertionName := 'Setup');
+FEmptyEpoch.Initialize(Parent := THIS^,
+    AssertionName := 'EmptyEpoch');
+FFilledEpoch.Initialize(Parent := THIS^,
+    AssertionName := 'FilledEpoch');
+FWrappedEpoch.Initialize(Parent := THIS^,
+    AssertionName := 'WrappedEpoch');
+FStorageCleared.Initialize(Parent := THIS^,
+    AssertionName := 'StorageCleared');
+FReservationsReleased.Initialize(Parent := THIS^,
+    AssertionName := 'ReservationsReleased');
+FCommandClearing.Initialize(Parent := THIS^,
+    AssertionName := 'CommandClearing');
+FLifecyclePreserved.Initialize(Parent := THIS^,
+    AssertionName := 'LifecyclePreserved');
+FNewEpoch.Initialize(Parent := THIS^,
+    AssertionName := 'NewEpoch');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PrepareScenario" Id="{901b783c-bcfb-5892-a08e-55c2283766ef}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Builds a known epoch through real Publish/Delete calls and owner reservation methods.</summary>
+*)
+{endregion}
+METHOD PRIVATE PrepareScenario
+VAR
+    Index : UINT;
+    SequenceBefore : UDINT;
+    Published : INT;
+    SuiteReservation : E_EventReservationResult;
+    FirstReservation : E_EventReservationResult;
+    SecondReservation : E_EventReservationResult;
+    SeedEvent : ST_Event;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FControl.BufferCmd.DeleteSequenceId := FBufferStatus.SequenceId;
+FSubject.ProcessDeleteRequest(SequenceId := FControl.BufferCmd.DeleteSequenceId);
+SuiteReservation := FSuite.ReserveResetEvents();
+FirstReservation := FFirstChild.ReserveResetEvents();
+SecondReservation := FSecondChild.ReserveResetEvents();
+FSetupMatches := FSetupMatches AND FFifo.BufferEmpty
+    AND (SuiteReservation = E_EventReservationResult.Accepted)
+    AND (FirstReservation = E_EventReservationResult.Accepted)
+    AND (SecondReservation = E_EventReservationResult.Accepted)
+    AND (FSuite.ReservedEntryCount = GVL_Constants.TestSuiteResetEventCount)
+    AND (FFirstChild.ReservedEntryCount = GVL_Constants.TestCaseResetEventCount)
+    AND (FSecondChild.ReservedEntryCount = GVL_Constants.TestCaseResetEventCount)
+    AND (FSubject.ReservedEntryCount = GVL_Constants.TestSuiteResetEventCount
+        + 2 * GVL_Constants.TestCaseResetEventCount);
+SeedEvent := CreateFrameworkEvent(Name := 'ResetSubject',
+    ResourceName := 'ResetFixture',
+    State := E_State.Idle,
+    Severity := E_EventSeverity.Info,
+    Message := 'Discarded by coordinated hard reset.');
+SequenceBefore := FBufferStatus.SequenceId;
+
+CASE FScenario OF
+    EmptyScenario:
+        FScenarioPrepared := FFifo.BufferEmpty
+            AND (FBufferStatus.SequenceId = FBufferStatus.DeletedSequenceId)
+            AND (FBufferStatus.LostEventCount = 0);
+
+    FilledScenario, WrappedScenario:
+        FOR Index := 1 TO SeedEventCount DO
+            Published := FSubject.PublishEvent(Event := SeedEvent);
+            FSetupMatches := FSetupMatches AND (Published > 0);
+        END_FOR;
+        FControl.BufferCmd.DeleteSequenceId := SequenceBefore + DeletedSeedCount;
+        FSubject.ProcessDeleteRequest(SequenceId := FControl.BufferCmd.DeleteSequenceId);
+        FScenarioPrepared := (FFifo.ElementCount = SeedEventCount - UDINT_TO_UINT(DeletedSeedCount))
+            AND (FBufferStatus.SequenceId = SequenceBefore + UINT_TO_UDINT(SeedEventCount))
+            AND (FBufferStatus.DeletedSequenceId = SequenceBefore + DeletedSeedCount)
+            AND (FBufferStatus.LostEventCount = 0);
+        IF FScenario = WrappedScenario THEN
+            FOR Index := 1 TO BufferLength DO
+                IF FFifo.BufferFull THEN
+                    EXIT;
+                END_IF;
+                Published := FSubject.PublishEvent(Event := SeedEvent);
+                FSetupMatches := FSetupMatches AND (Published > 0);
+            END_FOR;
+            SequenceBefore := FBufferStatus.SequenceId;
+            Published := FSubject.PublishEvent(Event := SeedEvent);
+            FScenarioPrepared := FScenarioPrepared AND FFifo.BufferFull
+                AND (FFifo.ElementCount = BufferLength - 1) AND (FFifo.IndexIn < FFifo.IndexOut)
+                AND (Published = TO_INT(E_FifoResult.NoTransfer))
+                AND (FBufferStatus.SequenceId = SequenceBefore + 1)
+                AND (FBufferStatus.LostEventCount = 1);
+        END_IF;
+
+    ELSE
+        Error(Message := 'Unknown local buffer epoch scenario.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{9c9720f9-1342-9ee7-f044-9a963e297dae}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{905f7f10-3f97-60ed-543c-556aee7c3ab7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates captured observations after the scenario has finished.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FSetup(Enable := Evaluate,
+    State := State,
+    IN := FSetupMatches);
+FEmptyEpoch(Enable := Evaluate,
+    State := State,
+    IN := FEmptyEpochMatches);
+FFilledEpoch(Enable := Evaluate,
+    State := State,
+    IN := FFilledEpochMatches);
+FWrappedEpoch(Enable := Evaluate,
+    State := State,
+    IN := FWrappedEpochMatches);
+FStorageCleared(Enable := Evaluate,
+    State := State,
+    IN := FStorageClearedMatches);
+FReservationsReleased(Enable := Evaluate,
+    State := State,
+    IN := FReservationsReleasedMatches);
+FCommandClearing(Enable := Evaluate,
+    State := State,
+    IN := FCommandClearingMatches);
+FLifecyclePreserved(Enable := Evaluate,
+    State := State,
+    IN := FLifecyclePreservedMatches);
+FNewEpoch(Enable := Evaluate,
+    State := State,
+    IN := FNewEpochMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{9fd69e15-078d-7bb2-9f9c-cf416059db5f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override without Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{9583fe87-d27c-b1a7-73e7-5839c95802ef}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resets observations and schedules a fresh subject initialization.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FPhase := SetupPhase;
+FScenario := EmptyScenario;
+FScenarioPrepared := FALSE;
+FSuite := 0;
+FFirstChild := 0;
+FSecondChild := 0;
+FSetup.Reset();
+FSetupMatches := TRUE;
+FEmptyEpoch.Reset();
+FEmptyEpochMatches := TRUE;
+FFilledEpoch.Reset();
+FFilledEpochMatches := TRUE;
+FWrappedEpoch.Reset();
+FWrappedEpochMatches := TRUE;
+FStorageCleared.Reset();
+FStorageClearedMatches := TRUE;
+FReservationsReleased.Reset();
+FReservationsReleasedMatches := TRUE;
+FCommandClearing.Reset();
+FCommandClearingMatches := TRUE;
+FLifecyclePreserved.Reset();
+FLifecyclePreservedMatches := TRUE;
+FNewEpoch.Reset();
+FNewEpochMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{6cab3d1f-5aad-d457-f9a5-28f2069ab8bd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one scenario phase per PLC cycle before evaluating accumulated checks.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    StateMachine();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StateMachine" Id="{37dab2d3-1619-63ef-75fc-cfa48c423ca5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes one subject call per active test cycle; all reset observations follow that call.</summary>
+*)
+{endregion}
+METHOD PRIVATE StateMachine
+VAR
+    EmptyControl : ST_RunControl;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE FPhase OF
+    SetupPhase:
+        FControl := EmptyControl;
+        IF NOT FSubject.Initialize(Buffer := FEvents,
+            FifoControl := FFifo,
+            Status := FBufferStatus) THEN
+            Error(Message := 'Local reset buffer initialization failed.');
+            RETURN;
+        END_IF;
+        FRoot.BindPublisher(Publisher := FSubject);
+        IF NOT FRoot.Initialize(Name := 'ResetSubject',
+            EventBuffer := FSubject) THEN
+            Error(Message := 'Local reset root initialization failed.');
+            RETURN;
+        END_IF;
+        FPhase := AwaitIdlePhase;
+
+    AwaitIdlePhase:
+        FRoot(ControlData := FControl);
+        IF FRoot.HasError THEN
+            Error(Message := 'Local hierarchy did not establish the Idle reset precondition.');
+            RETURN;
+        END_IF;
+        IF FRoot.IsReady THEN
+            FSuite := FRoot.GetTestSuite(Index := FRoot.ChildArrayLowerBound);
+            FFirstChild := FRoot.GetTestCase(Index := FRoot.TestCaseLowerBound);
+            FSecondChild := FRoot.GetTestCase(Index := FRoot.TestCaseLowerBound + 1);
+            IF (FSuite = 0) OR (FFirstChild = 0) OR (FSecondChild = 0) THEN
+                Error(Message := 'Local reset hierarchy has missing registered children.');
+                RETURN;
+            END_IF;
+            FPhase := PreparePhase;
+        END_IF;
+
+    PreparePhase:
+        FRoot(ControlData := FControl);
+        PrepareScenario();
+        FPhase := ResetPhase;
+
+    ResetPhase:
+        FControl.BufferCmd.Reset := TRUE;
+        FRoot(ControlData := FControl);
+        CheckReset();
+        FPhase := VerifyPhase;
+
+    VerifyPhase:
+        VerifyNewEpoch();
+        FRoot(ControlData := FControl);
+        FLifecyclePreservedMatches := FLifecyclePreservedMatches AND FRoot.IsIdle
+            AND FRoot.IsReady AND FRoot.ConfigurationUnchanged AND FRoot.ChildCallsMatch;
+        IF FScenario = WrappedScenario THEN
+            FPerformed := TRUE;
+        ELSE
+            FScenario := FScenario + 1;
+            FPhase := PreparePhase;
+        END_IF;
+
+    ELSE
+        Error(Message := 'Unknown local buffer reset scenario phase.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="VerifyNewEpoch" Id="{450e8aa4-ff8d-27f8-b644-fc52c29c995f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes the first new event and checks sequence restart without old payload retention.</summary>
+*)
+{endregion}
+METHOD PRIVATE VerifyNewEpoch
+VAR
+    Published : INT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Published := FSubject.PublishEvent(Event := CreateFrameworkEvent(Name := 'ResetSubject',
+    State := E_State.Idle,
+    Severity := E_EventSeverity.Info,
+    Message := 'First event in the new epoch.'));
+FNewEpochMatches := FNewEpochMatches AND (Published > 0)
+    AND (FBufferStatus.SequenceId = 1) AND (FBufferStatus.DeletedSequenceId = 0)
+    AND (FBufferStatus.LostEventCount = 0) AND (FFifo.ElementCount = 1)
+    AND (FEvents[FFifo.IndexOut].SequenceId = 1)
+    AND (FEvents[FFifo.IndexOut].Message = 'First event in the new epoch.');]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

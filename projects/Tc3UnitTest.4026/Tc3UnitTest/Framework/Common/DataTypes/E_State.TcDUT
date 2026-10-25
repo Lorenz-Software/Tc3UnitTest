@@ -1,0 +1,27 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_State" Id="{0312897a-080f-4b6d-bdc5-be79894d9834}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owner lifecycle state. Non-strict for configured Preparation and Test state intervals.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+TYPE E_State :
+(
+    Error := -10, //! Error state value; active errors use controlled error finalization.
+    Uninitialized := 0, //! Not yet in a reset-defined executable state.
+    Reset := 1, //! Reset work in progress.
+    Idle := 10, //! Reset-defined base state; readiness is reported separately.
+    Starting := 11, //! Start accepted; execution setup in progress.
+    Preparing := 20, //! First configured Preparation state; subsequent values precede Running.
+    Running := 50, //! First configured Test state, or active Suite/Run execution.
+    Completing := 80, //! Finalization phase before stable completion.
+    Completed := 89, //! Stable terminal state; result determines the outcome.
+    Aborting := 90, //! Controlled termination requested by Abort.
+    AbortingFromError := 91, //! Controlled termination caused by an execution error.
+    Aborted := 99 //! Legacy aborted state; new owners finalize in Completed.
+) INT := Uninitialized;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

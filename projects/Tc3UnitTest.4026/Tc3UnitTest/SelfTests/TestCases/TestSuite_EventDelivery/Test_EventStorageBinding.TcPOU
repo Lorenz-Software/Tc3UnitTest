@@ -1,0 +1,346 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_EventStorageBinding" Id="{7a3523ba-a86c-4d27-9239-a2ae594ecbaf}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Verifies two real Event Buffers publish into their own bound arrays and status structures.</summary>
+<description>
+The subjects own no global stream: each binds a static local array and separate projections.
+Eight and twelve physical entries provide seven and eleven usable FIFO slots. One distinctive
+event is published to each subject; observations are captured before the next operation so
+cross-writes cannot be hidden by later initialization. The outer test Assertions use the
+normal selftest publisher, which is never replaced. Every test run initializes both subjects
+again; no production algorithm is copied and no private field is modified.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_EventStorageBinding EXTENDS TestCaseBase
+VAR
+    FSmallBuffer : EventBuffer;
+    FLargeBuffer : EventBuffer;
+    FSmallEvents : ARRAY[1..SmallBufferLength] OF ST_Event;
+    FLargeEvents : ARRAY[1..LargeBufferLength] OF ST_Event;
+    FSmallFifo : ST_FifoStatus;
+    FLargeFifo : ST_FifoStatus;
+    FSmallStatus : ST_EventBufferStatus;
+    FLargeStatus : ST_EventBufferStatus;
+    FPerformed : BOOL;
+    FChecked : BOOL;
+    FBinding : AssertTrue;
+    FBindingMatches : BOOL;
+    FCapacity : AssertTrue;
+    FCapacityMatches : BOOL;
+    FInitialProjection : AssertTrue;
+    FInitialProjectionMatches : BOOL;
+    FSmallPublication : AssertTrue;
+    FSmallPublicationMatches : BOOL;
+    FLargePublication : AssertTrue;
+    FLargePublicationMatches : BOOL;
+    FIsolation : AssertTrue;
+    FIsolationMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    SmallBufferLength : UINT := 8;
+    LargeBufferLength : UINT := 12;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{00500001-0050-4050-8050-000000000002}" />
+    <Method Name="AggregateResults" Id="{00500001-0050-4050-8050-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects the six independent storage-binding observations.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FBinding);
+Aggregator.AddProvider(Provider := FCapacity);
+Aggregator.AddProvider(Provider := FInitialProjection);
+Aggregator.AddProvider(Provider := FSmallPublication);
+Aggregator.AddProvider(Provider := FLargePublication);
+Aggregator.AddProvider(Provider := FIsolation);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{00500001-0050-4050-8050-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requires successful initialization of all checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := FALSE;
+IF NOT SUPER^.CheckInitialization() THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FBinding.IsInitialized
+    AND FCapacity.IsInitialized
+    AND FInitialProjection.IsInitialized
+    AND FSmallPublication.IsInitialized
+    AND FLargePublication.IsInitialized
+    AND FIsolation.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{00500001-0050-4050-8050-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures the single storage-binding scenario and its six Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FBinding.Initialize(Parent := THIS^,
+    AssertionName := 'Binding');
+FCapacity.Initialize(Parent := THIS^,
+    AssertionName := 'Capacity');
+FInitialProjection.Initialize(Parent := THIS^,
+    AssertionName := 'InitialProjection');
+FSmallPublication.Initialize(Parent := THIS^,
+    AssertionName := 'SmallPublication');
+FLargePublication.Initialize(Parent := THIS^,
+    AssertionName := 'LargePublication');
+FIsolation.Initialize(Parent := THIS^,
+    AssertionName := 'Isolation');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeBuffers" Id="{00500001-0050-4050-8050-00000000000b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds differently sized static arrays and verifies initial projection and usable capacity.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeBuffers
+VAR
+    SmallInitialized : BOOL;
+    LargeInitialized : BOOL;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SmallInitialized := FSmallBuffer.Initialize(Buffer := FSmallEvents,
+    FifoControl := FSmallFifo,
+    Status := FSmallStatus);
+LargeInitialized := FLargeBuffer.Initialize(Buffer := FLargeEvents,
+    FifoControl := FLargeFifo,
+    Status := FLargeStatus);
+FBindingMatches := SmallInitialized AND LargeInitialized
+    AND FSmallBuffer.IsValid AND FLargeBuffer.IsValid;
+FCapacityMatches := (FSmallBuffer.Capacity = SmallBufferLength - 1)
+    AND (FLargeBuffer.Capacity = LargeBufferLength - 1)
+    AND (FSmallFifo.BufferLength = SmallBufferLength)
+    AND (FLargeFifo.BufferLength = LargeBufferLength);
+FInitialProjectionMatches := FSmallFifo.BufferEmpty AND FLargeFifo.BufferEmpty
+    AND NOT FSmallFifo.ConfigError AND NOT FLargeFifo.ConfigError
+    AND NOT FSmallFifo.IndexError AND NOT FLargeFifo.IndexError
+    AND (FSmallFifo.ElementCount = 0) AND (FLargeFifo.ElementCount = 0)
+    AND (FSmallFifo.IndexIn = 1) AND (FSmallFifo.IndexOut = 1)
+    AND (FLargeFifo.IndexIn = 1) AND (FLargeFifo.IndexOut = 1)
+    AND (FSmallStatus.SequenceId = 0) AND (FLargeStatus.SequenceId = 0)
+    AND (FSmallStatus.DeletedSequenceId = 0) AND (FLargeStatus.DeletedSequenceId = 0)
+    AND (FSmallStatus.LostEventCount = 0) AND (FLargeStatus.LostEventCount = 0);
+FOR Index := 1 TO SmallBufferLength DO
+    FInitialProjectionMatches := FInitialProjectionMatches AND (FSmallEvents[Index].SequenceId = 0);
+END_FOR;
+FOR Index := 1 TO LargeBufferLength DO
+    FInitialProjectionMatches := FInitialProjectionMatches AND (FLargeEvents[Index].SequenceId = 0);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{00500001-0050-4050-8050-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resource work.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{00500001-0050-4050-8050-00000000000a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Evaluates observations only after the two subjects have been exercised.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FPerformed;
+FBinding(Enable := Evaluate,
+    State := State,
+    IN := FBindingMatches);
+FCapacity(Enable := Evaluate,
+    State := State,
+    IN := FCapacityMatches);
+FInitialProjection(Enable := Evaluate,
+    State := State,
+    IN := FInitialProjectionMatches);
+FSmallPublication(Enable := Evaluate,
+    State := State,
+    IN := FSmallPublicationMatches);
+FLargePublication(Enable := Evaluate,
+    State := State,
+    IN := FLargePublicationMatches);
+FIsolation(Enable := Evaluate,
+    State := State,
+    IN := FIsolationMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{00500001-0050-4050-8050-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; this test has no Preparation work.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{00500001-0050-4050-8050-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clears observations and Assertions; subject initialization remains under test.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPerformed := FALSE;
+FChecked := FALSE;
+FBinding.Reset();
+FBindingMatches := FALSE;
+FCapacity.Reset();
+FCapacityMatches := FALSE;
+FInitialProjection.Reset();
+FInitialProjectionMatches := FALSE;
+FSmallPublication.Reset();
+FSmallPublicationMatches := FALSE;
+FLargePublication.Reset();
+FLargePublicationMatches := FALSE;
+FIsolation.Reset();
+FIsolationMatches := FALSE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{00500001-0050-4050-8050-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and exercises the local bindings once per test run.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    CompleteTests();
+    RETURN;
+END_IF;
+
+IF NOT FPerformed THEN
+    InitializeBuffers();
+    PublishToSmallBuffer();
+    PublishToLargeBuffer();
+    FPerformed := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishToLargeBuffer" Id="{00500001-0050-4050-8050-00000000000d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the second publication leaves the first buffer and its projections unchanged.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishToLargeBuffer
+VAR
+    WriteResult : INT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[WriteResult := FLargeBuffer.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalLarge',
+    State := E_State.Idle,
+    Severity := E_EventSeverity.Info,
+    Message := 'Large binding'));
+FLargePublicationMatches := (WriteResult = 1)
+    AND (FLargeEvents[1].SequenceId = 1)
+    AND (FLargeEvents[1].Name = 'LocalLarge') AND (FLargeEvents[1].Message = 'Large binding')
+    AND (FLargeFifo.IndexIn = 2) AND (FLargeFifo.IndexOut = 1)
+    AND (FLargeFifo.ElementCount = 1) AND NOT FLargeFifo.BufferEmpty
+    AND (FLargeStatus.SequenceId = 1) AND (FLargeStatus.DeletedSequenceId = 0)
+    AND (FLargeStatus.LostEventCount = 0);
+FIsolationMatches := FIsolationMatches
+    AND (FSmallEvents[1].SequenceId = 1)
+    AND (FSmallEvents[1].Name = 'LocalSmall') AND (FSmallEvents[1].Message = 'Small binding')
+    AND (FSmallFifo.IndexIn = 2) AND (FSmallFifo.IndexOut = 1)
+    AND (FSmallFifo.ElementCount = 1) AND NOT FSmallFifo.BufferEmpty
+    AND (FSmallStatus.SequenceId = 1) AND (FSmallStatus.DeletedSequenceId = 0)
+    AND (FSmallStatus.LostEventCount = 0);
+FOR Index := 2 TO SmallBufferLength DO
+    FIsolationMatches := FIsolationMatches AND (FSmallEvents[Index].SequenceId = 0);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishToSmallBuffer" Id="{00500001-0050-4050-8050-00000000000c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks immediate local publication and that the other buffer is still empty.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishToSmallBuffer
+VAR
+    WriteResult : INT;
+    Index : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[WriteResult := FSmallBuffer.PublishEvent(Event := CreateFrameworkEvent(Name := 'LocalSmall',
+    State := E_State.Idle,
+    Severity := E_EventSeverity.Info,
+    Message := 'Small binding'));
+FSmallPublicationMatches := (WriteResult = 1)
+    AND (FSmallEvents[1].SequenceId = 1)
+    AND (FSmallEvents[1].Name = 'LocalSmall') AND (FSmallEvents[1].Message = 'Small binding')
+    AND (FSmallFifo.IndexIn = 2) AND (FSmallFifo.IndexOut = 1)
+    AND (FSmallFifo.ElementCount = 1) AND NOT FSmallFifo.BufferEmpty
+    AND (FSmallStatus.SequenceId = 1) AND (FSmallStatus.DeletedSequenceId = 0)
+    AND (FSmallStatus.LostEventCount = 0);
+FIsolationMatches := FLargeFifo.BufferEmpty AND (FLargeFifo.ElementCount = 0)
+    AND (FLargeFifo.IndexIn = 1) AND (FLargeFifo.IndexOut = 1)
+    AND (FLargeStatus.SequenceId = 0) AND (FLargeStatus.DeletedSequenceId = 0)
+    AND (FLargeStatus.LostEventCount = 0);
+FOR Index := 1 TO LargeBufferLength DO
+    FIsolationMatches := FIsolationMatches AND (FLargeEvents[Index].SequenceId = 0);
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

@@ -1,0 +1,231 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_TestSuiteLifecycle" Id="{869a4b22-9d37-4954-a2f2-2175da7697dc}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Groups isolated Suite owner tests; detailed scheduling remains in its own suites.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_TestSuiteLifecycle EXTENDS TestSuiteBase
+VAR
+    FSubjectParent : I_RunControl;
+    FInitialization : Test_SuiteInitialization;
+    FReadiness : Test_SuiteReadiness;
+    FNormalCompletion : Test_SuiteNormalLifecycle;
+    FMixedResults : Test_SuiteNormalLifecycle;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+    FResetError : Test_SuiteExceptionalLifecycle;
+    FResetTimeout : Test_SuiteExceptionalLifecycle;
+    FChildError : Test_SuiteExceptionalLifecycle;
+    FUnexpectedChildAbort : Test_SuiteExceptionalLifecycle;
+    FExecutionError : Test_SuiteExceptionalLifecycle;
+    FExecutionTimeout : Test_SuiteExceptionalLifecycle;
+    FAbort : Test_SuiteExceptionalLifecycle;
+    FAbortError : Test_SuiteExceptionalLifecycle;
+    FAbortTimeout : Test_SuiteExceptionalLifecycle;
+    FFinalization : Test_SuiteFinalization;
+    FLateResetChildren : Test_SuiteFinalization;
+    FReservationRelease : Test_SuiteReservationRelease;
+    FRealComposition : Test_SuiteRealComposition;
+    FMockRepeatedReset : Test_SuiteMockRepeatedReset;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 18;
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2d6f5952-5baa-46f6-9c6d-8cab8c7902e1}" />
+    <Method Name="BindSubjectParent" Id="{2dfa2c39-63c1-418a-9a6c-b44a21f13b37}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies the existing root identity for isolated Suite subjects before this Suite is initialized.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindSubjectParent
+VAR_INPUT
+    Parent : I_RunControl; //! Borrowed identity parent retained for isolated subject initialization; keep the Run-Control alive through subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FSubjectParent := Parent;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{e7850a5a-ca54-431f-85cb-41e823b83b65}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers independent Suite-owner scenarios for serial execution.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FInitialization.BindSubjectParent(Parent := FSubjectParent);
+FInitialization.Initialize(Parent := THIS^,
+    TestName := 'Initialization',
+    Config := TestConfig);
+Builder.Register(TestCase := FInitialization);
+FReadiness.BindSubjectParent(Parent := FSubjectParent);
+FReadiness.Initialize(Parent := THIS^,
+    TestName := 'Readiness',
+    Config := TestConfig);
+Builder.Register(TestCase := FReadiness);
+
+FNormalCompletion.BindSubjectParent(Parent := FSubjectParent);
+FNormalCompletion.Initialize(Parent := THIS^,
+    TestName := 'NormalCompletion',
+    Config := TestConfig);
+Builder.Register(TestCase := FNormalCompletion);
+
+FMixedResults.BindSubjectParent(Parent := FSubjectParent);
+FMixedResults.Initialize(Parent := THIS^,
+    TestName := 'MixedResults',
+    Config := TestConfig);
+Builder.Register(TestCase := FMixedResults);
+
+FResetError.BindSubjectParent(Parent := FSubjectParent);
+FResetError.Initialize(Parent := THIS^,
+    TestName := 'ResetError',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetError);
+
+FResetTimeout.BindSubjectParent(Parent := FSubjectParent);
+FResetTimeout.Initialize(Parent := THIS^,
+    TestName := 'ResetTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetTimeout);
+
+FChildError.BindSubjectParent(Parent := FSubjectParent);
+FChildError.Initialize(Parent := THIS^,
+    TestName := 'ChildError',
+    Config := TestConfig);
+Builder.Register(TestCase := FChildError);
+
+FUnexpectedChildAbort.BindSubjectParent(Parent := FSubjectParent);
+FUnexpectedChildAbort.Initialize(Parent := THIS^,
+    TestName := 'UnexpectedChildAbort',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnexpectedChildAbort);
+
+FExecutionError.BindSubjectParent(Parent := FSubjectParent);
+FExecutionError.Initialize(Parent := THIS^,
+    TestName := 'ExecutionError',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionError);
+
+FExecutionTimeout.BindSubjectParent(Parent := FSubjectParent);
+FExecutionTimeout.Initialize(Parent := THIS^,
+    TestName := 'ExecutionTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FExecutionTimeout);
+
+FAbort.BindSubjectParent(Parent := FSubjectParent);
+FAbort.Initialize(Parent := THIS^,
+    TestName := 'Abort',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbort);
+
+FAbortError.BindSubjectParent(Parent := FSubjectParent);
+FAbortError.Initialize(Parent := THIS^,
+    TestName := 'AbortError',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortError);
+
+FAbortTimeout.BindSubjectParent(Parent := FSubjectParent);
+FAbortTimeout.Initialize(Parent := THIS^,
+    TestName := 'AbortTimeout',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortTimeout);
+
+FFinalization.BindSubjectParent(Parent := FSubjectParent);
+FFinalization.Initialize(Parent := THIS^,
+    TestName := 'Finalization',
+    Config := TestConfig);
+Builder.Register(TestCase := FFinalization);
+
+FLateResetChildren.BindSubjectParent(Parent := FSubjectParent);
+FLateResetChildren.Initialize(Parent := THIS^,
+    TestName := 'LateResetChildren',
+    Config := TestConfig);
+Builder.Register(TestCase := FLateResetChildren);
+
+FReservationRelease.BindSubjectParent(Parent := FSubjectParent);
+FReservationRelease.Initialize(Parent := THIS^,
+    TestName := 'ReservationRelease',
+    Config := TestConfig);
+Builder.Register(TestCase := FReservationRelease);
+
+FRealComposition.BindSubjectParent(Parent := FSubjectParent);
+FRealComposition.Initialize(Parent := THIS^,
+    TestName := 'RealComposition',
+    Config := TestConfig);
+Builder.Register(TestCase := FRealComposition);
+
+FMockRepeatedReset.BindSubjectParent(Parent := FSubjectParent);
+FMockRepeatedReset.Initialize(Parent := THIS^,
+    TestName := 'MockRepeatedReset',
+    Config := TestConfig);
+Builder.Register(TestCase := FMockRepeatedReset);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{816f1f7e-4a0a-4742-9a78-d62ebb200b90}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{e30db41a-9019-46a0-93f6-ed0d849b6c5d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FInitialization();
+FReadiness();
+FNormalCompletion(FirstChildResult := E_Result.Passed);
+FMixedResults(FirstChildResult := E_Result.Failed);
+
+FResetError(Scenario := E_SuiteLifecycleScenario.ResetError);
+FResetTimeout(Scenario := E_SuiteLifecycleScenario.ResetTimeout);
+FChildError(Scenario := E_SuiteLifecycleScenario.ChildError);
+FUnexpectedChildAbort(Scenario := E_SuiteLifecycleScenario.UnexpectedChildAbort);
+FExecutionError(Scenario := E_SuiteLifecycleScenario.ExecutionError);
+FExecutionTimeout(Scenario := E_SuiteLifecycleScenario.ExecutionTimeout);
+FAbort(Scenario := E_SuiteLifecycleScenario.Abort);
+FAbortError(Scenario := E_SuiteLifecycleScenario.AbortError);
+FAbortTimeout(Scenario := E_SuiteLifecycleScenario.AbortTimeout);
+
+FFinalization(LateResetChildren := FALSE);
+FLateResetChildren(LateResetChildren := TRUE);
+FReservationRelease();
+
+FRealComposition();
+FMockRepeatedReset();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

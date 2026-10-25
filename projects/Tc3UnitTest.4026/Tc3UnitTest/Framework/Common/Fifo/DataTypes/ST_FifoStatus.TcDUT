@@ -1,0 +1,32 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_FifoStatus" Id="{7450268a-ab5c-42ed-9e49-0ddf276ff24b}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>FIFO binding, logical ring indices and derived occupancy snapshot; payload storage remains caller-owned.</summary>
+*)
+{endregion}
+TYPE ST_FifoStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    IndexIn : UINT; //! One-based next write position; equal to IndexOut when the ring is empty.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    IndexOut : UINT; //! One-based oldest occupied position; read from here before acknowledging events.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ConfigError : BOOL; //! Storage is uninitialized or its binding/configuration is invalid.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    IndexError : BOOL; //! At least one stored ring index is outside the configured range.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    BufferAlmostFull : BOOL; //! Exactly one usable event slot remains free.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    BufferFull : BOOL; //! No usable event slot remains; the physical ring always retains one unused position.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    BufferEmpty : BOOL; //! No event is currently queued.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ElementCount : UINT; //! Number of queued events, excluding the unused ring position.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    BufferLength : UINT; //! Physical ring length; usable capacity is BufferLength minus one.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

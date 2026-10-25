@@ -1,0 +1,415 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_RunControlInitialization" Id="{a29eb3f4-774a-4f9b-b877-7775c148a198}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks root initialization, collection handover, automatic Startup Reset and rejected setup.</summary>
+<description>
+Each Test state is one setup attempt followed by two subject calls. Valid setup comes first
+and last; rejected startup configurations must not reuse a previously valid collection.
+Initialize must clear previously queued method requests and queue only one Startup Reset
+after success. Configure and helper initialization are observed separately from FB execution.
+The matched administrative and publisher views refer to one local Event Buffer. A missing
+administrative view is injected only for its dedicated rejection scenario. Local ControlData
+is overwritten with stale Name/Status before each call to verify the base refreshes it even
+when setup is invalid. Checking Assertions retain failures and use the outer publisher.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_RunControlInitialization EXTENDS TestCaseBase
+VAR
+    FControl : ST_RunControl;
+    FSubject : RunControlLifecycleProbe;
+    FHelper : SuiteOrchestratorDouble;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FFixtureValid : BOOL;
+    FAttempt : INT := FirstValidSetup;
+    FAttemptStarted : BOOL;
+    FChecked : BOOL;
+    FPassiveCalls : UINT;
+    FExpectedInitialized : BOOL;
+    FInitialSequence : UDINT;
+    FInitialization : AssertTrue;
+    FInitializationMatches : BOOL;
+    FConfigureOrder : AssertTrue;
+    FConfigureOrderMatches : BOOL;
+    FCollection : AssertTrue;
+    FCollectionMatches : BOOL;
+    FPassiveState : AssertTrue;
+    FPassiveStateMatches : BOOL;
+    FDiagnostic : AssertTrue;
+    FDiagnosticMatches : BOOL;
+    FDispatch : AssertTrue;
+    FDispatchMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 32;
+    PassiveCallCount : UINT := 2;
+    FirstValidSetup : INT := 1;
+    EmptyName : INT := 2;
+    InvalidDepth : INT := 3;
+    InvalidCharacter : INT := 4;
+    OverlengthName : INT := 5;
+    MissingBuffer : INT := 6;
+    NoRegistration : INT := 7;
+    UninitializedChild : INT := 8;
+    ZeroExecutionTimeout : INT := 9;
+    ZeroResetTimeout : INT := 10;
+    ZeroAbortTimeout : INT := 11;
+    RejectedHelper : INT := 12;
+    FinalValidSetup : INT := 13;
+    AttemptCount : INT := 13;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{8eaffb92-3ef1-45a2-9c9e-211dd1ae2e95}" />
+    <Method Name="AggregateResults" Id="{dee9fe8d-fc7f-4435-9f8a-5435616de68e}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contributes only the checking Assertions, not the intentionally controlled subject results.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FInitialization);
+Aggregator.AddProvider(Provider := FConfigureOrder);
+Aggregator.AddProvider(Provider := FCollection);
+Aggregator.AddProvider(Provider := FPassiveState);
+Aggregator.AddProvider(Provider := FDiagnostic);
+Aggregator.AddProvider(Provider := FDispatch);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BeginAttempt" Id="{f7249579-b480-407b-92e9-36b14d6d3020}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Changes one setup condition and records initialization evidence before cyclic subject execution.</summary>
+*)
+{endregion}
+METHOD PRIVATE BeginAttempt
+VAR
+    Config : ST_RunConfig;
+    BufferService : I_EventBuffer;
+    RootName : STRING(2 * GVL_Constants.NameLength + 1);
+    Initialized : BOOL;
+    ExpectedConfigured : BOOL;
+    ExpectedHelper : BOOL;
+    Index : UINT;
+    FirstChild : I_Orchestratable;
+    LastChild : I_Orchestratable;
+    SubjectCollection : I_OrchestratableCollection;
+    Publisher : I_EventPublisher;
+    SubjectStatus : ST_RunControlStatus;
+    FirstSharedChild : I_Orchestratable;
+    LastSharedChild : I_Orchestratable;
+    BelowRangeChild : I_Orchestratable;
+    UnusedChild : I_Orchestratable;
+    UnusedTypedChild : I_TestSuite;
+END_VAR
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFixtureValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+IF NOT FFixtureValid THEN
+    Error(Message := 'Run Control initialization capture could not be initialized.');
+    RETURN;
+END_IF;
+BufferService := FCapture;
+RootName := 'RootSubject';
+CASE FAttempt OF
+    EmptyName:
+        RootName := '';
+    InvalidDepth:
+        RootName := 'Invalid.Root';
+    InvalidCharacter:
+        RootName := 'Invalid Root';
+    OverlengthName:
+        FOR Index := 1 TO GVL_Constants.NameLength DO
+            RootName := CONCAT(RootName, 'x');
+        END_FOR;
+    MissingBuffer:
+        BufferService := 0;
+    ZeroExecutionTimeout:
+        Config.Timeout := T#0s;
+    ZeroResetTimeout:
+        Config.ResetTimeout := T#0s;
+    ZeroAbortTimeout:
+        Config.AbortTimeout := T#0s;
+ELSE
+    // Remaining attempts vary the concrete setup or helper, not these external inputs.
+END_CASE;
+FExpectedInitialized := (FAttempt = FirstValidSetup) OR (FAttempt = FinalValidSetup);
+ExpectedConfigured := FExpectedInitialized OR (FAttempt >= NoRegistration);
+ExpectedHelper := ExpectedConfigured AND (FAttempt <> NoRegistration);
+FHelper.BeginScenario(AcceptInitialization := FAttempt <> RejectedHelper);
+FSubject.Bind(Publisher := FCapture,
+    Helper := FHelper,
+    Config := Config,
+    RegisterChildren := FAttempt <> NoRegistration,
+    IncludeUninitializedChild := FAttempt = UninitializedChild);
+FSubject.RequestStart();
+FSubject.RequestAbort();
+FSubject.RequestReset();
+Initialized := FSubject.Initialize(Name := RootName,
+    EventBuffer := BufferService);
+Publisher := FCapture;
+SubjectStatus := FSubject.Status;
+FInitializationMatches := (Initialized = FExpectedInitialized)
+    AND (FSubject.IsInitialized = FExpectedInitialized)
+    AND (SubjectStatus.Execution.ConfigError <> FExpectedInitialized)
+    AND (FSubject.EventPublisher = Publisher);
+IF FAttempt = OverlengthName THEN
+    FInitializationMatches := FInitializationMatches AND (LEN(FSubject.Name) = GVL_Constants.NameLength);
+ELSE
+    FInitializationMatches := FInitializationMatches AND (FSubject.Name = RootName);
+END_IF;
+FConfigureOrderMatches := FSubject.ConfigureCount = BOOL_TO_UINT(ExpectedConfigured);
+IF ExpectedConfigured THEN
+    FConfigureOrderMatches := FConfigureOrderMatches AND FSubject.ConfigureContextValid;
+END_IF;
+FCollectionMatches := FHelper.InitializeCount = BOOL_TO_UINT(ExpectedHelper);
+IF ExpectedHelper THEN
+    SubjectCollection := FSubject;
+    FCollectionMatches := FCollectionMatches
+        AND (FHelper.Collection = SubjectCollection)
+        AND (FHelper.FirstIndex = 4) AND (FHelper.LastIndex = 6) AND (FHelper.ChildCount = 2)
+        AND (FHelper.FirstChild <> 0) AND (FHelper.LastChild <> 0)
+        AND (FHelper.FirstChild <> FHelper.LastChild)
+        AND (FHelper.OwnerName = FSubject.Name) AND (FHelper.ResourceName = 'Fixture');
+END_IF;
+FirstSharedChild := FSubject.GetChild(Index := 4);
+LastSharedChild := FSubject.GetChild(Index := 5);
+BelowRangeChild := FSubject.GetChild(Index := 3);
+UnusedChild := FSubject.GetChild(Index := 6);
+UnusedTypedChild := FSubject.GetTestSuite(Index := 6);
+IF FExpectedInitialized THEN
+    FirstChild := FSubject.GetTestSuite(Index := 4);
+    LastChild := FSubject.GetTestSuite(Index := 5);
+    FCollectionMatches := FCollectionMatches
+        AND (FSubject.ChildCount = 2)
+        AND (FSubject.ChildArrayLowerBound = 4) AND (FSubject.ChildArrayUpperBound = 6)
+        AND (FirstSharedChild = FirstChild)
+        AND (LastSharedChild = LastChild)
+        AND (FHelper.FirstChild = FirstChild) AND (FHelper.LastChild = LastChild)
+        AND (BelowRangeChild = 0) AND (UnusedChild = 0)
+        AND (UnusedTypedChild = 0)
+        AND (FSubject.Name = 'RootSubject');
+ELSE
+    FirstChild := FSubject.GetTestSuite(Index := 4);
+    FCollectionMatches := FCollectionMatches
+        AND (FSubject.ChildCount = 0)
+        AND (FSubject.ChildArrayLowerBound = 0) AND (FSubject.ChildArrayUpperBound = 0)
+        AND (FirstSharedChild = 0) AND (FirstChild = 0);
+END_IF;
+FInitialSequence := FCaptureStatus.SequenceId;
+IF FExpectedInitialized THEN
+    FDiagnosticMatches := FInitialSequence = 0;
+ELSE
+    FDiagnosticMatches := (FInitialSequence = 1)
+        AND (FEvents[1].EventType = E_EventType.Framework)
+        AND (FEvents[1].Severity = E_EventSeverity.Error)
+        AND (FEvents[1].State = E_State.Uninitialized)
+        AND (FEvents[1].Name = FSubject.Name);
+END_IF;
+FPassiveStateMatches := (FSubject.State = E_State.Uninitialized) AND NOT FSubject.IsReady;
+FDispatchMatches := (FHelper.ExecuteCount = 0) AND (FSubject.ChildCallCount = 0);
+FPassiveCalls := 0;
+FAttemptStarted := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{23e8e40b-d113-4085-9001-d1ce93ca024f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes the checking Assertions; the scenario explicitly initializes its isolated subject.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := AttemptCount;
+FInitialization.Initialize(Parent := THIS^,
+    AssertionName := 'Initialization');
+FConfigureOrder.Initialize(Parent := THIS^,
+    AssertionName := 'ConfigureOrder');
+FCollection.Initialize(Parent := THIS^,
+    AssertionName := 'Collection');
+FPassiveState.Initialize(Parent := THIS^,
+    AssertionName := 'PassiveState');
+FDiagnostic.Initialize(Parent := THIS^,
+    AssertionName := 'Diagnostic');
+FDispatch.Initialize(Parent := THIS^,
+    AssertionName := 'Dispatch');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{3dfb1e48-c1cf-4b23-896a-16e3e8f050c0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous test resource remains to stop.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{e4e07704-02e9-4ef6-adf9-0e855b36271d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches each setup after two calls: successful startup consumes Reset once; rejected setup stays passive.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND (FPassiveCalls >= PassiveCallCount);
+FInitialization(Enable := Evaluate,
+    State := State,
+    IN := FInitializationMatches);
+FConfigureOrder(Enable := Evaluate,
+    State := State,
+    IN := FConfigureOrderMatches);
+FCollection(Enable := Evaluate,
+    State := State,
+    IN := FCollectionMatches);
+FPassiveState(Enable := Evaluate,
+    State := State,
+    IN := FPassiveStateMatches);
+FDiagnostic(Enable := Evaluate,
+    State := State,
+    IN := FDiagnosticMatches);
+FDispatch(Enable := Evaluate,
+    State := State,
+    IN := FDispatchMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureStatus.LostEventCount = 0);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{db793d6f-cfb4-4c66-a73a-8ac8930d90fd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No resource Preparation is required for this controlled owner scenario.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required override; the scenario has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{039dec0b-bac5-4ae7-bd1d-802bf8f645df}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the test script and clears checking Assertions; subject setup belongs to the next test attempt.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAttempt := FirstValidSetup;
+FAttemptStarted := FALSE;
+FChecked := FALSE;
+FPassiveCalls := 0;
+FInitialization.Reset();
+FConfigureOrder.Reset();
+FCollection.Reset();
+FPassiveState.Reset();
+FDiagnostic.Reset();
+FDispatch.Reset();
+FCaptureIntegrity.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{431b6fab-d89a-4c98-88dd-76c8add2edec}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances the explicit test script with at most one subject FB call per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+IF FChecked THEN
+    IF FAttempt = AttemptCount THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FAttempt := FAttempt + 1;
+    FAttemptStarted := FALSE;
+    FChecked := FALSE;
+    NextTestState();
+END_IF;
+IF NOT FAttemptStarted THEN
+    BeginAttempt();
+    IF NOT FFixtureValid THEN
+        RETURN;
+    END_IF;
+END_IF;
+// Deliberately stale public data must be replaced even after rejected initialization.
+FControl.Name := 'Stale';
+FControl.Status.Execution.State := E_State.Completed;
+FControl.Status.Execution.Ready := TRUE;
+FSubject(ControlData := FControl);
+FPassiveCalls := FPassiveCalls + 1;
+FPassiveStateMatches := FPassiveStateMatches
+    AND NOT FSubject.IsReady AND (FSubject.Result = E_Result.NotEvaluated)
+    AND (FControl.Name = FSubject.Name)
+    AND (FControl.Status.Execution.State = FSubject.State)
+    AND (FControl.Status.Execution.Result = FSubject.Result)
+    AND (FControl.Status.Execution.Ready = FSubject.IsReady)
+    AND (FControl.Status.Execution.ConfigError <> FExpectedInitialized);
+IF FExpectedInitialized THEN
+    FPassiveStateMatches := FPassiveStateMatches AND (FSubject.State = E_State.Reset);
+    FDispatchMatches := FDispatchMatches
+        AND (FHelper.ExecuteCount = FPassiveCalls)
+        AND (FSubject.ChildCallCount = FPassiveCalls)
+        AND FSubject.ChildBodyCallsMatch
+        AND (FHelper.CurrentTask = E_OrchestratorTask.Reset);
+    FDiagnosticMatches := FDiagnosticMatches
+        AND (FCaptureStatus.SequenceId = 2)
+        AND (FEvents[1].EventType = E_EventType.Trigger)
+        AND (FEvents[1].State = E_State.Uninitialized)
+        AND (FEvents[2].EventType = E_EventType.StateTransition)
+        AND (FEvents[2].State = E_State.Reset);
+ELSE
+    FPassiveStateMatches := FPassiveStateMatches AND (FSubject.State = E_State.Uninitialized);
+    FDispatchMatches := FDispatchMatches
+        AND (FHelper.ExecuteCount = 0) AND (FSubject.ChildCallCount = 0);
+    FDiagnosticMatches := FDiagnosticMatches AND (FCaptureStatus.SequenceId = FInitialSequence);
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

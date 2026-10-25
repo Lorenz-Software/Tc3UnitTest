@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_RunControl" Id="{eca2d250-f90f-44fa-bd21-c72417fe7367}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>External Run Control projection; owner execution state is held separately.</summary>
+<description>
+The command adapter processes Cmd before the concrete owner call; the owner processes BufferCmd first and projects only Name and Status last. Bind the actual shared storage rather than copying the whole structure back, which could overwrite asynchronous consumer requests. Lifecycle Reset, destructive Buffer Reset and full hierarchical initialization are separate operations.
+</description>
+*)
+{endregion}
+TYPE ST_RunControl :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Name : STRING(GVL_Constants.NameLength) := ''; //! Run Control identity projected after cyclic processing; consumer read-only.
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    Cmd : ST_Command; //! Consumer-writable lifecycle requests handled by the external command adapter.
+    {attribute 'OPC.UA.DA.Access' := '3'}
+    BufferCmd : ST_EventBufferCommand; //! Consumer-writable event-buffer reset and acknowledgement requests handled by Run Control.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Status : ST_RunControlStatus; //! Run Control execution/result snapshot projected after cyclic processing; consumer read-only.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

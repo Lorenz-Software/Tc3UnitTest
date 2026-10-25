@@ -1,0 +1,1011 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Orchestrator" Id="{d4a9c4df-4c87-4233-8227-9a29ed15ba84}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owner-driven child slot scheduler; call before concrete children, once per task cycle.</summary>
+<description>
+The owner supplies a validated nonempty collection with a contiguous occupied prefix and ordered execution slots. Collection bounds, children and slots remain fixed until full reinitialization; Initialize caches occupied indices rather than validating array capacity again. Keep the collection, children and selected publisher alive. Use either the concrete FB call or Execute once per cycle, before the owner calls every concrete child; this helper never calls child FB bodies, aggregates child results or supervises owner timeouts.
+
+Execution starts at slot one. At most one fitting child Start is requested per call; capacity-waiting candidates may be skipped within a shared slot. A later slot waits for all children in the current slot to complete. Reset dispatch is independent of execution slots and admits at most one new Reset per call, allowing admitted resets to overlap. Reservations are acquired through the child before each request and released through its owner operation at the applicable stable boundary.
+
+Repeating the same task preserves progress. Task completion never changes the assigned task. Technical Error blocks new execution Starts but does not cancel remaining Reset attempts; it is held through Idle and Abort until Initialize or entry into a new Reset task. Completion and success are separate: Reset or Abort can finish with Error. The owner decides the lifecycle reaction and must continue concrete child calls, including after owner completion. Processing scans the registered children and may invoke hierarchical releases; cost depends on the configured collection and subtree.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Orchestrator IMPLEMENTS I_Orchestrator
+VAR_INPUT
+    Task : E_OrchestratorTask := E_OrchestratorTask.Idle; //! Owner-selected task, supplied on every cyclic call.
+END_VAR
+VAR
+    /// Instance binding; derived test adapters may assign it before first use.
+    FEventPublisher : I_EventPublisher;
+    FCollection : I_OrchestratableCollection;
+    FInitialized : BOOL;
+    FFirstOccupiedIndex : DINT;
+    FName : STRING(GVL_Constants.NameLength);
+    FResourceName : STRING(GVL_Constants.ResourceNameLength);
+    FResult : E_Result := E_Result.NotEvaluated;
+    FPreviousTask : E_OrchestratorTask := E_OrchestratorTask.Idle;
+    FResetFinished : BOOL;
+    FAbortFinished : BOOL;
+    FExecutionFinished : BOOL;
+    FChildrenReady : BOOL;
+    FLastOccupiedIndex : DINT;
+    FNextResetOffset : UDINT;
+    FCurrentSlot : UINT;
+    FSlotFirstIndex : DINT;
+    FSlotLastIndex : DINT;
+    FHasPendingStart : BOOL;
+    FPendingStartIndex : DINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[IF NOT FInitialized THEN
+    RETURN;
+END_IF;
+
+IF Task <> FPreviousTask THEN
+    InitializeTask();
+    FPreviousTask := Task;
+END_IF;
+
+CASE Task OF
+    E_OrchestratorTask.Idle:
+        ProcessIdle();
+    E_OrchestratorTask.Reset:
+        ProcessReset();
+    E_OrchestratorTask.Execution:
+        ProcessExecution();
+    E_OrchestratorTask.Abort:
+        ProcessAbort();
+ELSE
+    Error(Message := 'Unknown Orchestrator task.');
+END_CASE;]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{2dceae41-6244-4281-aa7f-556389a9472e}" />
+    <Folder Name="MetaData" Id="{c1525a85-e309-4e90-bf20-339eaf8e65d5}" />
+    <Method Name="AbortChildren" Id="{39aba899-1f90-483d-93ee-81bf17b34567}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests controlled abort only from children not already stopped or aborting.</summary>
+*)
+{endregion}
+METHOD PRIVATE AbortChildren
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := ReadChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        CONTINUE;
+    END_IF;
+    IF (Child.State = E_State.Completed)
+        OR ((Child.State = E_State.Idle) AND Child.IsReady)
+        OR (Child.State = E_State.Aborting)
+        OR (Child.State = E_State.AbortingFromError) THEN
+        CONTINUE;
+    END_IF;
+    Child.RequestAbort();
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ActiveSlot" Id="{41fccd05-5037-4c6e-ab3b-5ec4d5a26682}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selected unfinished Execution slot; zero when no Execution slot is active.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ActiveSlot : UINT //! Selected unfinished Execution slot; zero when no Execution slot is active.]]></Declaration>
+      <Get Name="Get" Id="{66c70502-0c81-429f-9f85-d433401de8cf}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ActiveSlot := 0;
+IF IsExecutionActive AND NOT IsExecutionFinished THEN
+    ActiveSlot := FCurrentSlot;
+END_IF;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="CheckChildErrors" Id="{68ff344d-ae97-405b-b5e7-34003e35b78a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks child bindings, task-specific failures and current-slot invariants; latches diagnostics only.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckChildErrors
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := ReadChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        CONTINUE;
+    END_IF;
+
+    CASE Task OF
+        E_OrchestratorTask.Reset:
+            IF Index >= DINT_TO_LINT(FFirstOccupiedIndex) + UDINT_TO_LINT(FNextResetOffset) THEN
+                CONTINUE;
+            END_IF;
+            IF Child.HasError
+                OR ((Child.State = E_State.Completed) AND Child.IsComplete) THEN
+                Error(Message := CONCAT('Child reset failed: ', Child.Name));
+            END_IF;
+
+        E_OrchestratorTask.Execution, E_OrchestratorTask.Abort:
+            IF Child.HasError THEN
+                Error(Message := CONCAT('Child reported an error: ', Child.Name));
+            END_IF;
+            IF (Task = E_OrchestratorTask.Execution) AND (Child.Result = E_Result.Abort) THEN
+                Error(Message := CONCAT('Unexpected child Abort: ', Child.Name));
+            END_IF;
+    ELSE
+        CONTINUE;
+    END_CASE;
+
+    IF (Task <> E_OrchestratorTask.Execution) OR (FCurrentSlot = 0)
+        OR (Index < DINT_TO_LINT(FSlotFirstIndex)) OR (Index > DINT_TO_LINT(FSlotLastIndex)) THEN
+        CONTINUE;
+    END_IF;
+    IF Child.ExecutionSlot <> FCurrentSlot THEN
+        Error(Message := 'Child slot changed during execution.');
+    END_IF;
+    CASE Child.State OF
+        E_State.Completed:
+            IF NOT Child.IsComplete THEN
+                Error(Message := CONCAT('Inconsistent child completion: ', Child.Name));
+            END_IF;
+        E_State.Idle:
+            IF NOT Child.IsReady THEN
+                Error(Message := CONCAT('Child is not ready for Start: ', Child.Name));
+            END_IF;
+        E_State.Starting..E_State.Completing:
+            IF Child.ReservedEntryCount = 0 THEN
+                Error(Message := CONCAT('Active child has no event reservation: ', Child.Name));
+            END_IF;
+    ELSE
+        Error(Message := CONCAT('Unexpected child execution state: ', Child.Name));
+    END_CASE;
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckChildStarted" Id="{b3d3b8f4-e6dd-4dd0-9bd8-be09eb08d1e0}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks the Child response to the previous Start; a missing reaction releases its reservation.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckChildStarted
+VAR_INPUT
+    ChildIndex : DINT; //! Original collection index of the child whose previously dispatched Start is awaiting confirmation.
+END_VAR
+VAR_IN_OUT
+    HasPendingStart : BOOL; //! TRUE while a previous Start awaits confirmation; cleared when that response is checked.
+END_VAR
+VAR
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (Task = E_OrchestratorTask.Reset) OR NOT HasPendingStart THEN
+    RETURN;
+END_IF;
+HasPendingStart := FALSE;
+Child := ReadChild(Index := ChildIndex);
+IF Child = 0 THEN
+    RETURN;
+END_IF;
+
+IF Child.State = E_State.Idle THEN
+    IF NOT Child.FreeReservedEvents() THEN
+        Error(Message := CONCAT('Cannot release rejected Start reservation: ', Child.Name));
+        RETURN;
+    END_IF;
+    Error(Message := CONCAT('Child did not react to Start: ', Child.Name));
+    RETURN;
+END_IF;
+IF (Child.State = E_State.Uninitialized) OR (Child.State = E_State.Reset) THEN
+    Error(Message := CONCAT('Unexpected state after child Start: ', Child.Name));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="CurrentTask" Id="{a47a3978-c3ea-44d6-82f4-362dc79126ab}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Last task supplied to the scheduler.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC CurrentTask : E_OrchestratorTask //! Last task supplied to the scheduler.]]></Declaration>
+      <Get Name="Get" Id="{ccb2fbbf-605d-4f16-8db1-231904aea5c3}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[CurrentTask := Task;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Error" Id="{b1a9a014-0db5-487b-a6dc-523d8748230d}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches the technical error and publishes its first diagnostic; never changes the supplied task.</summary>
+*)
+{endregion}
+METHOD PRIVATE Error
+VAR_INPUT
+    Message : STRING(GVL_Constants.MessageLength); //! Technical diagnostic text published when this call first latches Error.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF FResult = E_Result.Error THEN
+    RETURN;
+END_IF;
+FResult := E_Result.Error;
+PublishEvent(Event := CreateFrameworkEvent(Name := CONCAT(FName, '.Orchestrator'),
+    ResourceName := FResourceName,
+    State := E_State.Error,
+    Severity := E_EventSeverity.Error,
+    Message := Message));]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="EventPublisher" Id="{7e2c7d58-6901-4827-b320-b4b38a37a208}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the retained instance service; binds the default only on first use.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'variable'}
+PROPERTY PUBLIC EventPublisher : I_EventPublisher //! Returns the retained instance service; binds the default only on first use.]]></Declaration>
+      <Get Name="Get" Id="{14853d2e-d879-4a91-943e-f574d404a1a7}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IF FEventPublisher = 0 THEN
+    FEventPublisher := GVL_EventBuffer.Publisher;
+END_IF;
+EventPublisher := FEventPublisher;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Execute" Id="{3c650dc5-c15e-47e0-815e-25b7ba619ff5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Executes the existing FB body once through the owner-facing interface.</summary>
+*)
+{endregion}
+METHOD PUBLIC Execute
+VAR_INPUT
+    Task : E_OrchestratorTask; //! Owner-selected work for this call; a task change initializes its scheduling once.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[THIS^(Task := Task);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="FreeCompletedReservations" Id="{a6c6c36f-97a0-4330-ba05-e4d57e845fef}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Releases eligible child reservations before completion/admission; FALSE means at least one unresolved access or release.</summary>
+*)
+{endregion}
+METHOD PRIVATE FreeCompletedReservations : BOOL //! TRUE when all eligible releases and required child accesses succeeded; FALSE permits partial release.
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+    ReleaseReservation : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FreeCompletedReservations := TRUE;
+FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := ReadChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        FreeCompletedReservations := FALSE;
+        CONTINUE;
+    END_IF;
+
+    CASE Task OF
+        E_OrchestratorTask.Reset:
+            ReleaseReservation := (Child.State = E_State.Idle) AND Child.IsReady;
+        E_OrchestratorTask.Execution:
+            ReleaseReservation := (Child.State = E_State.Completed) AND Child.IsComplete;
+        E_OrchestratorTask.Abort, E_OrchestratorTask.Idle:
+            ReleaseReservation := ((Child.State = E_State.Idle) AND Child.IsReady)
+                OR ((Child.State = E_State.Completed) AND Child.IsComplete);
+    ELSE
+        ReleaseReservation := FALSE;
+    END_CASE;
+    IF NOT ReleaseReservation THEN
+        CONTINUE;
+    END_IF;
+    IF NOT Child.FreeReservedEvents() THEN
+        Error(Message := CONCAT('Cannot release child reservation: ', Child.Name));
+        FreeCompletedReservations := FALSE;
+    END_IF;
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Initialize" Id="{cff2def9-49ff-4542-ac08-aa226e1edd8a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds the owner&#x27;s validated collection and caches its occupied bounds once. Clears scheduling state without calling children or changing their reservations.</summary>
+<description>
+This accepts a nonzero collection, nonempty Name and positive ChildCount, then caches the lower bound and occupied end. Capacity, naming and ordered slots are validated by the owner/builder. The owner also checks child initialization before enabling regular execution; this method does not repeat those checks. It drops the previous collection before validation, so a failed call leaves the helper uninitialized. Reinitialization is configuration setup, not active-run recovery.
+</description>
+*)
+{endregion}
+METHOD PUBLIC Initialize : BOOL //! TRUE when the child collection is accepted and scheduling is initialized.
+VAR_INPUT
+    Collection : I_OrchestratableCollection; //! Initialized, stable child collection retained by the scheduler; its owner and children must outlive use.
+    Name : STRING(GVL_Constants.NameLength); //! Hierarchical owner name used to identify events; must satisfy the naming contract.
+    ResourceName : STRING(GVL_Constants.ResourceNameLength) := ''; //! Optional resource context for diagnostics; empty by default.
+END_VAR
+VAR
+    Count : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Initialize := FALSE;
+FInitialized := FALSE;
+FCollection := 0;
+FFirstOccupiedIndex := 0;
+FLastOccupiedIndex := 0;
+FName := Name;
+FResourceName := ResourceName;
+FResult := E_Result.NotEvaluated;
+Task := E_OrchestratorTask.Idle;
+FPreviousTask := E_OrchestratorTask.Idle;
+FResetFinished := FALSE;
+FAbortFinished := FALSE;
+FExecutionFinished := FALSE;
+FChildrenReady := FALSE;
+FNextResetOffset := 0;
+FCurrentSlot := 0;
+FSlotFirstIndex := 0;
+FSlotLastIndex := 0;
+FHasPendingStart := FALSE;
+FPendingStartIndex := 0;
+
+IF (Collection = 0) OR (Name = '') THEN
+    RETURN;
+END_IF;
+Count := Collection.ChildCount;
+IF Count = 0 THEN
+    RETURN;
+END_IF;
+
+FFirstOccupiedIndex := Collection.ChildArrayLowerBound;
+FLastOccupiedIndex := LINT_TO_DINT(DINT_TO_LINT(FFirstOccupiedIndex) + UINT_TO_LINT(Count) - 1);
+FCollection := Collection;
+FInitialized := TRUE;
+Initialize := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="InitializeTask" Id="{3b60508e-2020-4172-8d3b-814b15264880}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes progress once when the supplied task changes; never selects another task.</summary>
+*)
+{endregion}
+METHOD PRIVATE InitializeTask]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CASE Task OF
+    E_OrchestratorTask.Idle:
+        FHasPendingStart := FALSE;
+
+    E_OrchestratorTask.Reset:
+        FCurrentSlot := 0;
+        FNextResetOffset := 0;
+        FHasPendingStart := FALSE;
+        FResult := E_Result.NotEvaluated;
+        FResetFinished := FALSE;
+        FAbortFinished := FALSE;
+        FExecutionFinished := FALSE;
+        FChildrenReady := FALSE;
+
+    E_OrchestratorTask.Execution:
+        FCurrentSlot := 0;
+        FHasPendingStart := FALSE;
+        FExecutionFinished := FALSE;
+        FResetFinished := FALSE;
+        FAbortFinished := FALSE;
+        IF FResult <> E_Result.Error THEN
+            SelectNextSlot();
+        END_IF;
+
+    E_OrchestratorTask.Abort:
+        FAbortFinished := FALSE;
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsAbortActive" Id="{c48d08d9-6e96-4659-8085-2043d258dff2}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether Abort remains the assigned task, including its completed phase until the task changes.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAbortActive : BOOL //! TRUE when initialized and Abort is the assigned task, including after completion.]]></Declaration>
+      <Get Name="Get" Id="{d43a28ac-db95-4af1-a7f9-44bfc19fda7c}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAbortActive := FInitialized AND (Task = E_OrchestratorTask.Abort);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsAbortFinished" Id="{6cc462f3-5b7b-4ca9-9a77-0deb7610c61c}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Abort task is finished, with reservations reconciled.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsAbortFinished : BOOL //! Current Abort task is finished, with reservations reconciled.]]></Declaration>
+      <Get Name="Get" Id="{f261ebe5-3d62-40d9-88fb-617d1ed6220e}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsAbortFinished := FInitialized AND (Task = E_OrchestratorTask.Abort) AND FAbortFinished;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsComplete" Id="{0545941f-6381-4962-af0a-84db60e07ea5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completion of the assigned task; FALSE in Idle, distinct from success.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsComplete : BOOL //! Completion of the assigned task; FALSE in Idle, distinct from success.]]></Declaration>
+      <Get Name="Get" Id="{5b7ce364-904a-4139-bf87-e4ffe42b9980}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsComplete := IsResetFinished OR IsExecutionFinished OR IsAbortFinished;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsExecutionActive" Id="{3d13c501-44eb-4908-af1f-566d0d17f271}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether Execution remains the assigned task, including its completed phase until the task changes.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsExecutionActive : BOOL //! TRUE when initialized and Execution is the assigned task, including after completion.]]></Declaration>
+      <Get Name="Get" Id="{7e822eaa-02fa-4f3a-870f-29f7bb2156a6}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsExecutionActive := FInitialized AND (Task = E_OrchestratorTask.Execution);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsExecutionFinished" Id="{b66059ea-c738-429d-be8a-10a93dba7154}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Execution task completed all slots without a technical error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsExecutionFinished : BOOL //! Current Execution task completed all slots without a technical error.]]></Declaration>
+      <Get Name="Get" Id="{43db4069-b550-4432-acf3-326ea34ec59b}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsExecutionFinished := FInitialized AND (Task = E_OrchestratorTask.Execution) AND FExecutionFinished
+    AND (FResult <> E_Result.Error);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsInitialized" Id="{4eaad1e9-2033-4d60-b72e-87a514164044}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether Initialize accepted the collection binding and cached the occupied index bounds.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsInitialized : BOOL //! Report whether Initialize accepted the collection binding and cached the occupied index bounds.]]></Declaration>
+      <Get Name="Get" Id="{dfca6f9d-25ff-4432-979c-5ecf3df88240}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsInitialized := FInitialized;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="IsLastSlot" Id="{085b4a5f-5fc1-4f45-88e5-e974f9b6835b}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Tests the supplied slot against the last registered child without changing state.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsLastSlot : BOOL //! TRUE when Slot is nonzero and equals the last registered child's slot in an initialized collection.
+VAR_INPUT
+    Slot : UINT; //! Nonzero effective execution slot to compare with the last occupied child.
+END_VAR
+VAR
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsLastSlot := FALSE;
+IF NOT FInitialized OR (FCollection = 0) OR (Slot = 0) THEN
+    RETURN;
+END_IF;
+
+Child := FCollection.GetChild(Index := FLastOccupiedIndex);
+IF Child = 0 THEN
+    RETURN;
+END_IF;
+IsLastSlot := Slot = Child.ExecutionSlot;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="IsReady" Id="{16d91a4e-e3f3-46ab-9981-fcfa730517a7}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Execution may start from Idle with ready children, reconciled reservations and no held error.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsReady : BOOL //! Execution may start from Idle with ready children, reconciled reservations and no held error.]]></Declaration>
+      <Get Name="Get" Id="{92f10bce-6f6b-4acb-bb1c-989b601c2a25}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsReady := FInitialized AND (Task = E_OrchestratorTask.Idle)
+    AND FChildrenReady AND (FResult <> E_Result.Error);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsResetActive" Id="{bb36a9b1-43cb-4766-b6e1-43ece97a4276}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Report whether Reset remains the assigned task, including its completed phase until the task changes.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsResetActive : BOOL //! TRUE when initialized and Reset is the assigned task, including after completion.]]></Declaration>
+      <Get Name="Get" Id="{3001a044-b8c0-437a-ade3-20c1095d4cbc}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsResetActive := FInitialized AND (Task = E_OrchestratorTask.Reset);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Property Name="IsResetFinished" Id="{42b2c346-5b5d-4a1f-8969-8f592dd27c5e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Current Reset task is finished; failed terminal children also count as finished.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC IsResetFinished : BOOL //! Current Reset task is finished; failed terminal children also count as finished.]]></Declaration>
+      <Get Name="Get" Id="{bf1fbadb-37e6-42ff-a2aa-1e11a803d3a1}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[IsResetFinished := FInitialized AND (Task = E_OrchestratorTask.Reset) AND FResetFinished;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="IsSlotCompleted" Id="{a4084428-b605-474c-a12c-05b0e1fa3527}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks only the selected slot for terminal completion; has no processing side effects.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsSlotCompleted : BOOL //! TRUE when every child in the selected slot is initialized and consistently Completed.
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsSlotCompleted := FALSE;
+IF (FCollection = 0) OR (FCurrentSlot = 0) THEN
+    RETURN;
+END_IF;
+FOR Index := DINT_TO_LINT(FSlotFirstIndex) TO DINT_TO_LINT(FSlotLastIndex) DO
+    Child := FCollection.GetChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    IF NOT Child.IsInitialized THEN
+        RETURN;
+    END_IF;
+    IF (Child.State <> E_State.Completed) OR NOT Child.IsComplete THEN
+        RETURN;
+    END_IF;
+END_FOR;
+IsSlotCompleted := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{ed910788-c2f7-42ff-bdaf-6b2bb2d10ee5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owns pending Start confirmation, checks, cleanup and controlled child Abort.</summary>
+*)
+{endregion}
+METHOD PRIVATE ProcessAbort
+VAR
+    ReservationsReleased : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckChildStarted(ChildIndex := FPendingStartIndex,
+    HasPendingStart := FHasPendingStart);
+CheckChildErrors();
+ReservationsReleased := FreeCompletedReservations();
+UpdateReadiness();
+UpdateAbortCompletion();
+FChildrenReady := FChildrenReady AND ReservationsReleased;
+FAbortFinished := FAbortFinished AND ReservationsReleased;
+IF NOT IsAbortFinished THEN
+    AbortChildren();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessExecution" Id="{17d06652-5636-47e8-978b-951d017d5d56}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owns Start confirmation, checks, reservation cleanup and slot processing.</summary>
+*)
+{endregion}
+METHOD PRIVATE ProcessExecution
+VAR
+    ReservationsReleased : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckChildStarted(ChildIndex := FPendingStartIndex,
+    HasPendingStart := FHasPendingStart);
+CheckChildErrors();
+ReservationsReleased := FreeCompletedReservations();
+UpdateReadiness();
+FChildrenReady := FChildrenReady AND ReservationsReleased;
+ProcessSlot();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessIdle" Id="{6ff02cb3-ce78-4f03-a145-5eeec695e218}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reconciles eligible reservations and readiness without dispatching child requests.</summary>
+*)
+{endregion}
+METHOD PRIVATE ProcessIdle
+VAR
+    ReservationsReleased : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckChildErrors();
+ReservationsReleased := FreeCompletedReservations();
+UpdateReadiness();
+FChildrenReady := FChildrenReady AND ReservationsReleased;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{3e330991-5c50-483c-bab8-d2277aa9d591}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Owns Reset checks, reservation cleanup, completion and capacity-bounded dispatch.</summary>
+*)
+{endregion}
+METHOD PRIVATE ProcessReset
+VAR
+    ReservationsReleased : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckChildErrors();
+ReservationsReleased := FreeCompletedReservations();
+UpdateReadiness();
+UpdateResetCompletion();
+FChildrenReady := FChildrenReady AND ReservationsReleased;
+FResetFinished := FResetFinished AND ReservationsReleased;
+IF NOT IsResetFinished THEN
+    ResetNextChild();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessSlot" Id="{7565a7e9-2717-4db8-ae7f-e7a324d6321f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances a reconciled execution slot or dispatches one first-fitting Start; no owner lifecycle changes.</summary>
+*)
+{endregion}
+METHOD PRIVATE ProcessSlot]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF (FResult = E_Result.Error) OR FExecutionFinished THEN
+    RETURN;
+END_IF;
+IF IsSlotCompleted() THEN
+    IF IsLastSlot(Slot := FCurrentSlot) THEN
+        FExecutionFinished := TRUE;
+    ELSE
+        SelectNextSlot();
+    END_IF;
+    RETURN;
+END_IF;
+StartNextChild();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="PublishEvent" Id="{ad5f2756-47e5-45e4-b699-0e0c64bdaae1}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Publishes technical events through the configured framework publisher.</summary>
+*)
+{endregion}
+METHOD PRIVATE PublishEvent
+VAR_INPUT
+    Event : ST_Event; //! Technical event value forwarded to the selected publisher; this helper performs no retry.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[EventPublisher.PublishEvent(Event := Event);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ReadChild" Id="{0d5b36be-a638-404b-ab75-1e29197cabb5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reads one initialized child at a validated occupied index; reports invalid bindings.</summary>
+*)
+{endregion}
+METHOD PRIVATE ReadChild : I_Orchestratable //! Initialized child interface at Index; zero on invalid access or binding, with a technical Error latched.
+VAR_INPUT
+    Index : DINT; //! Original array index within the cached occupied child range.
+END_VAR
+VAR
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[ReadChild := 0;
+IF (FCollection = 0) OR (Index < FFirstOccupiedIndex) OR (Index > FLastOccupiedIndex) THEN
+    Error(Message := CONCAT('Invalid collection access at index ', DINT_TO_STRING(Index)));
+    RETURN;
+END_IF;
+
+Child := FCollection.GetChild(Index := Index);
+IF Child = 0 THEN
+    Error(Message := CONCAT('Missing child at index ', DINT_TO_STRING(Index)));
+    RETURN;
+END_IF;
+IF NOT Child.IsInitialized THEN
+    Error(Message := CONCAT('Uninitialized child: ', Child.Name));
+    RETURN;
+END_IF;
+
+ReadChild := Child;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetNextChild" Id="{e45c02c2-97e4-4094-b698-0766f1984d37}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Dispatches at most one capacity-admitted Reset per call; already ready children are skipped.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetNextChild
+VAR
+    Child : I_Orchestratable;
+    Index : DINT;
+    ReservationResult : E_EventReservationResult;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[WHILE UDINT_TO_LINT(FNextResetOffset) < (DINT_TO_LINT(FLastOccupiedIndex) - DINT_TO_LINT(FFirstOccupiedIndex) + 1) DO
+    Index := LINT_TO_DINT(DINT_TO_LINT(FFirstOccupiedIndex) + UDINT_TO_LINT(FNextResetOffset));
+    Child := ReadChild(Index := Index);
+    IF Child = 0 THEN
+        FNextResetOffset := FNextResetOffset + 1;
+        RETURN;
+    END_IF;
+    IF (Child.State = E_State.Idle) AND Child.IsReady THEN
+        FNextResetOffset := FNextResetOffset + 1;
+        CONTINUE;
+    END_IF;
+
+    ReservationResult := Child.ReserveResetEvents();
+    CASE ReservationResult OF
+        E_EventReservationResult.Accepted:
+            Child.RequestReset();
+            FNextResetOffset := FNextResetOffset + 1;
+        E_EventReservationResult.WaitingForCapacity:
+            RETURN;
+    ELSE
+        Error(Message := CONCAT('Invalid child Reset reservation: ', Child.Name));
+        FNextResetOffset := FNextResetOffset + 1;
+    END_CASE;
+    RETURN;
+END_WHILE;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="Result" Id="{69f5a9ff-5f52-4c13-8433-4ae56badc8b5}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Neutral or held technical Error; task completion is reported separately.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC Result : E_Result //! Neutral or held technical Error; task completion is reported separately.]]></Declaration>
+      <Get Name="Get" Id="{260e8eef-685b-42ee-b624-49ebd3f4b8bd}">
+        <Declaration><![CDATA[PUBLIC]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[Result := FResult;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="SelectNextSlot" Id="{8386185c-6ca7-4a3f-9a00-f93ad0f198ce}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects the first or next contiguous slot group; the caller owns advancement timing.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectNextSlot : BOOL //! TRUE after selecting a valid contiguous slot group; FALSE indicates a technical Error.
+VAR
+    FirstIndex : LINT;
+    Slot : UDINT;
+    LastIndex : DINT;
+    Index : LINT;
+    Child : I_Orchestratable;
+    ChildSlot : UINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[SelectNextSlot := FALSE;
+IF FCurrentSlot = 0 THEN
+    FirstIndex := DINT_TO_LINT(FFirstOccupiedIndex);
+    Slot := 1;
+ELSE
+    FirstIndex := DINT_TO_LINT(FSlotLastIndex) + 1;
+    Slot := UINT_TO_UDINT(FCurrentSlot) + 1;
+END_IF;
+
+IF (FirstIndex < DINT_TO_LINT(FFirstOccupiedIndex)) OR (FirstIndex > DINT_TO_LINT(FLastOccupiedIndex))
+    OR (Slot = 0) OR (UDINT_TO_LINT(Slot) > (DINT_TO_LINT(FLastOccupiedIndex) - DINT_TO_LINT(FFirstOccupiedIndex) + 1)) THEN
+    Error(Message := 'Invalid child slot boundary.');
+    RETURN;
+END_IF;
+
+LastIndex := LINT_TO_DINT(FirstIndex);
+FOR Index := FirstIndex TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := ReadChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    ChildSlot := Child.ExecutionSlot;
+    IF UINT_TO_UDINT(ChildSlot) = Slot THEN
+        LastIndex := LINT_TO_DINT(Index);
+        CONTINUE;
+    END_IF;
+    IF (Index = FirstIndex) OR (UINT_TO_UDINT(ChildSlot) <> Slot + 1) THEN
+        Error(Message := 'Child slots are not contiguous and ordered.');
+        RETURN;
+    END_IF;
+    EXIT;
+END_FOR;
+FCurrentSlot := UDINT_TO_UINT(Slot);
+FSlotFirstIndex := LINT_TO_DINT(FirstIndex);
+FSlotLastIndex := LastIndex;
+SelectNextSlot := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="StartNextChild" Id="{da8df3ee-51c1-4c1a-8c9c-e089fda1a9fd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Reserves and requests at most one first-fitting Child Start within the current slot.</summary>
+*)
+{endregion}
+METHOD PRIVATE StartNextChild
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+    ReservationResult : E_EventReservationResult;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FOR Index := DINT_TO_LINT(FSlotFirstIndex) TO DINT_TO_LINT(FSlotLastIndex) DO
+    Child := ReadChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    IF Child.State <> E_State.Idle THEN
+        CONTINUE;
+    END_IF;
+
+    ReservationResult := Child.ReserveExecutionEvents();
+    CASE ReservationResult OF
+        E_EventReservationResult.Accepted:
+            Child.RequestStart();
+            FPendingStartIndex := LINT_TO_DINT(Index);
+            FHasPendingStart := TRUE;
+            RETURN;
+        E_EventReservationResult.WaitingForCapacity:
+            CONTINUE;
+    ELSE
+        Error(Message := CONCAT('Invalid child execution reservation: ', Child.Name));
+        RETURN;
+    END_CASE;
+END_FOR;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateAbortCompletion" Id="{713f47ce-2101-4130-9ec2-e9d3dbd96731}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Prepares abort completion from stopped children; no requests, diagnostics or reservation changes.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateAbortCompletion
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAbortFinished := FALSE;
+IF FCollection = 0 THEN
+    RETURN;
+END_IF;
+FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := FCollection.GetChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    IF NOT Child.IsInitialized THEN
+        RETURN;
+    END_IF;
+    IF NOT (((Child.State = E_State.Idle) AND Child.IsReady)
+        OR ((Child.State = E_State.Completed) AND Child.IsComplete)) THEN
+        RETURN;
+    END_IF;
+END_FOR;
+FAbortFinished := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateReadiness" Id="{17f72408-f0c1-4d24-a558-aa8eaeeae981}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Prepares start readiness without interpreting previous-run results or changing children.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateReadiness
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FChildrenReady := FALSE;
+IF FCollection = 0 THEN
+    RETURN;
+END_IF;
+FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := FCollection.GetChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    IF NOT Child.IsInitialized THEN
+        RETURN;
+    END_IF;
+    IF (Child.State <> E_State.Idle) OR NOT Child.IsReady THEN
+        RETURN;
+    END_IF;
+END_FOR;
+FChildrenReady := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="UpdateResetCompletion" Id="{c3709759-4573-4b1e-a53b-871c02f6fb9f}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Prepares reset completion only after all dispatch attempts; failed terminal children count as finished.</summary>
+*)
+{endregion}
+METHOD PRIVATE UpdateResetCompletion
+VAR
+    Index : LINT;
+    Child : I_Orchestratable;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FResetFinished := FALSE;
+IF FCollection = 0 THEN
+    RETURN;
+END_IF;
+IF UDINT_TO_LINT(FNextResetOffset) < (DINT_TO_LINT(FLastOccupiedIndex) - DINT_TO_LINT(FFirstOccupiedIndex) + 1) THEN
+    RETURN;
+END_IF;
+FOR Index := DINT_TO_LINT(FFirstOccupiedIndex) TO DINT_TO_LINT(FLastOccupiedIndex) DO
+    Child := FCollection.GetChild(Index := LINT_TO_DINT(Index));
+    IF Child = 0 THEN
+        RETURN;
+    END_IF;
+    IF NOT Child.IsInitialized THEN
+        RETURN;
+    END_IF;
+    IF NOT (((Child.State = E_State.Idle) AND Child.IsReady)
+        OR ((Child.State = E_State.Completed) AND Child.IsComplete)) THEN
+        RETURN;
+    END_IF;
+END_FOR;
+FResetFinished := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

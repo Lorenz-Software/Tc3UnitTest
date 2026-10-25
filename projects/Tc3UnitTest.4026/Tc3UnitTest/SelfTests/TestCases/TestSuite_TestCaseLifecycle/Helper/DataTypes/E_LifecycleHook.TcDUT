@@ -1,0 +1,29 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_LifecycleHook" Id="{b89cf53a-4d16-47a2-bd87-8c6223f301a6}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>
+Identifies a Process* or AggregateResults override in the subject's call trace.
+</summary>
+
+<description>
+Values label method observations, not lifecycle states or event types.
+</description>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_LifecycleHook :
+(
+    None := 0, //! Empty trace-entry marker.
+    Reset, //! ProcessReset entry.
+    Abort, //! ProcessAbort entry.
+    Preparations, //! ProcessPreparations entry.
+    Tests, //! ProcessTests entry.
+    Assertions, //! ProcessAssertions entry.
+    Aggregate //! AggregateResults entry.
+);
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

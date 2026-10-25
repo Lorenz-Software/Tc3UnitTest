@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="OrchestratorProbe" Id="{ee17f657-06fd-4006-9d66-55b7e97e6563}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Uses the real scheduling algorithm with a pre-use local publisher binding.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK OrchestratorProbe EXTENDS Orchestrator]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^(Task := Task);]]></ST>
+    </Implementation>
+    <Method Name="BindPublisher" Id="{c7a9bd2f-40ce-4de5-9850-768f57a0690f}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds isolated diagnostics before Initialize or any cyclic use.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindPublisher
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEventPublisher := Publisher;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

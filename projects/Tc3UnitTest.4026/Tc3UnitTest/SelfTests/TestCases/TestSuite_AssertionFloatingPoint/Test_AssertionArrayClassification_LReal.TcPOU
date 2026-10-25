@@ -1,0 +1,906 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionArrayClassification_LReal" Id="{c4a6c6c1-9745-413d-93f7-decf7e38baae}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks LREAL array classification with literal expected results and isolated findings.</summary>
+<description>
+Each named row selects checked data and independent expected outcomes.
+SelectRow does not derive expectations from the production classification algorithm.
+A disabled preparation call consumes subject reset requests before evaluation.
+The first enabled call is checked, then repeated on the next cycle to verify no duplicate finding.
+Only outer Assertions contribute to the Test Case; deliberate subject failures stay in the local capture.
+Named preservation rows check Failed-to-Error escalation and held Error; other rows reset subjects.
+Special values are supplied by integer bit patterns, never exceptional floating-point arithmetic.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionArrayClassification_LReal EXTENDS TestCaseBase
+VAR
+    FAllElementsFiniteSubject : AssertArrayAllElementsFinite_LReal;
+    FAllElementsFiniteResult : AssertTrue;
+    FExpectedAllElementsFinite : E_Result;
+    FFindingAllElementsFinite : E_Result;
+    FContainsNonFiniteSubject : AssertArrayContainsNonFinite_LReal;
+    FContainsNonFiniteResult : AssertTrue;
+    FExpectedContainsNonFinite : E_Result;
+    FFindingContainsNonFinite : E_Result;
+    FContainsNaNSubject : AssertArrayContainsNaN_LReal;
+    FContainsNaNResult : AssertTrue;
+    FExpectedContainsNaN : E_Result;
+    FFindingContainsNaN : E_Result;
+    FHasNoNaNSubject : AssertArrayHasNoNaN_LReal;
+    FHasNoNaNResult : AssertTrue;
+    FExpectedHasNoNaN : E_Result;
+    FFindingHasNoNaN : E_Result;
+    FContainsInfinitySubject : AssertArrayContainsInfinity_LReal;
+    FContainsInfinityResult : AssertTrue;
+    FExpectedContainsInfinity : E_Result;
+    FFindingContainsInfinity : E_Result;
+    FHasNoInfinitySubject : AssertArrayHasNoInfinity_LReal;
+    FHasNoInfinityResult : AssertTrue;
+    FExpectedHasNoInfinity : E_Result;
+    FFindingHasNoInfinity : E_Result;
+    FCaptureIntegrity : AssertTrue;
+    FFindingDetails : AssertTrue;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FValues : ARRAY[-2..2] OF LREAL;
+    FStartIndex : DINT;
+    FLength : USINT;
+    FExpectedIndex : DINT;
+    FExpectedInfinityIndex : DINT;
+    FQuietNaN : FloatingPointBits_LReal;
+    FSignalingNaN : FloatingPointBits_LReal;
+    FPositiveInfinity : FloatingPointBits_LReal;
+    FNegativeInfinity : FloatingPointBits_LReal;
+    FPositiveZero : FloatingPointBits_LReal;
+    FNegativeZero : FloatingPointBits_LReal;
+    FPositiveSubnormal : FloatingPointBits_LReal;
+    FNegativeSubnormal : FloatingPointBits_LReal;
+    FOrdinaryFinite : FloatingPointBits_LReal;
+    FMaximumFinite : FloatingPointBits_LReal;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FRepeatChecked : BOOL;
+    FChecked : BOOL;
+    FObservationReady : BOOL;
+    FPreserveResults : BOOL;
+    FSubjectEnable : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 16;
+    QuietNaNBits : LWORD := LWORD#16#7FF8000000000000;
+    SignalingNaNBits : LWORD := LWORD#16#7FF0000000000001;
+    PositiveInfinityBits : LWORD := LWORD#16#7FF0000000000000;
+    NegativeInfinityBits : LWORD := LWORD#16#FFF0000000000000;
+    PositiveZeroBits : LWORD := LWORD#16#0000000000000000;
+    NegativeZeroBits : LWORD := LWORD#16#8000000000000000;
+    PositiveSubnormalBits : LWORD := LWORD#16#0000000000000001;
+    NegativeSubnormalBits : LWORD := LWORD#16#8000000000000001;
+    OrdinaryFiniteBits : LWORD := LWORD#16#3FF0000000000000;
+    MaximumFiniteBits : LWORD := LWORD#16#7FEFFFFFFFFFFFFF;
+    RowFiniteValues : UINT := 1;
+    RowNaNFirst : UINT := 2;
+    RowSignalingNaNMiddle : UINT := 3;
+    RowNaNLast : UINT := 4;
+    RowInfinityFirst : UINT := 5;
+    RowInfinityMiddle : UINT := 6;
+    RowInfinityLast : UINT := 7;
+    RowMixedSpecials : UINT := 8;
+    RowOutsideSelection : UINT := 9;
+    RowSingleLastElement : UINT := 10;
+    RowInvalidAfterFailed : UINT := 11;
+    RowErrorRemainsHeld : UINT := 12;
+    RowStartBelowBounds : UINT := 13;
+    RowStartAboveBounds : UINT := 14;
+    RowEndAboveBounds : UINT := 15;
+    RowLargeStart : UINT := 16;
+    RowZeroLength : UINT := 17;
+    RowResetRecovers : UINT := 18;
+    LastRow : UINT := RowResetRecovers;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{a6310004-0000-4000-8000-000000000003}" />
+    <Method Name="AggregateResults" Id="{a6310004-0004-4000-8000-000000000002}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects verdicts, excluding deliberate subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FAllElementsFiniteResult);
+Aggregator.AddProvider(Provider := FContainsNonFiniteResult);
+Aggregator.AddProvider(Provider := FContainsNaNResult);
+Aggregator.AddProvider(Provider := FHasNoNaNResult);
+Aggregator.AddProvider(Provider := FContainsInfinityResult);
+Aggregator.AddProvider(Provider := FHasNoInfinityResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);
+Aggregator.AddProvider(Provider := FFindingDetails);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{a6310004-0004-4000-8000-000000000006}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each concrete production subject with the selected data.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAllElementsFiniteSubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);
+FContainsNonFiniteSubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);
+FContainsNaNSubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);
+FHasNoNaNSubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);
+FContainsInfinitySubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);
+FHasNoInfinitySubject(Enable := Enable,
+    State := E_State.Running,
+    StartIndex := FStartIndex,
+    Length := FLength,
+    IN := FValues);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{a6310004-0004-4000-8000-000000000001}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Rejects incomplete subject or verdict setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+CheckInitialization := FSetupValid
+    AND FAllElementsFiniteResult.IsInitialized
+    AND FContainsNonFiniteResult.IsInitialized
+    AND FContainsNaNResult.IsInitialized
+    AND FHasNoNaNResult.IsInitialized
+    AND FContainsInfinityResult.IsInitialized
+    AND FHasNoInfinityResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized
+    AND FFindingDetails.IsInitialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{a6310004-0004-4000-8000-000000000000}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes isolated subjects and the outer verdict Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FQuietNaN.Bits := QuietNaNBits;
+FSignalingNaN.Bits := SignalingNaNBits;
+FPositiveInfinity.Bits := PositiveInfinityBits;
+FNegativeInfinity.Bits := NegativeInfinityBits;
+FPositiveZero.Bits := PositiveZeroBits;
+FNegativeZero.Bits := NegativeZeroBits;
+FPositiveSubnormal.Bits := PositiveSubnormalBits;
+FNegativeSubnormal.Bits := NegativeSubnormalBits;
+FOrdinaryFinite.Bits := OrdinaryFiniteBits;
+FMaximumFinite.Bits := MaximumFiniteBits;
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FAllElementsFiniteResult.Initialize(Parent := THIS^,
+    AssertionName := 'AllElementsFiniteResult');
+FContainsNonFiniteResult.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsNonFiniteResult');
+FContainsNaNResult.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsNaNResult');
+FHasNoNaNResult.Initialize(Parent := THIS^,
+    AssertionName := 'HasNoNaNResult');
+FContainsInfinityResult.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsInfinityResult');
+FHasNoInfinityResult.Initialize(Parent := THIS^,
+    AssertionName := 'HasNoInfinityResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FFindingDetails.Initialize(Parent := THIS^,
+    AssertionName := 'FindingDetails');
+FAllElementsFiniteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FAllElementsFiniteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'AllElementsFiniteSubject');
+FSetupValid := FSetupValid AND Initialized;
+FContainsNonFiniteSubject.BindPublisher(Publisher := FCapture);
+Initialized := FContainsNonFiniteSubject.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsNonFiniteSubject');
+FSetupValid := FSetupValid AND Initialized;
+FContainsNaNSubject.BindPublisher(Publisher := FCapture);
+Initialized := FContainsNaNSubject.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsNaNSubject');
+FSetupValid := FSetupValid AND Initialized;
+FHasNoNaNSubject.BindPublisher(Publisher := FCapture);
+Initialized := FHasNoNaNSubject.Initialize(Parent := THIS^,
+    AssertionName := 'HasNoNaNSubject');
+FSetupValid := FSetupValid AND Initialized;
+FContainsInfinitySubject.BindPublisher(Publisher := FCapture);
+Initialized := FContainsInfinitySubject.Initialize(Parent := THIS^,
+    AssertionName := 'ContainsInfinitySubject');
+FSetupValid := FSetupValid AND Initialized;
+FHasNoInfinitySubject.BindPublisher(Publisher := FCapture);
+Initialized := FHasNoInfinitySubject.Initialize(Parent := THIS^,
+    AssertionName := 'HasNoInfinitySubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="IsFindingValid" Id="{a6310004-0004-4000-8000-000000000010}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks ordered capture metadata and meaningful diagnostic text.</summary>
+*)
+{endregion}
+METHOD PRIVATE IsFindingValid : BOOL //! TRUE when the selected captured finding satisfies the scenario metadata and diagnostic checks.
+VAR_INPUT
+    Index : UINT; //! One-based index in the retained isolated event capture.
+    ExpectedName : STRING(GVL_Constants.NameLength); //! Independently authored Assertion name expected in the selected finding.
+    ExpectedResult : E_Result; //! Independently authored finding result.
+    ExpectedMessage : STRING(GVL_Constants.MessageLength); //! Exact diagnostic text expected in the selected finding.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IsFindingValid := (FEvents[Index].SequenceId = UINT_TO_UDINT(Index))
+    AND (FEvents[Index].Name = ExpectedName)
+    AND (FEvents[Index].OwnerScope = E_OwnerScope.Assertion)
+    AND (FEvents[Index].EventType = E_EventType.Result)
+    AND (FEvents[Index].State = E_State.Running)
+    AND (FEvents[Index].Result = ExpectedResult)
+    AND (FEvents[Index].Message <> '')
+    AND (FEvents[Index].Message = ExpectedMessage);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{a6310004-0004-4000-8000-000000000004}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No asynchronous cleanup is needed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{a6310004-0004-4000-8000-000000000011}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks results and isolated findings before allowing the script to advance.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+    FindingIndex : UINT;
+    DetailsMatch : BOOL;
+    FindingMatches : BOOL;
+    ExpectedMessage : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FAllElementsFiniteResult(Enable := Evaluate,
+    State := State,
+    IN := FAllElementsFiniteSubject.Result = FExpectedAllElementsFinite);
+FContainsNonFiniteResult(Enable := Evaluate,
+    State := State,
+    IN := FContainsNonFiniteSubject.Result = FExpectedContainsNonFinite);
+FContainsNaNResult(Enable := Evaluate,
+    State := State,
+    IN := FContainsNaNSubject.Result = FExpectedContainsNaN);
+FHasNoNaNResult(Enable := Evaluate,
+    State := State,
+    IN := FHasNoNaNSubject.Result = FExpectedHasNoNaN);
+FContainsInfinityResult(Enable := Evaluate,
+    State := State,
+    IN := FContainsInfinitySubject.Result = FExpectedContainsInfinity);
+FHasNoInfinityResult(Enable := Evaluate,
+    State := State,
+    IN := FHasNoInfinitySubject.Result = FExpectedHasNoInfinity);
+DetailsMatch := TRUE;
+FindingIndex := 1;
+IF Evaluate THEN
+    IF FFindingAllElementsFinite <> E_Result.NotEvaluated THEN
+        IF FFindingAllElementsFinite = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains a non-finite value.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ' Actual[');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FExpectedIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '] = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, CreateAssertionTextValue_LReal(Value := FValues[FExpectedIndex]));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FAllElementsFiniteSubject.Name,
+            ExpectedResult := FFindingAllElementsFinite,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingContainsNonFinite <> E_Result.NotEvaluated THEN
+        IF FFindingContainsNonFinite = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains no non-finite value.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FContainsNonFiniteSubject.Name,
+            ExpectedResult := FFindingContainsNonFinite,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingContainsNaN <> E_Result.NotEvaluated THEN
+        IF FFindingContainsNaN = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains no NaN.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FContainsNaNSubject.Name,
+            ExpectedResult := FFindingContainsNaN,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingHasNoNaN <> E_Result.NotEvaluated THEN
+        IF FFindingHasNoNaN = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains NaN.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ' Actual[');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FExpectedIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '] = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, CreateAssertionTextValue_LReal(Value := FValues[FExpectedIndex]));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FHasNoNaNSubject.Name,
+            ExpectedResult := FFindingHasNoNaN,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingContainsInfinity <> E_Result.NotEvaluated THEN
+        IF FFindingContainsInfinity = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains no infinity.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FContainsInfinitySubject.Name,
+            ExpectedResult := FFindingContainsInfinity,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+    IF FFindingHasNoInfinity <> E_Result.NotEvaluated THEN
+        IF FFindingHasNoInfinity = E_Result.Error THEN
+            ExpectedMessage := CONCAT('Assertion error: array range is invalid. StartIndex = ',
+                DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Length = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, USINT_TO_STRING(FLength));
+            ExpectedMessage := CONCAT(ExpectedMessage, '.');
+        ELSE
+            ExpectedMessage := 'Assertion failed: array range contains infinity.';
+            ExpectedMessage := CONCAT(ExpectedMessage, ' Actual[');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(SEL(FRow = RowMixedSpecials, FExpectedIndex, FExpectedInfinityIndex)));
+            ExpectedMessage := CONCAT(ExpectedMessage, '] = ');
+            ExpectedMessage := CONCAT(ExpectedMessage, CreateAssertionTextValue_LReal(Value := FValues[SEL(FRow = RowMixedSpecials, FExpectedIndex, FExpectedInfinityIndex)]));
+            ExpectedMessage := CONCAT(ExpectedMessage, ', Range = [');
+            ExpectedMessage := CONCAT(ExpectedMessage, DINT_TO_STRING(FStartIndex));
+            ExpectedMessage := CONCAT(ExpectedMessage, '..');
+            ExpectedMessage := CONCAT(ExpectedMessage, LINT_TO_STRING(DINT_TO_LINT(FStartIndex) + USINT_TO_LINT(FLength) - 1));
+            ExpectedMessage := CONCAT(ExpectedMessage, '].');
+        END_IF;
+        FindingMatches := IsFindingValid(Index := FindingIndex,
+            ExpectedName := FHasNoInfinitySubject.Name,
+            ExpectedResult := FFindingHasNoInfinity,
+            ExpectedMessage := ExpectedMessage);
+        DetailsMatch := DetailsMatch AND FindingMatches;
+        FindingIndex := FindingIndex + 1;
+    END_IF;
+END_IF;
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := (FCaptureStatus.SequenceId = UINT_TO_UDINT(FindingIndex - 1))
+        AND (FCaptureStatus.LostEventCount = 0)
+        AND (FCaptureFifo.ElementCount = FindingIndex - 1));
+FFindingDetails(Enable := Evaluate,
+    State := State,
+    IN := DetailsMatch);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{a6310004-0004-4000-8000-000000000003}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{a6310004-0004-4000-8000-000000000005}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the row script and resets outer verdicts.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := RowFiniteValues;
+FRowPrepared := FALSE;
+FRepeatChecked := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FAllElementsFiniteResult.Reset();
+FContainsNonFiniteResult.Reset();
+FContainsNaNResult.Reset();
+FHasNoNaNResult.Reset();
+FContainsInfinityResult.Reset();
+FHasNoInfinityResult.Reset();
+FCaptureIntegrity.Reset();
+FFindingDetails.Reset();
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{a6310004-0004-4000-8000-000000000008}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Prepares, checks and repeats each row over separate PLC cycles.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRepeatChecked THEN
+        IF FRow = LastRow THEN
+            CompleteTests();
+            RETURN;
+        END_IF;
+        FRow := FRow + 1;
+        FRowPrepared := FALSE;
+        FRepeatChecked := FALSE;
+    ELSE
+        FRepeatChecked := TRUE;
+    END_IF;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    IF NOT FPreserveResults THEN
+        ResetSubjects();
+    END_IF;
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := FSubjectEnable);
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{a6310004-0004-4000-8000-000000000007}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Queues normal subject resets; CallSubjects consumes them.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAllElementsFiniteSubject.Reset();
+FContainsNonFiniteSubject.Reset();
+FContainsNaNSubject.Reset();
+FHasNoNaNSubject.Reset();
+FContainsInfinitySubject.Reset();
+FHasNoInfinitySubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{a6310004-0004-4000-8000-000000000009}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Supplies literal expectations; only named hold/escalation rows preserve subjects.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow
+VAR
+    Index : DINT;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreserveResults := FALSE;
+FSubjectEnable := TRUE;
+FStartIndex := -2;
+FLength := 5;
+FExpectedIndex := -2;
+FExpectedInfinityIndex := -2;
+FOR Index := -2 TO 2 DO
+    FValues[Index] := FOrdinaryFinite.Value;
+END_FOR;
+
+CASE FRow OF
+    RowFiniteValues:
+        FValues[-2] := FPositiveZero.Value;
+        FValues[-1] := FNegativeZero.Value;
+        FValues[0] := FPositiveSubnormal.Value;
+        FValues[1] := FNegativeSubnormal.Value;
+        FValues[2] := FMaximumFinite.Value;
+        FExpectedAllElementsFinite := E_Result.Passed;
+        FFindingAllElementsFinite := E_Result.NotEvaluated;
+        FExpectedContainsNonFinite := E_Result.Failed;
+        FFindingContainsNonFinite := E_Result.Failed;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowNaNFirst:
+        FValues[-2] := FQuietNaN.Value;
+        FExpectedIndex := -2;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Passed;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Failed;
+        FFindingHasNoNaN := E_Result.Failed;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowSignalingNaNMiddle:
+        FValues[0] := FSignalingNaN.Value;
+        FExpectedIndex := 0;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Passed;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Failed;
+        FFindingHasNoNaN := E_Result.Failed;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowNaNLast:
+        FValues[2] := FQuietNaN.Value;
+        FExpectedIndex := 2;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Passed;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Failed;
+        FFindingHasNoNaN := E_Result.Failed;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowInfinityFirst:
+        FValues[-2] := FPositiveInfinity.Value;
+        FExpectedIndex := -2;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Passed;
+        FFindingContainsInfinity := E_Result.NotEvaluated;
+        FExpectedHasNoInfinity := E_Result.Failed;
+        FFindingHasNoInfinity := E_Result.Failed;
+    RowInfinityMiddle:
+        FValues[0] := FNegativeInfinity.Value;
+        FExpectedIndex := 0;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Passed;
+        FFindingContainsInfinity := E_Result.NotEvaluated;
+        FExpectedHasNoInfinity := E_Result.Failed;
+        FFindingHasNoInfinity := E_Result.Failed;
+    RowInfinityLast:
+        FValues[2] := FPositiveInfinity.Value;
+        FExpectedIndex := 2;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Passed;
+        FFindingContainsInfinity := E_Result.NotEvaluated;
+        FExpectedHasNoInfinity := E_Result.Failed;
+        FFindingHasNoInfinity := E_Result.Failed;
+    RowMixedSpecials:
+        FValues[-2] := FQuietNaN.Value;
+        FValues[0] := FNegativeInfinity.Value;
+        FExpectedIndex := -2;
+        FExpectedInfinityIndex := 0;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Passed;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Failed;
+        FFindingHasNoNaN := E_Result.Failed;
+        FExpectedContainsInfinity := E_Result.Passed;
+        FFindingContainsInfinity := E_Result.NotEvaluated;
+        FExpectedHasNoInfinity := E_Result.Failed;
+        FFindingHasNoInfinity := E_Result.Failed;
+    RowOutsideSelection:
+        FValues[-2] := FQuietNaN.Value;
+        FValues[2] := FPositiveInfinity.Value;
+        FStartIndex := -1;
+        FLength := 3;
+        FExpectedAllElementsFinite := E_Result.Passed;
+        FFindingAllElementsFinite := E_Result.NotEvaluated;
+        FExpectedContainsNonFinite := E_Result.Failed;
+        FFindingContainsNonFinite := E_Result.Failed;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowSingleLastElement:
+        FValues[2] := FSignalingNaN.Value;
+        FStartIndex := 2;
+        FLength := 1;
+        FExpectedIndex := 2;
+        FExpectedAllElementsFinite := E_Result.Failed;
+        FFindingAllElementsFinite := E_Result.Failed;
+        FExpectedContainsNonFinite := E_Result.Passed;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Passed;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Failed;
+        FFindingHasNoNaN := E_Result.Failed;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowInvalidAfterFailed:
+        FLength := 0;
+        FPreserveResults := TRUE;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowErrorRemainsHeld:
+
+        FPreserveResults := TRUE;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.NotEvaluated;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.NotEvaluated;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.NotEvaluated;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.NotEvaluated;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+    RowStartBelowBounds:
+        FStartIndex := -3;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowStartAboveBounds:
+        FStartIndex := 3;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowEndAboveBounds:
+        FStartIndex := 2;
+        FLength := 2;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowLargeStart:
+        FStartIndex := DINT#2147483647;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowZeroLength:
+        FLength := 0;
+        FExpectedAllElementsFinite := E_Result.Error;
+        FFindingAllElementsFinite := E_Result.Error;
+        FExpectedContainsNonFinite := E_Result.Error;
+        FFindingContainsNonFinite := E_Result.Error;
+        FExpectedContainsNaN := E_Result.Error;
+        FFindingContainsNaN := E_Result.Error;
+        FExpectedHasNoNaN := E_Result.Error;
+        FFindingHasNoNaN := E_Result.Error;
+        FExpectedContainsInfinity := E_Result.Error;
+        FFindingContainsInfinity := E_Result.Error;
+        FExpectedHasNoInfinity := E_Result.Error;
+        FFindingHasNoInfinity := E_Result.Error;
+    RowResetRecovers:
+
+        FExpectedAllElementsFinite := E_Result.Passed;
+        FFindingAllElementsFinite := E_Result.NotEvaluated;
+        FExpectedContainsNonFinite := E_Result.Failed;
+        FFindingContainsNonFinite := E_Result.Failed;
+        FExpectedContainsNaN := E_Result.Failed;
+        FFindingContainsNaN := E_Result.Failed;
+        FExpectedHasNoNaN := E_Result.Passed;
+        FFindingHasNoNaN := E_Result.NotEvaluated;
+        FExpectedContainsInfinity := E_Result.Failed;
+        FFindingContainsInfinity := E_Result.Failed;
+        FExpectedHasNoInfinity := E_Result.Passed;
+        FFindingHasNoInfinity := E_Result.NotEvaluated;
+ELSE
+    Error(Message := 'Unknown classification selftest row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

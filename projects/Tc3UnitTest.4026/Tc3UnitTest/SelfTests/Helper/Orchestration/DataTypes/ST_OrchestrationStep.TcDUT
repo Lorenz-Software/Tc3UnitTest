@@ -1,0 +1,33 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_OrchestrationStep" Id="{1f459a00-c928-4bc9-a55c-5e26f3e0ab96}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Independent stimulus and expected observations for one helper-then-children cycle.</summary>
+*)
+{endregion}
+TYPE ST_OrchestrationStep :
+STRUCT
+    Task : E_OrchestratorTask := E_OrchestratorTask.Execution; //! Helper task to execute at this scripted checkpoint.
+    Children : ARRAY[1..3] OF ST_OrchestrationObservation; //! Scripted observations installed by the child calls after helper execution.
+    ExecutionReservationResults : ARRAY[1..3] OF E_EventReservationResult := [3(E_EventReservationResult.Accepted)]; //! Reservation responses are installed before the helper call; child observations follow afterwards.
+    ResetReservationResults : ARRAY[1..3] OF E_EventReservationResult := [3(E_EventReservationResult.Accepted)]; //! Per-child Reset admission responses installed before helper execution.
+    ExpectedUnacceptedExecutionReservations : ARRAY[1..3] OF UINT; //! Additional attempts returning WaitingForCapacity or Error, without a corresponding request.
+    ExpectedUnacceptedResetReservations : ARRAY[1..3] OF UINT; //! Expected additional Reset admission attempts returning WaitingForCapacity or Error without a Reset request.
+    MaxActiveChildCount : UINT := 1; //! Upper bound on active children during Execution, including this cycle's Start; Serial defaults to one.
+    ExpectedStartChild : UINT; //! One-based child position expected to receive Start; zero means none.
+    ExpectedSlot : UINT; //! Expected helper execution slot after this cycle.
+    ExpectedFinished : BOOL; //! Expected helper execution-completion indication.
+    ExpectedReady : BOOL; //! Expected helper readiness indication.
+    ExpectedReservations : ARRAY[1..3] OF UINT; //! Expected per-child local reservation markers after this cycle.
+    ExpectedReleasedEntries : ARRAY[1..3] OF UINT; //! Expected per-child sum of released markers during this cycle.
+    ExpectedResetChild : UINT; //! One-based child position expected to receive Reset; zero means none.
+    ExpectedAbortRequests : ARRAY[1..3] OF UINT; //! Expected per-child Abort-request counts during this cycle.
+    ExpectedResetFinished : BOOL; //! Expected helper Reset-completion indication.
+    ExpectedAbortFinished : BOOL; //! Expected helper Abort-completion indication.
+    ExpectedResult : E_Result := E_Result.NotEvaluated; //! Expected helper technical result.
+    ExpectedDiagnosticCount : UDINT; //! Expected cumulative diagnostic publications in the retained isolated capture.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

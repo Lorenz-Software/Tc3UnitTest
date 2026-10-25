@@ -1,0 +1,158 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertValueTokenCntLessThan_Word" Id="{a5b01af3-8410-4370-89d7-8a4befc8ac41}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Check that the token count is less than Maximum.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Comparison applies Mask to both values; bits outside it are ignored. The default mask
+selects all bits.
+
+Counts the currently selected region on evaluation, not occurrences across cycles.
+TokenCount exposes the last computed count.
+
+The value token matches under Mask; bits outside Mask are ignored.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertValueTokenCntLessThan_Word EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+    Maximum : UINT; //! Exclusive upper bound; the actual value or count must be smaller.
+    Token : WORD; //! Value searched for in the selected range; Mask selects the compared bits.
+    Mask : WORD := WORD#16#FFFF; //! Bits included in the comparison; bits outside the mask are ignored.
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Keep the searched data stable during the call.
+END_VAR
+VAR
+    FTokenCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{cdcd7b77-c610-43e6-9045-dba3faef5a11}" />
+    <Method Name="Assert" Id="{6211a190-48cb-4184-a9a7-a710fb6aa1dd}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration, count tokens and apply the count predicate.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR
+VAR CONSTANT
+    HexDigitCount : USINT := 4;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    FTokenCount := 0;
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    FTokenCount := 0;
+    Message := CONCAT('Assertion error: invalid search range. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FTokenCount := CountValueTokens_Word(StartIndex := StartIndex,
+    Length := Length,
+    Token := Token,
+    Mask := Mask,
+    IN := IN);
+
+IF FTokenCount >= Maximum THEN
+    Message := CONCAT('Assertion failed: value token count violates LessThan. Actual = ',
+        UINT_TO_STRING(FTokenCount));
+    Message := CONCAT(Message, ', Maximum = ');
+    Message := CONCAT(Message, UINT_TO_STRING(Maximum));
+    Message := CONCAT(Message, ', Token = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Token),
+        DigitCount := HexDigitCount));
+    Message := CONCAT(Message, ', Mask = ');
+    Message := CONCAT(Message, CreateAssertionTextValue_Hex(Value := WORD_TO_LWORD(Mask),
+        DigitCount := HexDigitCount));
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{79aafd60-9db7-4c1b-b145-82710e97290c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear the retained count on framework reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTokenCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TokenCount" Id="{03e33bed-6b48-45e8-b591-87d5672ad021}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return the most recently evaluated token count.</summary>
+<description>
+
+Counts occurrences in one selected array region, not across PLC cycles. Retained while
+disabled or after Failed; reset and detected configuration errors clear it. Reading this
+property does not search the array.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TokenCount : UINT //! Return the most recently evaluated token count.]]></Declaration>
+      <Get Name="Get" Id="{ace19afd-e4f0-4f95-9f66-f4661c0a592c}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TokenCount := FTokenCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

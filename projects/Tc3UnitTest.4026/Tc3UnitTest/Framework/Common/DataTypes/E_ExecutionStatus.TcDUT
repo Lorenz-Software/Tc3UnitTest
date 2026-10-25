@@ -1,0 +1,28 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_ExecutionStatus" Id="{a6518544-9d8c-41b6-b992-cb42c9019c61}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Coarse execution classification derived from the owner state.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_ExecutionStatus :
+(
+    Error := -10, //! Execution cannot continue normally.
+    Unknown := 0, //! No classified observation is available.
+    Inactive := 1, //! Inactive execution classification retained by the contract.
+    NotReady := 9, //! Not ready to begin execution.
+    Idle := 10, //! Reset-defined idle execution condition.
+    Starting := 20, //! Start processing is in progress.
+    Running := 30, //! Execution is active.
+    Completing := 40, //! Finalization is in progress.
+    Completed := 50, //! Execution has ended; inspect Result for its outcome.
+    Aborting := 60, //! Controlled termination is in progress.
+    Aborted := 70, //! Legacy value; not used as a stable final status by new owner logic.
+    Reset := 80 //! Reset processing is in progress.
+) INT := Unknown;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

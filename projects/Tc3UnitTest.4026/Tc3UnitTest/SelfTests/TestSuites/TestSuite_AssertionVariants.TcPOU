@@ -1,0 +1,100 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_AssertionVariants" Id="{ebf9b97d-b4ff-4151-a0df-85c30b5783f5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks selected residual Assertion operators, operand widths and diagnostics.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_AssertionVariants EXTENDS TestSuiteBase
+VAR
+    FBitSelection : Test_AssertionBitSelection;
+    FMaskPredicates : Test_AssertionMaskPredicates;
+    FCountPredicates : Test_AssertionCountPredicates;
+    FNarrowIntegers : Test_AssertionNarrowIntegers;
+    FTemporalVariants : Test_AssertionTemporalVariants;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 5;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{bd38a59d-3b8a-4f2a-83a5-90df5652d3ba}" />
+    <Method Name="Configure" Id="{b093e1fe-cedd-40b3-aade-4d3debe40ab2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes five focused residual Assertion Test Cases and registers them serially.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed owner builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+FBitSelection.Initialize(Parent := THIS^,
+    TestName := 'BitSelection',
+    Config := TestConfig);
+Builder.Register(TestCase := FBitSelection);
+FMaskPredicates.Initialize(Parent := THIS^,
+    TestName := 'MaskPredicates',
+    Config := TestConfig);
+Builder.Register(TestCase := FMaskPredicates);
+FCountPredicates.Initialize(Parent := THIS^,
+    TestName := 'CountPredicates',
+    Config := TestConfig);
+Builder.Register(TestCase := FCountPredicates);
+FNarrowIntegers.Initialize(Parent := THIS^,
+    TestName := 'NarrowIntegers',
+    Config := TestConfig);
+Builder.Register(TestCase := FNarrowIntegers);
+FTemporalVariants.Initialize(Parent := THIS^,
+    TestName := 'TemporalVariants',
+    Config := TestConfig);
+Builder.Register(TestCase := FTemporalVariants);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{4d908405-0579-4616-9eda-a2aede76c886}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns a registered scenario using its original array index.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{ef76a5ab-7749-4846-a6ef-24ae05c1c616}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls every owned scenario once per initialized Suite cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FBitSelection();
+FMaskPredicates();
+FCountPredicates();
+FNarrowIntegers();
+FTemporalVariants();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

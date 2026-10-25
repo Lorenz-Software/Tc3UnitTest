@@ -1,0 +1,175 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="ReservationSuiteProbe" Id="{f09da169-410f-4e28-bc9f-be13b8c2bee5}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Composes two real children with a controllable concrete Reset completion.</summary>
+<description>
+Production TestSuiteBase and Orchestrator own all lifecycle, scheduling and reservation decisions.
+BindPublisher assigns every dependency before initialization; AllowResetCompletion can hold both
+children in their ordinary Reset hooks. AllowChildResetCompletion releases those hooks later.
+No state, timer or reservation field is changed by the adapter. Children keep a five-second Reset
+timeout while the test chooses a shorter Suite timeout. Request counters expose redispatch.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK ReservationSuiteProbe EXTENDS TestSuiteBase
+VAR
+    FFirst : ReservationResetChild;
+    FSecond : ReservationResetChild;
+    FTestCases : ARRAY[4..6] OF I_TestCase;
+    FRealOrchestrator : OrchestratorProbe;
+    FAllowResetCompletion : BOOL := TRUE;
+    FBodyCallCount : UDINT;
+    FConfigureCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[FBodyCallCount := FBodyCallCount + 1;
+SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{bf9a8262-4157-4fbe-84b1-adeace6f0f8e}" />
+    <Method Name="AllowChildResetCompletion" Id="{2a9ad03b-33c7-4c49-a95f-bf39293167cf}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Lets subsequent child calls complete their concrete Reset hooks.</summary>
+*)
+{endregion}
+METHOD PUBLIC AllowChildResetCompletion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAllowResetCompletion := TRUE;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="BindPublisher" Id="{450cd7c2-1d19-4cd8-9211-f58dd64e8d5a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Binds every producer before Initialize; never modifies the global publisher.</summary>
+*)
+{endregion}
+METHOD PUBLIC BindPublisher
+VAR_INPUT
+    Publisher : I_EventPublisher; //! Nonzero isolated event publisher retained before subject initialization; keep it alive through all subject use.
+    AllowResetCompletion : BOOL := TRUE; //! Reset-completion permission propagated to the controlled children.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FAllowResetCompletion := AllowResetCompletion;
+FEventPublisher := Publisher;
+FRealOrchestrator.BindPublisher(Publisher := Publisher);
+FOrchestrator := FRealOrchestrator;
+FFirst.BindPublisher(Publisher := Publisher);
+FSecond.BindPublisher(Publisher := Publisher);
+FFirst.ClearRequestTrace();
+FSecond.ClearRequestTrace();
+FBodyCallCount := 0;
+FConfigureCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ChildCallsMatch" Id="{c3e0dffc-7461-40c1-b17f-875eb3bb4de8}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Confirms one concrete child call per Suite call, including Reset and Completed.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ChildCallsMatch : BOOL //! Confirms one concrete child call per Suite call, including Reset and Completed.]]></Declaration>
+      <Get Name="Get" Id="{3985cd95-87aa-4eba-adde-ecf24df86e14}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ChildCallsMatch := (FFirst.BodyCallCount = FBodyCallCount) AND (FSecond.BodyCallCount = FBodyCallCount);]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="Configure" Id="{f884a0f4-006e-4cfd-917e-6fa42f595342}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers two real children serially in a shifted array with one unused slot.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed setup builder; no temporary instance is created.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    Config : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FConfigureCount := FConfigureCount + 1;
+Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+Config.ResetTimeout := T#5s;
+FFirst.Initialize(Parent := THIS^,
+    TestName := 'First',
+    Config := Config);
+FSecond.Initialize(Parent := THIS^,
+    TestName := 'Second',
+    Config := Config);
+Builder.Register(TestCase := FFirst);
+Builder.Register(TestCase := FSecond);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ConfigureCount" Id="{a290e8af-80ba-4216-b5ff-69b270660828}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Distinguishes Reset/repeat from reinitializing the subject.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ConfigureCount : UINT //! Distinguishes Reset/repeat from reinitializing the subject.]]></Declaration>
+      <Get Name="Get" Id="{5cf84af4-7ecb-474d-82ea-414f974096b5}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ConfigureCount := FConfigureCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+    <Method Name="GetTestCase" Id="{7b28edae-b093-4973-8044-57c0c3e3b23e}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Resolves the actual registered array index without executing the child.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{2158ce27-0aff-420e-a726-c8e6bf1bdd61}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls both children once per initialized Suite call; the helper requests their lifecycle actions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FFirst(AllowResetCompletion := FAllowResetCompletion);
+FSecond(AllowResetCompletion := FAllowResetCompletion);]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="ResetRequestsMatch" Id="{60990dba-9b79-4c4c-a694-2774eeba2016}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Each child received exactly one Reset and no Start in the timeout scenario.</summary>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC ResetRequestsMatch : BOOL //! Each child received exactly one Reset and no Start in the timeout scenario.]]></Declaration>
+      <Get Name="Get" Id="{dbcf337e-3a6f-4e16-a267-4d0cf07efb65}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[ResetRequestsMatch := (FFirst.ResetRequestCount = 1) AND (FSecond.ResetRequestCount = 1)
+    AND (FFirst.StartRequestCount = 0) AND (FSecond.StartRequestCount = 0)
+    AND FFirst.RequestsReserved AND FSecond.RequestsReserved;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

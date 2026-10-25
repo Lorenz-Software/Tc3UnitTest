@@ -1,0 +1,37 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_TestSuiteStatus" Id="{1a0d366b-3702-4d44-beb4-630aa85e2373}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Aggregated child execution counts and elapsed owner duration.</summary>
+<description>
+Execution and result counters are different, overlapping observations rather than one partition. Child calls and counters continue after the final owner result and published aggregation are held. Runtime is owner active execution time projected to saturating TIME milliseconds, not summed child duration. The childless mock keeps all Test Case counters zero.
+</description>
+*)
+{endregion}
+TYPE ST_TestSuiteStatus :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Execution : ST_ExecutionStatus; //! Owner lifecycle, readiness, result and error snapshot.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountTotal : UINT := 0; //! Total number of Test Cases in the current collection.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountInactive : UINT := 0; //! Number of children observed inactive.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountIdle : UINT := 0; //! Number of children observed Idle.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountRunning : UINT := 0; //! Number of children observed running.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountCompleted : UINT := 0; //! Number of children observed completed, irrespective of outcome.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountPassed : UINT := 0; //! Number of Test Cases with Passed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountFailed : UINT := 0; //! Number of Test Cases with Failed result.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    TestCaseCountError : UINT := 0; //! Number of Test Cases reporting an error.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Runtime : TIME := T#0ms; //! Elapsed execution duration projected to TIME milliseconds; not a timeout configuration.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

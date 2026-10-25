@@ -1,0 +1,421 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="Test_AssertionLTODDomain" Id="{3afab1ae-5e29-46dd-8165-141460cb864a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks all LTOD inputs at midnight and the exclusive 24-hour domain limit.</summary>
+<description>
+Named rows separate independent comparisons by a disabled reset call.
+Only explicitly marked escalation rows retain the preceding subject result.
+Outer Assertions latch every observation before advancing to the next row.
+Intentional findings remain in the local capture; no production algorithm is copied.
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK Test_AssertionLTODDomain EXTENDS TestCaseBase
+VAR
+    FEqualSubject : AssertEqual_LTOD;
+    FInTimespanSubject : AssertInTimespan_LTOD;
+    FNotInTimespanSubject : AssertNotInTimespan_LTOD;
+    FActual : LTOD;
+    FReference : LTOD;
+    FStart : LTOD;
+    FEnd : LTOD;
+    FExpectedEqualResult : E_Result;
+    FExpectedInTimespanResult : E_Result;
+    FExpectedNotInTimespanResult : E_Result;
+    FExpectedFindings : UDINT;
+    FCapture : EventBuffer;
+    FEvents : ARRAY[1..CaptureLength] OF ST_Event;
+    FCaptureFifo : ST_FifoStatus;
+    FCaptureStatus : ST_EventBufferStatus;
+    FRow : UINT;
+    FRowPrepared : BOOL;
+    FPreserveResults : BOOL;
+    FObservationReady : BOOL;
+    FChecked : BOOL;
+    FSetupValid : BOOL;
+END_VAR
+VAR
+    FEqualResult : AssertTrue;
+    FEqualResultMatches : BOOL;
+    FInTimespanResult : AssertTrue;
+    FInTimespanResultMatches : BOOL;
+    FNotInTimespanResult : AssertTrue;
+    FNotInTimespanResultMatches : BOOL;
+    FCaptureIntegrity : AssertTrue;
+    FCaptureIntegrityMatches : BOOL;
+END_VAR
+VAR CONSTANT
+    CaptureLength : UINT := 8;
+    Midnight : UINT := 1;
+    LastValidValue : UINT := 2;
+    DistinctValid : UINT := 3;
+    InvalidInput : UINT := 4;
+    InvalidExpected : UINT := 5;
+    InvalidStart : UINT := 6;
+    InvalidEnd : UINT := 7;
+    ReversedValidSpan : UINT := 8;
+    LastRow : UINT := ReversedValidSpan;
+    Zero : LTOD := LTOD#00:00:00;
+    LastValid : LTOD := LTOD#23:59:59.999999999;
+    OneDay : LTOD := ULINT_TO_LTOD(ULINT#86400000000000);
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{fc627f8d-95ea-44ab-8af2-27688f3af75e}" />
+    <Method Name="AggregateResults" Id="{f21936a8-bbe9-41c4-a960-1d80b923e963}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Collects only outer checking Assertions, never intentional subject findings.</summary>
+*)
+{endregion}
+METHOD PROTECTED AggregateResults
+VAR_INPUT
+    Aggregator : I_ResultAggregator; //! Borrowed result sink owned by the outer Test Case; add this test's checking Assertions without resetting or retaining the sink.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Aggregator.AddProvider(Provider := FEqualResult);
+Aggregator.AddProvider(Provider := FInTimespanResult);
+Aggregator.AddProvider(Provider := FNotInTimespanResult);
+Aggregator.AddProvider(Provider := FCaptureIntegrity);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CallSubjects" Id="{43d71d84-0c5c-41d9-b0c8-6eb88a5dbaf5}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each inherited production Assertion once using the selected row.</summary>
+*)
+{endregion}
+METHOD PRIVATE CallSubjects
+VAR_INPUT
+    Enable : BOOL; //! Observation-enable input forwarded to the controlled Assertion subjects for this call.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    Expected := FReference);
+FInTimespanSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    StartTime := FStart,
+    EndTime := FEnd);
+FNotInTimespanSubject(Enable := Enable,
+    State := E_State.Running,
+    IN := FActual,
+    StartTime := FStart,
+    EndTime := FEnd);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckInitialization" Id="{5dc6d4b0-c4c0-4eb5-b49a-8f6784af1075}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Extends base validation with subject and checking-Assertion setup.</summary>
+*)
+{endregion}
+METHOD PROTECTED CheckInitialization : BOOL //! TRUE when the inherited initialization check and this concrete fixture check both accept the setup.]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[CheckInitialization := SUPER^.CheckInitialization();
+IF NOT CheckInitialization THEN
+    RETURN;
+END_IF;
+
+CheckInitialization := FSetupValid
+    AND FEqualResult.IsInitialized
+    AND FInTimespanResult.IsInitialized
+    AND FNotInTimespanResult.IsInitialized
+    AND FCaptureIntegrity.IsInitialized;
+IF NOT CheckInitialization THEN
+    EventPublisher.PublishEvent(Event := CreateFrameworkEvent(Name := Name,
+        ResourceName := '',
+        State := State,
+        Severity := E_EventSeverity.Error,
+        Message := 'Comparison selftest setup failed.'));
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="CheckResults" Id="{ae3ed906-7a39-472b-ba2d-7664a9c62850}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Checks results and isolated findings against explicit expectations.</summary>
+*)
+{endregion}
+METHOD PRIVATE CheckResults]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualResultMatches := FEqualSubject.Result = FExpectedEqualResult;
+FInTimespanResultMatches := FInTimespanSubject.Result = FExpectedInTimespanResult;
+FNotInTimespanResultMatches := FNotInTimespanSubject.Result = FExpectedNotInTimespanResult;
+FCaptureIntegrityMatches := (FCaptureStatus.SequenceId = FExpectedFindings)
+    AND (FCaptureStatus.LostEventCount = 0);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="Configure" Id="{cbbc6e1b-87e4-4100-ba85-fa768a450dc9}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Configures checking Assertions; subject actions remain in the test script.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR
+    Initialized : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreparationStateCount := 0;
+FTestStateCount := 1;
+FEqualResult.Initialize(Parent := THIS^,
+    AssertionName := 'EqualResult');
+FInTimespanResult.Initialize(Parent := THIS^,
+    AssertionName := 'InTimespanResult');
+FNotInTimespanResult.Initialize(Parent := THIS^,
+    AssertionName := 'NotInTimespanResult');
+FCaptureIntegrity.Initialize(Parent := THIS^,
+    AssertionName := 'CaptureIntegrity');
+FSetupValid := FCapture.Initialize(Buffer := FEvents,
+    FifoControl := FCaptureFifo,
+    Status := FCaptureStatus);
+FEqualSubject.BindPublisher(Publisher := FCapture);
+Initialized := FEqualSubject.Initialize(Parent := THIS^,
+    AssertionName := 'EqualSubject');
+FSetupValid := FSetupValid AND Initialized;
+FInTimespanSubject.BindPublisher(Publisher := FCapture);
+Initialized := FInTimespanSubject.Initialize(Parent := THIS^,
+    AssertionName := 'InTimespanSubject');
+FSetupValid := FSetupValid AND Initialized;
+FNotInTimespanSubject.BindPublisher(Publisher := FCapture);
+Initialized := FNotInTimespanSubject.Initialize(Parent := THIS^,
+    AssertionName := 'NotInTimespanSubject');
+FSetupValid := FSetupValid AND Initialized;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAbort" Id="{1b480cae-b953-4d63-a1fc-577420f5552c}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Completes abort without asynchronous resources.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAbort
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF Enable THEN
+    CompleteAbort();
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessAssertions" Id="{54b60793-fee9-4c20-8a98-30b1fef8056a}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Latches checked observations before the next script step may proceed.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessAssertions
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR
+VAR
+    Evaluate : BOOL;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Evaluate := Enable AND FObservationReady;
+FEqualResult(Enable := Evaluate,
+    State := State,
+    IN := FEqualResultMatches);
+FInTimespanResult(Enable := Evaluate,
+    State := State,
+    IN := FInTimespanResultMatches);
+FNotInTimespanResult(Enable := Evaluate,
+    State := State,
+    IN := FNotInTimespanResultMatches);
+FCaptureIntegrity(Enable := Evaluate,
+    State := State,
+    IN := FCaptureIntegrityMatches);
+IF Evaluate THEN
+    FChecked := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessPreparations" Id="{c4f5ec89-b2d2-44d1-8844-1e4941cc34e2}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>No Preparation phase is required.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessPreparations
+VAR_INPUT
+    // SA0033: Required hook; this test has no Preparation phase.
+    {attribute 'analysis' := '-33'}
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessReset" Id="{b832dcf7-93ba-48f2-a50f-094adc853459}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Restarts the script and resets the checking Assertions.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessReset]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FRow := Midnight;
+FRowPrepared := FALSE;
+FChecked := FALSE;
+FObservationReady := FALSE;
+FEqualResult.Reset();
+FEqualResultMatches := TRUE;
+FInTimespanResult.Reset();
+FInTimespanResultMatches := TRUE;
+FNotInTimespanResult.Reset();
+FNotInTimespanResultMatches := TRUE;
+FCaptureIntegrity.Reset();
+FCaptureIntegrityMatches := TRUE;
+CompleteReset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTests" Id="{ef9ec1de-bbc5-4d55-b162-381d70fcc908}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Advances one bounded script step per active PLC cycle.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTests
+VAR_INPUT
+    Enable : BOOL; //! Phase permission supplied by the owning Test Case; FALSE does not authorize progression, while observation may continue.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT Enable THEN
+    RETURN;
+END_IF;
+
+IF FChecked THEN
+    FChecked := FALSE;
+    FObservationReady := FALSE;
+    IF FRow = LastRow THEN
+        CompleteTests();
+        RETURN;
+    END_IF;
+    FRow := FRow + 1;
+    FRowPrepared := FALSE;
+END_IF;
+
+IF NOT FRowPrepared THEN
+    SelectRow();
+    FCapture.Reset();
+    IF NOT FPreserveResults THEN
+        ResetSubjects();
+    END_IF;
+    CallSubjects(Enable := FALSE);
+    FRowPrepared := TRUE;
+ELSE
+    CallSubjects(Enable := TRUE);
+    CheckResults();
+    FObservationReady := TRUE;
+END_IF;]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetSubjects" Id="{f3a37aa4-c8f1-413d-bbbd-d0c79563eb22}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Requests fresh subject results before the next disabled call.</summary>
+*)
+{endregion}
+METHOD PRIVATE ResetSubjects]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FEqualSubject.Reset();
+FInTimespanSubject.Reset();
+FNotInTimespanSubject.Reset();]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="SelectRow" Id="{1f48b574-c6c5-4f1e-9053-772b39a379ff}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Selects literal expectations; only named escalation rows retain preceding subject results.</summary>
+*)
+{endregion}
+METHOD PRIVATE SelectRow]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FPreserveResults := FALSE;
+CASE FRow OF
+    Midnight:
+        FActual := Zero;
+        FReference := Zero;
+        FStart := Zero;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedInTimespanResult := E_Result.Passed;
+        FExpectedNotInTimespanResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    LastValidValue:
+        FActual := LastValid;
+        FReference := LastValid;
+        FStart := Zero;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedInTimespanResult := E_Result.Passed;
+        FExpectedNotInTimespanResult := E_Result.Failed;
+        FExpectedFindings := 1;
+    DistinctValid:
+        FActual := Zero;
+        FReference := LastValid;
+        FStart := Zero;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Failed;
+        FExpectedInTimespanResult := E_Result.Passed;
+        FExpectedNotInTimespanResult := E_Result.Failed;
+        FExpectedFindings := 2;
+    InvalidInput:
+        FActual := OneDay;
+        FReference := Zero;
+        FStart := Zero;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedInTimespanResult := E_Result.Error;
+        FExpectedNotInTimespanResult := E_Result.Error;
+        FExpectedFindings := 3;
+    InvalidExpected:
+        FActual := Zero;
+        FReference := OneDay;
+        FStart := Zero;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Error;
+        FExpectedInTimespanResult := E_Result.Passed;
+        FExpectedNotInTimespanResult := E_Result.Failed;
+        FExpectedFindings := 2;
+    InvalidStart:
+        FActual := Zero;
+        FReference := Zero;
+        FStart := OneDay;
+        FEnd := LastValid;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedInTimespanResult := E_Result.Error;
+        FExpectedNotInTimespanResult := E_Result.Error;
+        FExpectedFindings := 2;
+    InvalidEnd:
+        FActual := Zero;
+        FReference := Zero;
+        FStart := Zero;
+        FEnd := OneDay;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedInTimespanResult := E_Result.Error;
+        FExpectedNotInTimespanResult := E_Result.Error;
+        FExpectedFindings := 2;
+    ReversedValidSpan:
+        FActual := Zero;
+        FReference := Zero;
+        FStart := LastValid;
+        FEnd := Zero;
+        FExpectedEqualResult := E_Result.Passed;
+        FExpectedInTimespanResult := E_Result.Error;
+        FExpectedNotInTimespanResult := E_Result.Error;
+        FExpectedFindings := 2;
+ELSE
+    Error(Message := 'Unknown comparison test row.');
+END_CASE;]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>

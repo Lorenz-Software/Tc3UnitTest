@@ -1,0 +1,171 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="AssertNoArrayToken_Word" Id="{8a2c725a-aa68-4fee-8c41-8bbfbb5b434a}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts exact non-overlapping array tokens in the selected range and checks their
+absence.</summary>
+<description>
+
+StartIndex is an absolute declared IN index, not an offset. Length selects 1..255
+elements; the complete selected range must fit IN. Invalid references or ranges report
+Error.
+
+Keep supplied arrays stable for the call. Input data is read, not copied or retained as a
+snapshot.
+
+Token is the complete nonempty array pattern starting at its own lower bound and must fit
+the selected search range; otherwise Error. Array token matching is exact.
+
+Matches do not overlap: searching resumes after the whole matched token.
+
+</description>
+*)
+{endregion}
+FUNCTION_BLOCK AssertNoArrayToken_Word EXTENDS AssertionBase
+VAR_INPUT
+    StartIndex : DINT; //! First selected index in IN; uses the array's declared index range, not a zero-based offset.
+    Length : USINT; //! Number of selected elements starting at StartIndex; must fit the array range; valid range 1..255.
+
+END_VAR
+VAR_IN_OUT CONSTANT
+    IN : ARRAY[*] OF WORD; //! Keep the searched data stable during the call.
+    Token : ARRAY[*] OF WORD; //! Read-only nonempty token; keep stable during the call and within the selected search length.
+END_VAR
+VAR
+    FTokenCount : UINT;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{24ebcd95-0413-4b10-a06b-0be393188647}" />
+    <Method Name="Assert" Id="{7d3ec74d-4c52-4425-9fa1-f5c68e83a4fc}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Validate configuration, count tokens and apply the count predicate.</summary>
+*)
+{endregion}
+METHOD PROTECTED Assert
+VAR
+    InLowerIndex : DINT;
+    InUpperIndex : DINT;
+    EndIndex : LINT;
+    TokenLowerIndex : DINT;
+    TokenUpperIndex : DINT;
+    TokenLength : LINT;
+    Message : STRING(GVL_Constants.MessageLength);
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[IF NOT EvaluationActive THEN
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Error THEN
+    RETURN;
+END_IF;
+
+// C0371: FB input is checked before any reference access.
+{warning disable C0371}
+IF NOT __ISVALIDREF(IN) THEN
+    FTokenCount := 0;
+    Error(Message := 'Assertion error: IN reference is invalid.');
+    RETURN;
+END_IF;
+
+IF NOT __ISVALIDREF(Token) THEN
+    FTokenCount := 0;
+    Error(Message := 'Assertion error: Token reference is invalid.');
+    RETURN;
+END_IF;
+
+TokenLowerIndex := LOWER_BOUND(Token, 1);
+TokenUpperIndex := UPPER_BOUND(Token, 1);
+TokenLength := DINT_TO_LINT(TokenUpperIndex) - DINT_TO_LINT(TokenLowerIndex) + 1;
+IF (TokenLength <= 0) OR (TokenLength > USINT_TO_LINT(Length)) THEN
+    FTokenCount := 0;
+    Message := CONCAT('Assertion error: invalid token length. TokenLength = ',
+        LINT_TO_STRING(TokenLength));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+InLowerIndex := LOWER_BOUND(IN, 1);
+InUpperIndex := UPPER_BOUND(IN, 1);
+EndIndex := DINT_TO_LINT(StartIndex) + USINT_TO_LINT(Length) - 1;
+IF (Length = 0)
+    OR (StartIndex < InLowerIndex) OR (StartIndex > InUpperIndex)
+    OR (EndIndex > DINT_TO_LINT(InUpperIndex)) THEN
+    FTokenCount := 0;
+    Message := CONCAT('Assertion error: invalid search range. StartIndex = ',
+        DINT_TO_STRING(StartIndex));
+    Message := CONCAT(Message, ', Length = ');
+    Message := CONCAT(Message, USINT_TO_STRING(Length));
+    Error(Message := Message);
+    RETURN;
+END_IF;
+
+IF Result = E_Result.Failed THEN
+    RETURN;
+END_IF;
+
+FTokenCount := CountArrayTokens_Word(StartIndex := StartIndex,
+    Length := Length,
+    Token := Token,
+    IN := IN);
+
+IF FTokenCount > 0 THEN
+    Message := CONCAT('Assertion failed: array token count violates NoArrayToken. Actual = ',
+        UINT_TO_STRING(FTokenCount));
+
+    Message := CONCAT(Message, ', TokenRange = [');
+    Message := CONCAT(Message, DINT_TO_STRING(TokenLowerIndex));
+    Message := CONCAT(Message, '..');
+    Message := CONCAT(Message, DINT_TO_STRING(TokenUpperIndex));
+    Message := CONCAT(Message, ']');
+    Fail(Message := Message);
+    RETURN;
+END_IF;
+
+Pass();
+{warning restore C0371}]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ResetAssertion" Id="{92b11d9b-25a0-4061-90ee-a466b00f4e45}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Clear the retained count on framework reset.</summary>
+*)
+{endregion}
+METHOD PROTECTED ResetAssertion]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FTokenCount := 0;]]></ST>
+      </Implementation>
+    </Method>
+    <Property Name="TokenCount" Id="{6b45ce9d-cd74-478b-ac6e-8e77fc11cd81}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Return the most recently evaluated token count.</summary>
+<description>
+
+Counts occurrences in one selected array region, not across PLC cycles. Retained while
+disabled or after Failed; reset and detected configuration errors clear it. Reading this
+property does not search the array.
+
+</description>
+*)
+{endregion}
+{attribute 'monitoring' := 'call'}
+PROPERTY PUBLIC TokenCount : UINT //! Return the most recently evaluated token count.]]></Declaration>
+      <Get Name="Get" Id="{f0aca07c-f8e3-4646-a1bb-f923757e20f2}">
+        <Declaration><![CDATA[PUBLIC
+VAR
+END_VAR]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[TokenCount := FTokenCount;]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+  </POU>
+</TcPlcObject>

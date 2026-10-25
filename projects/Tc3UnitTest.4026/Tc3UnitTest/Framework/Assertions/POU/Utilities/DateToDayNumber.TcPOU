@@ -1,0 +1,20 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="DateToDayNumber" Id="{0cd4f77c-e986-444a-8053-ecade3357c1d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns whole calendar days since 1970-01-01; ignores any time-of-day remainder.</summary>
+*)
+{endregion}
+FUNCTION INTERNAL DateToDayNumber : UDINT //! Whole days since 1970-01-01.
+VAR_INPUT
+    Value : DATE; //! Calendar date; any stored time-of-day remainder is ignored.
+END_VAR
+VAR CONSTANT
+    SecondsPerDay : UDINT := 86400;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[DateToDayNumber := DATE_TO_UDINT(Value) / SecondsPerDay;]]></ST>
+    </Implementation>
+  </POU>
+</TcPlcObject>

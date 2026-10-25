@@ -1,0 +1,25 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="ST_EventStream" Id="{65cd461c-3eda-4135-97cd-9c755f5d0fb1}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>External Event Stream storage and producer-owned communication snapshots.</summary>
+<description>
+The array is actual producer-owned ring storage, not a periodically copied event view. Consumers validate ContractInfo, derive readable positions from FifoControl and use its BufferLength as the effective upper index. Only the separate Buffer command boundary is consumer-writable; reservation accounting is private.
+</description>
+*)
+{endregion}
+TYPE ST_EventStream :
+STRUCT
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    ContractInfo : ST_ContractInfo; //! Event-stream compatibility and framework version metadata.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    FifoControl : ST_FifoStatus := (ConfigError := TRUE); //! Producer-maintained ring indices, occupancy and validity snapshot.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Status : ST_EventBufferStatus; //! Producer-maintained sequence, deletion watermark and loss snapshot.
+    {attribute 'OPC.UA.DA.Access' := '1'}
+    Buffer : ARRAY[1..Param_EventBuffer.EventBufferLength] OF ST_Event; //! Physical ring positions; one position remains unused.
+END_STRUCT
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

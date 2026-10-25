@@ -1,0 +1,36 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <Itf Name="I_ResultAggregator" Id="{d22d99d8-fe1d-41ab-a942-8f76df8e8880}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Contribution-only view of an owner-held result collection. Reset and result/counter access remain with the owner.</summary>
+<description>
+The owner resets and reads its concrete collection; a contribution hook only adds each owned result once. Contributions are immediate, not subscriptions, and no provider reference is retained. The owner limits a collection to 65535 contributions. Total includes neutral and Abort outcomes as well as Passed, Failed and Error; logging severity is a separate domain.
+</description>
+*)
+{endregion}
+INTERFACE I_ResultAggregator]]></Declaration>
+    <Method Name="AddProvider" Id="{625ab8fc-da77-47e2-994c-fd017ae1d62a}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Adds one provider result immediately; a null provider contributes one Error. No provider reference is retained.</summary>
+*)
+{endregion}
+METHOD AddProvider
+VAR_INPUT
+    Provider : I_ResultProvider; //! Result provider read immediately; zero contributes Error. No reference is retained.
+END_VAR]]></Declaration>
+    </Method>
+    <Method Name="AddResult" Id="{bedec613-d071-4621-94fe-72bb8b914813}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Counts one contribution and combines Error &gt; Abort &gt; Failed &gt; Passed &gt; NotEvaluated.</summary>
+*)
+{endregion}
+METHOD AddResult
+VAR_INPUT
+    Result : E_Result; //! Evaluation result to count as one contribution; severity is Error > Abort > Failed > Passed > NotEvaluated.
+END_VAR]]></Declaration>
+    </Method>
+  </Itf>
+</TcPlcObject>

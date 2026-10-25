@@ -1,0 +1,22 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <DUT Name="E_EventSeverity" Id="{a9de7125-fcce-48f0-92aa-78d83d7e3cb7}">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Logging severity, independent of test result.</summary>
+*)
+{endregion}
+{attribute 'qualified_only'}
+{attribute 'strict'}
+TYPE E_EventSeverity :
+(
+    Trace := 0, //! Fine-grained execution tracing.
+    Debug := 1, //! Diagnostic detail for investigation.
+    Info := 2, //! Normal informational event.
+    Warning := 3, //! Recoverable or noteworthy abnormal condition.
+    Error := 4, //! An error diagnostic; does not itself define the owner's Result.
+    Critical := 5 //! Critical diagnostic severity.
+) USINT := Trace;
+END_TYPE]]></Declaration>
+  </DUT>
+</TcPlcObject>

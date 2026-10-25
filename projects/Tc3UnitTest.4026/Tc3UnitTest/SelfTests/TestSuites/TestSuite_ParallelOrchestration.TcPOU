@@ -1,0 +1,127 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="TestSuite_ParallelOrchestration" Id="{4bfcee6a-b711-4d50-a4d8-99e6addaa23d}" SpecialFunc="None">
+    <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Runs focused Parallel Orchestrator scenarios serially with isolated child observations and diagnostics.</summary>
+*)
+{endregion}
+FUNCTION_BLOCK TestSuite_ParallelOrchestration EXTENDS TestSuiteBase
+VAR
+    FUnequalDurations : Test_ParallelUnequalDurations;
+    FFirstFittingAdmission : Test_ParallelFirstFittingAdmission;
+    FMissingStartReaction : Test_ParallelMissingStartReaction;
+    FReadinessLost : Test_ParallelReadinessLost;
+    FFailedResultContinues : Test_ParallelFailedResultContinues;
+    FChildError : Test_ParallelChildError;
+    FAbortMixedProgress : Test_ParallelAbortMixedProgress;
+    FResetOverlappingExecution : Test_ParallelResetOverlappingExecution;
+    FTestCases : ARRAY[1..TestCaseCapacity] OF I_TestCase;
+END_VAR
+VAR CONSTANT
+    TestCaseCapacity : UINT := 8;
+END_VAR]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[SUPER^();]]></ST>
+    </Implementation>
+    <Folder Name="Internal" Id="{3db7dcfe-d4a4-43fd-914d-8ab6738ce19c}" />
+    <Method Name="Configure" Id="{8ddd3c0e-aa7c-4071-b0a0-ccbfff9f98e4}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Initializes and registers the owned orchestration scenarios in deterministic order.</summary>
+*)
+{endregion}
+METHOD PROTECTED Configure
+VAR_IN_OUT
+    // SA0167: Borrowed builder; VAR_IN_OUT creates no temporary instance.
+    {attribute 'analysis' := '-167'}
+    Builder : TestSuiteConfigurationBuilder; //! Borrowed owner configuration builder used only during this Configure call; register this owner's concrete children.
+END_VAR
+VAR
+    TestConfig : ST_TestCaseConfig;
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[Builder.Initialize(Mode := E_OrchestrationMode.Serial,
+    TestCases := FTestCases);
+
+FUnequalDurations.Initialize(Parent := THIS^,
+    TestName := 'UnequalDurations',
+    Config := TestConfig);
+Builder.Register(TestCase := FUnequalDurations);
+
+FFirstFittingAdmission.Initialize(Parent := THIS^,
+    TestName := 'FirstFittingAdmission',
+    Config := TestConfig);
+Builder.Register(TestCase := FFirstFittingAdmission);
+
+FMissingStartReaction.Initialize(Parent := THIS^,
+    TestName := 'MissingStartReaction',
+    Config := TestConfig);
+Builder.Register(TestCase := FMissingStartReaction);
+
+FReadinessLost.Initialize(Parent := THIS^,
+    TestName := 'ReadinessLost',
+    Config := TestConfig);
+Builder.Register(TestCase := FReadinessLost);
+
+FFailedResultContinues.Initialize(Parent := THIS^,
+    TestName := 'FailedResultContinues',
+    Config := TestConfig);
+Builder.Register(TestCase := FFailedResultContinues);
+
+FChildError.Initialize(Parent := THIS^,
+    TestName := 'ChildError',
+    Config := TestConfig);
+Builder.Register(TestCase := FChildError);
+
+FAbortMixedProgress.Initialize(Parent := THIS^,
+    TestName := 'AbortMixedProgress',
+    Config := TestConfig);
+Builder.Register(TestCase := FAbortMixedProgress);
+
+FResetOverlappingExecution.Initialize(Parent := THIS^,
+    TestName := 'ResetOverlappingExecution',
+    Config := TestConfig);
+Builder.Register(TestCase := FResetOverlappingExecution);]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="GetTestCase" Id="{0abf7037-b9bd-45bf-b22c-8136b567583d}">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Returns the registered Test Case from the same array used during configuration.</summary>
+*)
+{endregion}
+METHOD PUBLIC GetTestCase : I_TestCase //! Typed child interface at the original array index; zero when no entry is available.
+VAR_INPUT
+    Index : DINT; //! Original occupied child-array index, rather than an ordinal position.
+END_VAR]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[GetTestCase := 0;
+IF (ChildCount = 0) OR (Index < ChildArrayLowerBound)
+    OR (DINT_TO_LINT(Index) >= DINT_TO_LINT(ChildArrayLowerBound) + UINT_TO_LINT(ChildCount)) THEN
+    RETURN;
+END_IF;
+
+GetTestCase := FTestCases[Index];]]></ST>
+      </Implementation>
+    </Method>
+    <Method Name="ProcessTestCases" Id="{cb38ef63-964c-496e-9e28-25bc03b4d3a7}" FolderPath="Internal\">
+      <Declaration><![CDATA[{region 'Documentation'}
+(*!
+<summary>Calls each owned Test Case once per initialized Suite cycle, including completion.</summary>
+*)
+{endregion}
+METHOD PROTECTED ProcessTestCases]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[FUnequalDurations();
+FFirstFittingAdmission();
+FMissingStartReaction();
+FReadinessLost();
+FFailedResultContinues();
+FChildError();
+FAbortMixedProgress();
+FResetOverlappingExecution();]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
