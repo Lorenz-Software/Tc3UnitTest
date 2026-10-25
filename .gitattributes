@@ -41,5 +41,6 @@
 *.png filter=lfs diff=lfs merge=lfs -text
 
 # Small branding source assets are stored directly in Git.
+/assets/tc3-unittest.png -filter -diff -merge -text
 /tools/documentation/projects/tc3-unittest/assets/lorenz-software.png -filter -diff -merge -text
 /tools/documentation/projects/tc3-unittest/assets/lorenz-software-symbol.png -filter -diff -merge -text
