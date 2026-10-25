@@ -1,0 +1,8 @@
+# Local task records, session notes, and temporary engineering data.
+/.local-work/
+/.tmp/
+/.project-workflow/
+/local/
+
+# Generated build, validation, documentation, and release output.
+/artifacts/
