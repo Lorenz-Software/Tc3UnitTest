@@ -133,8 +133,8 @@ deadline from feedback that drops out during the hold interval.
 
 ## Project Status
 
-- **Release:** initial public release packaging is being prepared.
-- **Planned assets:** Framework-only `.compiled-library` and `.library` packages plus offline HTML help.
+- **Release:** [1.0.0](https://github.com/Lorenz-Software/Tc3UnitTest/releases/tag/v1.0.0), library version `1.0.0.0`.
+- **Downloads:** Framework-only `.compiled-library` and `.library` packages plus offline HTML help are available with the release.
 - **Source:** the [solution](projects/Tc3UnitTest.4026/Tc3UnitTest.4026.sln) includes Framework, SelfTests, and Runtime.
 - **Target:** TwinCAT 3.1 Build 4026; documented consumer validation covers Windows Usermode Runtime / x64. See the [build workflow](docs/build-workflow.md) for dependencies and verification scope.
 
