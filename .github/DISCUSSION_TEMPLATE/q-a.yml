@@ -1,0 +1,24 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask about using TC3 UnitTest or integrating your tests.
+        For questions specific to the PC application, use [PLCSIM.UnitTest](https://github.com/Lorenz-Software/PLCSIM.UnitTest/discussions).
+        Remove credentials and confidential project information from examples and attachments.
+  - type: textarea
+    id: question
+    attributes:
+      label: Goal and question
+      description: What do you want to achieve, and where do you need help?
+    validations:
+      required: true
+  - type: textarea
+    id: attempts
+    attributes:
+      label: What have you tried?
+      description: Include a small example, observations, or documentation you have followed, if available.
+  - type: textarea
+    id: context
+    attributes:
+      label: Relevant environment
+      description: Where relevant, include framework version, TwinCAT builds, runtime type and architecture. For PC integration, add PLCSIM.UnitTest version, access profile, and WPF or CLI.

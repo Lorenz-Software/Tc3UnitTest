@@ -1,0 +1,25 @@
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share the use case first; a finished technical design is not required.
+        Please check existing discussions for similar ideas.
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use case
+      description: What are you trying to achieve, and what is difficult or missing today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed improvement
+      description: Describe the desired behavior and who would benefit. A small example can help.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and context
+      description: Optional workarounds, alternatives, related discussions, or constraints.

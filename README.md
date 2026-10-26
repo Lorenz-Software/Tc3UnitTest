@@ -20,7 +20,7 @@ Text framework for testing PLC logic and analyzing its behavior in the PLC runti
 - **Verify logic and data:** check function results, limits, tolerances, arrays, and text.
 - **Analyze cyclic behavior:** observe signal changes, edges, sequences, and stability over defined intervals.
 - **Reuse test scenarios:** bind tests to different component instances and parameters, then repeat them after code changes.
-- **Use the same tests in development and CI:** investigate runs in the PC-side WPF workbench and automate regression testing through its CLI.
+- **Use the same tests in development and CI:** [PLCSIM.UnitTest](https://github.com/Lorenz-Software/PLCSIM.UnitTest) provides the WPF workbench for interactive runs and debugging, plus the CLI for automated regression testing.
 
 ## Framework Overview
 

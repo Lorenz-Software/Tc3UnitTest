@@ -1,0 +1,46 @@
+name: Bug report
+description: Report a reproducible problem in the framework, documentation, or tooling.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check existing reports first. For questions and ideas, use Discussions.
+        Report problems specific to the PC application in [PLCSIM.UnitTest](https://github.com/Lorenz-Software/PLCSIM.UnitTest/issues).
+        Remove credentials and confidential project information from examples and attachments.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What goes wrong, and what are you trying to do?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include starting conditions and a minimal example where possible. Structured Text can be pasted in a fenced code block.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected and actual behavior
+      description: Describe both so the difference is clear.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Versions and environment
+      description: Include only what is relevant to this problem.
+      placeholder: |
+        TC3 UnitTest version or commit:
+        TwinCAT engineering and runtime builds:
+        Runtime type and target architecture:
+        PC integration, if involved (PLCSIM.UnitTest version, access profile, WPF or CLI):
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Logs and additional context
+      description: Relevant assertion results, event captures, screenshots, or other observations. Attach files if useful.

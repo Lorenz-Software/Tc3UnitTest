@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Ask a question
+    url: https://github.com/Lorenz-Software/Tc3UnitTest/discussions/categories/q-a
+    about: Get help with using the framework or integrating your tests.
+  - name: Suggest an idea
+    url: https://github.com/Lorenz-Software/Tc3UnitTest/discussions/categories/ideas
+    about: Discuss a use case or improvement before implementation.
+  - name: PC application
+    url: https://github.com/Lorenz-Software/PLCSIM.UnitTest
+    about: Questions and reports specific to the WPF workbench or CLI belong in the PC project.
