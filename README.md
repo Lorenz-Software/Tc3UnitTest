@@ -146,6 +146,11 @@ deadline from feedback that drops out during the hold interval.
 - [Architecture](docs/framework-architecture.md), [public contracts](contracts/README.md), and [selftest strategy](docs/selftest-strategy.md): design and verification details.
 - [AI-assisted authoring](docs/authoring/ai-assisted-framework-authoring.md) and [authoring skill](skills/tc3unittest-framework-authoring/SKILL.md): optional assistance using the framework patterns.
 
+## Support this project
+
+Sponsorship helps maintain and improve Lorenz Software's open-source PLC testing
+frameworks and tools. [Become a sponsor](https://github.com/sponsors/Lorenz-Software).
+
 ## License
 
 Created by [Lorenz Software](https://www.lorenz-software.solutions/) and available
