@@ -21,6 +21,7 @@ Text framework for testing PLC logic and analyzing its behavior in the PLC runti
 - **Analyze cyclic behavior:** observe signal changes, edges, sequences, and stability over defined intervals.
 - **Reuse test scenarios:** bind tests to different component instances and parameters, then repeat them after code changes.
 - **Use the same tests in development and CI:** [PLCSIM.UnitTest](https://github.com/Lorenz-Software/PLCSIM.UnitTest) provides the WPF workbench for interactive runs and debugging, plus the CLI for automated regression testing.
+- **Develop tests with AI assistance:** the optional [authoring skill](#ai-assisted-test-development) helps analyze PLC blocks, select meaningful scenarios, and implement them with TC3 UnitTest.
 
 ## Framework Overview
 
@@ -130,6 +131,20 @@ deadline from feedback that drops out during the hold interval.
 
 - **Reuse the scenario:** bind separate test instances to other valves and timing parameters.
 - **Repeat it after changes:** add the case to a Suite for WPF development runs and CLI regression checks. Results reach the PC application through the shared Event Buffer.
+
+## AI-Assisted Test Development
+
+Use the optional authoring skill with Codex to develop tests using the framework:
+
+- **Understand the subject:** analyze interfaces, relevant dependencies, retained state, and cyclic behavior.
+- **Choose useful scenarios:** derive boundary, timing, failure, and recovery checks from requirements, making unclear expectations explicit.
+- **Implement agreed tests:** use Assertions, Preparations, and reusable Test Cases with matching lifecycle and call-order guidance.
+
+The package bundles the matching authoring guides, contracts, and API snapshots.
+You review the proposed expectations and resulting tests.
+
+[Download the skill](https://github.com/Lorenz-Software/Tc3UnitTest/releases/tag/authoring-skill-v1.0.0)
+· [Installation and compatibility](skills/tc3unittest-framework-authoring/references/framework-resources.md#install-and-invoke-with-codex)
 
 ## Project Status
 
