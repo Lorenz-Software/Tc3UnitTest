@@ -59,6 +59,27 @@ Per-block semantic versions are not maintained. Match the help package to the li
 
 Public types and protected extension hooks support the normal authoring path. Some internal types appear in the API reference because exported declarations require them. An internal page does not make that type an external extension point: for example, do not declare an application `Stopwatch`. The documented `GVL_EventBuffer.Instance.Initialize` call and passing that same instance as `I_EventBuffer` are supported without directly declaring the internal concrete `EventBuffer` type.
 
+## Develop tests alongside the subject
+
+During block development, keep the subject sources and their UnitTests in the
+same PLC development project unless a concrete integration requirement calls for
+separation. Execute the tests against the development sources before extracting
+the intended library contents. Building and installing an intermediate subject
+library for each change is not a prerequisite of this workflow.
+
+A UnitTests folder can group the tests and their execution environment when it
+fits the project. It is an organizational suggestion, not a required name or
+location. Keep existing production-code and program/task locations appropriate
+to the application; the framework and its authoring assistance do not prescribe
+Subject or Runtime folders.
+
+When packaging a product library, select its intended product sources separately
+from the tests and application composition. A separate consumer project can
+later check the packaged artifact's integration; that serves a different purpose
+from the source-level development tests. Follow
+[AI-assisted test design](ai-assisted-framework-authoring.md#derive-a-useful-test-set)
+for choosing the behavioral checks before writing the concrete blocks.
+
 ## Finding the right chapter
 
 The manual follows the work from an individual scenario to a complete PLC application:
@@ -71,7 +92,7 @@ The manual follows the work from an individual scenario to a complete PLC applic
 | [Assertion authoring](assertions.md) | Select and wire checks, including observation, evaluation, reset and family-specific requirements. |
 | [Test Suite authoring](test-suite.md) | Compose Test Cases and select their execution order and concurrency. |
 | [Run Control authoring](run-control.md) | Compose Suites and connect initialization, cyclic execution and commands to the PLC program. |
-| [AI-assisted authoring](ai-assisted-framework-authoring.md) | Supply defined test intent and review assisted implementations. |
+| [AI-assisted authoring](ai-assisted-framework-authoring.md) | Understand a block, derive and agree useful tests, then implement and review them. |
 
 For a new test, define its observable behavior first. Then choose Assertions, add Preparation only if needed, compose the owning Suite and connect that Suite to Run Control. The detailed chapters explain the implementation work; this chapter explains how the pieces cooperate.
 

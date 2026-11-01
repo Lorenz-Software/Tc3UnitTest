@@ -144,7 +144,8 @@ deadline from feedback that drops out during the hold interval.
 - [Test Suites](docs/authoring/test-suite.md) and [Run Control](docs/authoring/run-control.md): collections, orchestration, and complete PLC/PC integration.
 - [Library installation](docs/authoring/framework-model.md#using-the-packaged-library) and [offline HTML help](tools/documentation/README.md): consuming the library and reading its API documentation.
 - [Architecture](docs/framework-architecture.md), [public contracts](contracts/README.md), and [selftest strategy](docs/selftest-strategy.md): design and verification details.
-- [AI-assisted authoring](docs/authoring/ai-assisted-framework-authoring.md) and [authoring skill](skills/tc3unittest-framework-authoring/SKILL.md): optional assistance using the framework patterns.
+- [AI-assisted authoring](docs/authoring/ai-assisted-framework-authoring.md): block analysis, test planning, and implementation with the framework patterns.
+- [Authoring skill](skills/tc3unittest-framework-authoring/SKILL.md): optional assistance with [installation and compatibility guidance](skills/tc3unittest-framework-authoring/references/framework-resources.md#install-and-invoke-with-codex).
 
 ## Support this project
 

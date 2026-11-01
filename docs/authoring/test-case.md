@@ -50,6 +50,45 @@ Call order matters in both arrangements. If the test writes a command after the 
 
 A continuously operating resource needs a call path independent of the test: TestCaseBase stops invoking scenario hooks once Completed is reached. Do not stop a production simulation merely because its test has ended unless that is the intended ownership model.
 
+Two application arrangements illustrate external execution:
+
+- **Instance/interface access:** the Test Case binds a real instance or its
+  supported interface, sets public stimuli and reads public observations. MAIN
+  performs the body call. A dedicated reference to the real type is sufficient
+  when generic substitution is unnecessary.
+- **Control/status structures:** the Test Case binds the actual application
+  data used by the subject. MAIN passes Control directly to the subject through
+  VAR_IN_OUT. The subject processes and, for one-shot commands, clears request
+  bits in that storage; status comes through its actual public status contract.
+  Do not create a per-field mirror around a different scalar interface.
+
+A binding method belongs on the Test Case when it supports useful reuse. The
+concrete Suite.Configure can select the resource and bind it immediately before
+child Initialize; it need not acquire a forwarding method on every parent.
+Application-owned global resources are one explicit binding option, not a
+required library layout. Preserve resource lifetime and exclusive stimulus
+ownership regardless of how the binding is supplied.
+
+For a sequence called before the hierarchy, both arrangements can use this
+trace. Feedback is an explicit software-environment stimulus; Command and
+completion observations must come from the real subject.
+
+| Application cycle | Externally owned subject call | Later Test Case action |
+| --- | --- | --- |
+| Establish baseline | Processes previously requested Reset | Confirms the baseline after that call |
+| Submit request | Still sees preceding stimuli | Submits the request without calling the subject |
+| Observe acceptance | Processes that request | Captures the response and supplies Feedback |
+| Observe completion | Processes Feedback | Captures completion and requests cleanup |
+| Observe cleanup | Processes Reset | Captures the baseline and completes the planned checks |
+
+For one-shot commands, the receiving FB clears the shared request bit when it
+takes receipt; that alone proves neither admission nor successful completion.
+Held control signals follow their own semantics and must not be silently
+converted to one-shot requests. Reset/Abort confirmation follows actual external
+processing, not merely the command write. Keep external execution active where
+required after test hooks stop; inactive tests do not compete for resource
+writes. A wrong response still reaches a defined failed-test endpoint.
+
 ### Stimulus and feedback
 
 The Test Case owns its resource actions during active work. Preparation owns the actions that establish the starting condition; test states own the actions that exercise the behavior. Make the handover explicit when a command must remain applied across those phases.

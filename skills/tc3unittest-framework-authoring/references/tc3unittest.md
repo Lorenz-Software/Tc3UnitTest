@@ -4,7 +4,7 @@ Load this reference when implementing or reviewing an accepted scenario with Tc3
 
 ## Resolve the actual framework
 
-Identify the consumed library/source revision and namespace. Use its matching Authoring Guide and actual declarations or API help. Resolve the repository-relative paths below from the framework checkout root, not from the installed skill directory. When the sources are unavailable, use the corresponding sections in the matching guide/help. A copied skill does not require this checkout layout or another project.
+Identify the consumed library/source revision and namespace. Use [framework resources](framework-resources.md) to resolve the matching Authoring Guide, contracts and API. The paths below are relative to that framework resource root: the package's framework/ directory, or a matching framework checkout/help when working from source. A copied skill does not require a development checkout or another project.
 
 Start with the framework model (`docs/authoring/framework-model.md`). Read only the relevant chapters:
 
@@ -15,17 +15,17 @@ Start with the framework model (`docs/authoring/framework-model.md`). Read only 
 | Check family, type, observation and evaluation | Assertion authoring (`docs/authoring/assertions.md`) |
 | Child composition and scheduling | Test Suite authoring (`docs/authoring/test-suite.md`) |
 | Startup, root composition and cyclic wiring | Run Control authoring (`docs/authoring/run-control.md`) |
-| Assisted-authoring brief and review | AI-assisted authoring (`docs/authoring/ai-assisted-framework-authoring.md`) |
+| Behavior analysis, test-design techniques, cyclic scenarios and assisted implementation | AI-assisted authoring (`docs/authoring/ai-assisted-framework-authoring.md`) |
 
-Apply the consuming project's style rules alongside the framework contract. Use the relevant framework contracts (`contracts/README.md`) and the Authoring Guide alongside those project rules. For framework selftests, also use selftest strategy (`docs/selftest-strategy.md`). This skill does not generalize a selftest-only seam into a supported consumer API.
+Apply the consuming project's style rules alongside the framework contracts (`contracts/README.md`) and Authoring Guide. Framework development and selftest rules are not prerequisites for consumer authoring. This skill does not generalize a selftest-only seam into a supported consumer API.
 
 For a matching simple scenario, inspect [optional starting points](starting-points.md) before reconstructing its native declaration/method structure. Use their stated limits and current guide/API; other scenarios do not require a template.
 
 ## Map the agreed scenario
 
-Use the supplied owner bases for their standard lifecycle. Normal Test Cases derive from TestCaseBase; the base body is called once through SUPER^(). Configure, reset, abort, preparation, testing, Assertion processing and result aggregation have distinct hooks. Resolve their exact signatures in the current version. Single-state and multi-state cases use that model, not copied S7 Sequencer templates.
+Use the supplied owner bases for their standard lifecycle. Normal Test Cases derive from TestCaseBase; the base body is called once through SUPER^(). Configure, reset, abort, preparation, testing, Assertion processing and result aggregation have distinct hooks. Resolve their exact signatures in the current version. Single-state and multi-state cases use that model rather than a copied lifecycle implementation from another platform.
 
-Before declaring scenario fields, inspect inherited declarations as well as hook signatures; a local field must not collide with inherited owner storage. Follow the existing guide's state examples: declare named state constants for CASE labels and keep any state-offset derivation in those constant declarations. Do not infer accepted IEC syntax from a plausible expression. For record-valued status properties, follow the existing selftest pattern: assign the returned status to a typed local snapshot before accessing its fields, rather than chaining field access onto a property result.
+Before declaring scenario fields, inspect inherited declarations as well as hook signatures; a local field must not collide with inherited owner storage. Follow the existing guide's state examples: declare named state constants for CASE labels and keep any state-offset derivation in those constant declarations. Do not infer accepted IEC syntax from a plausible expression. For record-valued status properties, assign the returned status to a typed local snapshot before accessing its fields, rather than chaining field access onto a property result.
 
 Configure/Initialize establishes identity, configuration and owned transient state. Lifecycle Reset restores execution state without rebuilding composition. Assertion Reset requests are deferred until the next regular bound call, which suppresses evaluation. Review the complete reset sequence; reading Result immediately after Reset does not prove it was cleared.
 
@@ -43,22 +43,24 @@ Normally give a stateful FB one execution owner and at most one body call per PL
 
 TestCaseBase skips scenario-processing hooks at Completed. A continuously operating resource needs an appropriate call path outside those hooks when continued execution is required. Establish ownership before adding a second call or changing its order.
 
+For an externally called subject, keep its execution in the application-owned path; bind its supported public boundary to the Test Case. A reference to the real instance is suitable for a dedicated test that writes public inputs and reads public properties; it does not transfer execution ownership or permit access to private state. Alternatively, bind its actual Control/status structures: the application's subject call passes Control by VAR_IN_OUT and the subject itself consumes/clears one-shot commands. Do not reconstruct that model with external per-field copies around a scalar API. Keep useful binding methods on the Test Case; its concrete Suite configuration can select the application resource directly, without parent forwarding methods. Establish any bindings needed by Configure/CheckInitialization before Initialize, with valid lifetime; otherwise follow the actual application binding contract. If the application calls the subject before the hierarchy, a stimulus set in a hook is processed on the next application cycle. Reset/Abort confirmation must follow that real call, not merely the command write. A local checking failure still reaches the scenario's planned endpoint.
+
 Each reusable test use owns its state and Assertions. Each borrowed reference must remain valid throughout use. Restore the real nested fixture baseline before reporting reset complete; neutralizing test variables alone does not reset the DUT. Review repeated runs and interruption recovery without relying on unrelated tests or PLC restart.
 
-For event-producing framework subjects, use the existing isolated publisher/capture patterns from selftest strategy. Do not drive the surrounding runner's communication storage to test a subject or introduce a new PLC/PC protocol.
+For event-producing framework subjects, resolve the supported binding/capture API from the matching guide and declarations. The Assertion authoring chapter documents concrete BindPublisher use; it does not imply that every owner has that API. If a required isolation seam is unavailable, report that fixture question rather than invent an adapter API. Do not drive the surrounding runner's communication storage to test a subject or introduce a new PLC/PC protocol. Supplied SelfTests can illustrate an existing pattern but are not required package inputs.
 
 ## Learn from existing tests without copying their oracle
 
-Find relevant saved SelfTests for fixture patterns and previously exposed defects. Useful starting points in the development project's SelfTests/TestCases tree are:
+When matching SelfTests are supplied with a checkout, consult them for fixture patterns and previously exposed defects. Optional starting points in its SelfTests/TestCases tree include:
 
 - TestSuite_AssertionLifecycle/Test_AssertionResetReuse.TcPOU: queued reset, coalescing, configuration retention, first observation and event checks.
 - TestSuite_Preparation/: current-condition completion, disabled observation, resource feedback progression, commands and re-enable paths; its Helper/ directory contains the concrete resource family.
 - TestSuite_TestSuiteLifecycle/Test_SuiteMockRepeatedReset.TcPOU: repeated requests and coherent reset progress.
 - TestSuite_Orchestrator/: scheduling, reset/repeated execution and isolated child doubles.
 
-These are development examples, not a supplied public fixture library. Check current declarations and requirements before reusing their mechanics. Existing runtime success concerns those exact tests; it does not validate newly generated bindings or test intent.
+These examples are not bundled in the standalone skill and are not a supplied public fixture library. Their absence does not block normal authoring: use the matching guide, bundled API and applicable native starting point. Check current declarations and requirements before reusing example mechanics. Existing runtime success concerns those exact tests; it does not validate newly generated bindings or test intent.
 
-For a new scenario, trace the expected behavior to the applicable requirement or accepted characterization, then compare existing tests for omissions and reusable structure. Keep local doubles small and controlled; mirror-like production copies need the justification and divergence handling required by selftest strategy.
+For a new scenario, trace the expected behavior to the applicable requirement or accepted characterization, then compare existing tests for omissions and reusable structure. Prefer real dependencies. Local doubles are narrowly justified exceptions, with the behavior/limitations and applicable independent comparison or real-integration safeguards described in [applied authoring practices](authoring-practices.md#choose-dependencies-and-check-doubles). Do not generalize a selftest-only mirror or seam into ordinary authoring.
 
 ## Verification boundary
 
